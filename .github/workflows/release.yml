@@ -1,0 +1,42 @@
+name: release
+
+# Publishes to PyPI via Trusted Publishing (OIDC) — no tokens, no secrets.
+# Trigger: push a version tag, e.g. `git tag v0.1.0 && git push origin v0.1.0`.
+# One-time setup on PyPI: Account -> Publishing -> "Add a new pending publisher"
+# (project: debate, owner: zolcal, repo: debate, workflow: release.yml,
+# environment: pypi). The first tagged release creates the project.
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: mypy src
+      - run: pytest -q
+
+  publish:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write  # OIDC for PyPI Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1
