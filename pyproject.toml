@@ -21,6 +21,11 @@ classifiers = [
 # Zero runtime dependencies — stdlib only, deliberately.
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/zolcal/debate"
+Issues = "https://github.com/zolcal/debate/issues"
+"Case study" = "https://github.com/zolcal/debate/blob/main/docs/case-study.md"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0.0", "ruff>=0.4.0", "mypy>=1.10.0"]
 
