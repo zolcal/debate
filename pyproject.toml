@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "debate"
-version = "0.1.0"
+version = "0.1.1"
 description = "A tiny file-based protocol for two AI agents that review each other's work — enforced turns, an append-only audit log, and a human who can always see everything."
 readme = "README.md"
 requires-python = ">=3.10"

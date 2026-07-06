@@ -144,13 +144,22 @@ live checkout. The [case study](docs/case-study.md) walks through the real incid
 ## Field notes
 
 The production predecessor ran real code-review cycles between **Claude Code** (the builder,
-in a live terminal) and a GLM-based reviewer hosted on
+in a live terminal, on an Anthropic subscription) and a **GPT-5.5 reviewer** hosted on
 [Hermes](https://github.com/NousResearch/hermes-agent), Nous Research's open-source agent
-harness — whose cron scheduler also ran the watcher and mirrored every entry to the
-supervisor's phone through its Telegram gateway. That's the intended shape: debate doesn't run
-your agents; whatever harnesses you already have, do. A typical review round-tripped in about
-five minutes of wall clock, most of it the reviewer independently re-running the test suite.
-The one night it went sideways is [the case study](docs/case-study.md).
+harness, authenticated through an OpenAI Codex subscription — whose cron scheduler also ran
+the watcher and mirrored every entry to the supervisor's phone through its Telegram gateway.
+No API key existed anywhere in the system: two flat-rate subscription logins, each valid only
+in its own harness, collaborating through two files. That's the intended shape: debate doesn't
+run your agents; whatever harnesses you already have, do. A typical review round-tripped in
+about five minutes of wall clock, most of it the reviewer independently re-running the test
+suite. The one night it went sideways is [the case study](docs/case-study.md).
+
+The direction is symmetric, and production used both: the same channel later carried
+**build requests the other way** — the reviewer-side agent implementing against a
+spec-and-tests contract (pinned-semantics tests plus a strict-xfail performance budget)
+authored by the stronger model, which then reviewed the diff. One round trip, ~10 minutes,
+137× speedup on the function under contract. Route work by what it is bound by; let the
+mailbox keep both sides honest.
 
 ## The name
 

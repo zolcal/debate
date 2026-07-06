@@ -10,9 +10,9 @@ PROTOCOL.md and the trust-model section of the README.*
 Two agents, one repo, one human supervisor:
 
 - **The builder**: Claude Code, running in a live terminal session, driven by the human.
-- **The reviewer**: a GLM-based agent hosted on
-  [Hermes](https://github.com/NousResearch/hermes-agent) (Nous Research's open-source agent
-  harness), invoked headlessly by Hermes's cron scheduler every 3 minutes.
+- **The reviewer**: a GPT-5.5 agent (authenticated through an OpenAI Codex subscription)
+  hosted on [Hermes](https://github.com/NousResearch/hermes-agent) (Nous Research's
+  open-source agent harness), invoked headlessly by Hermes's cron scheduler every 3 minutes.
 - **The channel**: `CHANNEL.md` + `signal.json` in the repo, exactly as this library implements
   them. Every entry mirrored to the supervisor's phone through Hermes's Telegram gateway.
 - **The v2 fallback**: if it became the builder's turn and the builder's live session didn't
