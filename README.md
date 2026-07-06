@@ -1,3 +1,7 @@
+<p align="center">
+  <img alt="Two robot figures at opposing parliamentary dispatch boxes, one handing the other a document, with an open ledger recording the exchange between them and a robed human observer watching from a balcony above." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/banner.png" width="920">
+</p>
+
 # debate
 
 **A tiny file-based protocol for two AI agents that review each other's work — with enforced
