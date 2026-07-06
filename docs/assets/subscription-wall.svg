@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="500" viewBox="0 0 880 500" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="swArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#5b6472"/>
+    </marker>
+    <marker id="swArrowViolet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#6d4fc4"/>
+    </marker>
+  </defs>
+
+  <!-- parchment background, self-contained so it reads on any page theme -->
+  <rect x="0" y="0" width="880" height="500" rx="12" fill="#f4eee1"/>
+
+  <!-- ===== left ecosystem: Anthropic ===== -->
+  <rect x="30" y="30" width="330" height="290" rx="12" fill="#eef1f5" stroke="#8fa3bd" stroke-width="1.5"/>
+  <text x="195" y="60" text-anchor="middle" font-size="15" font-weight="700" fill="#2b3442">Anthropic ecosystem</text>
+
+  <rect x="60" y="80" width="270" height="110" rx="10" fill="#ffffff" stroke="#8fa3bd"/>
+  <text x="195" y="110" text-anchor="middle" font-size="14.5" font-weight="600" fill="#2b3442">Claude Code</text>
+  <text x="195" y="132" text-anchor="middle" font-size="12.5" fill="#5b6472">Fable 5 / Opus — the builder</text>
+  <rect x="90" y="148" width="210" height="26" rx="13" fill="#e7f0e7" stroke="#4a7d55"/>
+  <text x="195" y="166" text-anchor="middle" font-size="12" font-weight="600" fill="#3a6344">subscription login ✓ (Pro/Max)</text>
+
+  <text x="195" y="228" text-anchor="middle" font-size="12.5" fill="#5b6472">first-party surface: flat monthly fee,</text>
+  <text x="195" y="246" text-anchor="middle" font-size="12.5" fill="#5b6472">OAuth sign-in works only here</text>
+
+  <!-- ===== right ecosystem: Hermes ===== -->
+  <rect x="520" y="30" width="330" height="290" rx="12" fill="#f0edf6" stroke="#a08fbd" stroke-width="1.5"/>
+  <text x="685" y="60" text-anchor="middle" font-size="15" font-weight="700" fill="#2b3442">Hermes ecosystem</text>
+  <text x="685" y="79" text-anchor="middle" font-size="11.5" fill="#5b6472">a multi-agent harness of its own</text>
+
+  <rect x="545" y="92" width="135" height="52" rx="8" fill="#ffffff" stroke="#a08fbd"/>
+  <text x="612" y="114" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2b3442">reviewer agent</text>
+  <text x="612" y="132" text-anchor="middle" font-size="11" fill="#5b6472">GLM-based</text>
+
+  <rect x="692" y="92" width="135" height="52" rx="8" fill="#ffffff" stroke="#a08fbd"/>
+  <text x="759" y="114" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2b3442">scheduler</text>
+  <text x="759" y="132" text-anchor="middle" font-size="11" fill="#5b6472">cron + watcher</text>
+
+  <rect x="545" y="156" width="135" height="52" rx="8" fill="#ffffff" stroke="#a08fbd"/>
+  <text x="612" y="178" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2b3442">subagents</text>
+  <text x="612" y="196" text-anchor="middle" font-size="11" fill="#5b6472">MoA routing</text>
+
+  <rect x="692" y="156" width="135" height="52" rx="8" fill="#ffffff" stroke="#a08fbd"/>
+  <text x="759" y="178" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2b3442">gateways</text>
+  <text x="759" y="196" text-anchor="middle" font-size="11" fill="#5b6472">Telegram · kanban</text>
+
+  <text x="685" y="248" text-anchor="middle" font-size="12.5" fill="#5b6472">self-hosted, runs around the clock,</text>
+  <text x="685" y="266" text-anchor="middle" font-size="12.5" fill="#5b6472">separately licensed and billed</text>
+
+  <!-- ===== the wall (API level) ===== -->
+  <rect x="408" y="45" width="64" height="260" rx="6" fill="#d9d2c2" stroke="#a89f8a"/>
+  <line x1="408" y1="97" x2="472" y2="97" stroke="#a89f8a"/>
+  <line x1="408" y1="149" x2="472" y2="149" stroke="#a89f8a"/>
+  <line x1="408" y1="201" x2="472" y2="201" stroke="#a89f8a"/>
+  <line x1="408" y1="253" x2="472" y2="253" stroke="#a89f8a"/>
+
+  <text x="440" y="68" text-anchor="middle" font-size="12" font-weight="700" fill="#6b6250">API</text>
+
+  <!-- blocked API arrow -->
+  <line x1="360" y1="120" x2="404" y2="120" stroke="#5b6472" stroke-width="1.5"/>
+  <line x1="476" y1="120" x2="520" y2="120" stroke="#5b6472" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <circle cx="440" cy="120" r="16" fill="#f4eee1" stroke="#b3543f" stroke-width="2"/>
+  <line x1="430" y1="110" x2="450" y2="130" stroke="#b3543f" stroke-width="2.5"/>
+  <line x1="450" y1="110" x2="430" y2="130" stroke="#b3543f" stroke-width="2.5"/>
+
+  <text x="440" y="160" text-anchor="middle" font-size="11" font-weight="600" fill="#8a5a45">no subscription</text>
+  <text x="440" y="175" text-anchor="middle" font-size="11" font-weight="600" fill="#8a5a45">across vendors —</text>
+  <text x="440" y="190" text-anchor="middle" font-size="11" font-weight="600" fill="#8a5a45">separate billing</text>
+
+  <!-- ===== the file channel, passing beneath the wall ===== -->
+  <rect x="285" y="370" width="310" height="100" rx="10" fill="#ffffff" stroke="#6d4fc4" stroke-width="1.5"/>
+  <text x="440" y="396" text-anchor="middle" font-size="13.5" font-weight="700" fill="#3f3364">the debate channel</text>
+  <rect x="305" y="408" width="130" height="26" rx="5" fill="#f5f2fb" stroke="#b9a8e3"/>
+  <text x="370" y="426" text-anchor="middle" font-size="11.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#4a3e7a">CHANNEL.md</text>
+  <rect x="445" y="408" width="130" height="26" rx="5" fill="#f5f2fb" stroke="#b9a8e3"/>
+  <text x="510" y="426" text-anchor="middle" font-size="11.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#4a3e7a">signal.json</text>
+  <text x="440" y="456" text-anchor="middle" font-size="11.5" fill="#5b6472">documents cross — credentials never do</text>
+
+  <!-- document flow: builder down to channel, channel up to reviewer -->
+  <path d="M 195 320 C 195 370 240 405 278 405" fill="none" stroke="#6d4fc4" stroke-width="1.6" marker-end="url(#swArrowViolet)"/>
+  <text x="205" y="368" text-anchor="middle" font-size="11.5" fill="#6d4fc4">post · read</text>
+  <path d="M 602 405 C 640 405 685 370 685 320" fill="none" stroke="#6d4fc4" stroke-width="1.6" marker-end="url(#swArrowViolet)"/>
+  <text x="676" y="368" text-anchor="middle" font-size="11.5" fill="#6d4fc4">read · post</text>
+</svg>
