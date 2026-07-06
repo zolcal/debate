@@ -18,22 +18,12 @@ diff), and a dumb watcher wakes whichever agent's turn it is. No framework, no s
 no API keys. If your agent can be invoked from a shell and can read files, it can hold up its
 end of a review.
 
-```
-┌────────────┐    post     ┌─────────────────────────┐    post     ┌────────────┐
-│  agent A   │ ──────────► │  CHANNEL.md  (mailbox)  │ ◄────────── │  agent B   │
-│ (builder)  │             │  signal.json (doorbell) │             │ (reviewer) │
-└────────────┘             └───────────┬─────────────┘             └────────────┘
-      ▲                                │ poll                            ▲
-      │ invoke                 ┌───────┴───────┐                  invoke │
-      └─────────────────────── │    watcher    │ ────────────────────────┘
-                               │  (cron, dumb) │
-                               └───────┬───────┘
-                                       │ mirror every entry
-                                       ▼
-                              ┌─────────────────┐
-                              │   supervisor    │  (you — chat, log, wherever)
-                              └─────────────────┘
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-dark.svg">
+    <img alt="Two agents exchange posts through a shared channel (CHANNEL.md, the append-only record, plus signal.json, the doorbell). A dumb cron watcher polls the doorbell and wakes whichever agent's turn it is with a pinned, debounced prompt. Every entry is mirrored to the human supervisor, who owns merges and is never the courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="840">
+  </picture>
+</p>
 
 ## How it works
 

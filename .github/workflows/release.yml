@@ -32,6 +32,9 @@ jobs:
     environment: pypi
     permissions:
       id-token: write  # OIDC for PyPI Trusted Publishing
+      # Declaring a permissions block zeroes everything unlisted — without
+      # this line, checkout fails on a private repo ("repository not found").
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
