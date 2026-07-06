@@ -1,0 +1,11 @@
+# Private working notes — raw incident forensics live here pre-sanitization.
+# This MUST stay ignored: publishing this repo must never leak them.
+notes/
+
+__pycache__/
+*.egg-info/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
