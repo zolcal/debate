@@ -22,7 +22,7 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev]"
       - run: ruff check .
-      - run: mypy src
+      - run: mypy .  # strict, whole repo — tests included; the public claim is held here
       - run: pytest -q
 
   publish:
