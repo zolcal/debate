@@ -211,7 +211,7 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
   directly isn't serialized — and shouldn't exist. (`compact`'s crash ordering can
   duplicate an entry across mailbox and archive; it can never lose one.)
 - **Young.** Extracted from a working production setup, generalized, and tested — but
-  read the code before trusting it; it's ~900 lines including the CLI.
+  read the code before trusting it; it's ~950 lines including the CLI.
 
 ## Where this comes from
 
