@@ -125,6 +125,28 @@ no `commands` entry is never started automatically; that's how a human-driven si
 (the watcher waits `debounce_seconds` first, so a live session gets the chance to answer
 before the machinery steps in).
 
+## Housekeeping: the mailbox grows, agents shouldn't read all of it
+
+The conversation file grows forever by design. Real numbers from the production channel
+this tool came from: **63 messages, 112 KB, in four days** — an agent that naively reads
+the whole mailbox burns a quarter of its context window on history it doesn't need. Three
+commands keep that honest:
+
+- **`debate read`** prints the open thread — an agent's working set is the open thread,
+  never the whole file. `--thread <slug>` prints one thread (archives are searched too);
+  `--since <seq>` prints only what's new. Put `debate read` in your agents' pinned prompts
+  instead of "read CHANNEL.md".
+- **`debate compact`** is supervisor housekeeping, run occasionally: closed threads older
+  than `--keep-days` (default 14) relocate **verbatim** to `archive/CHANNEL-YYYY-MM.md`,
+  with a one-line index per thread in `archive/INDEX.md`. Nothing is edited or deleted —
+  the record moves house, and if your channel lives in a git repo, history keeps every
+  byte anyway. `--dry-run` shows the plan first.
+- **`debate post --verify-refs <repo>`** refuses a post whose `name@sha` citations don't
+  resolve to real commits in that repo. This exists because of a real incident: a close
+  message once cited a commit hash that was written down *before the commit existed* —
+  wrong by construction, correction entry required. Machines are better at this check
+  than authors are.
+
 ## What's enforced — and what isn't
 
 Be precise about what this tool guarantees, especially before running agents unattended:
@@ -184,9 +206,11 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
   you need sub-second latency, this is not your transport.
 - **One tolerated race.** When no thread is open, both agents may open *different* threads
   near-simultaneously. With minutes-scale polling the window is tiny, and the supervisor
-  untangles the rare collision; file locking would cost more than it buys.
+  untangles the rare collision; file locking would cost more than it buys. (`compact` has
+  its own tiny window: it refuses to rewrite if the doorbell moved while it planned, and
+  its crash ordering can duplicate an entry across mailbox and archive but never lose one.)
 - **Young.** Extracted from a working production setup, generalized, and tested — but
-  read the code before trusting it; it's ~600 lines including the CLI.
+  read the code before trusting it; it's ~900 lines including the CLI.
 
 ## Where this comes from
 

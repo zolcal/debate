@@ -1,4 +1,4 @@
-"""CLI: ``python -m debate <init|post|status|watch-once>``.
+"""CLI: ``python -m debate <init|post|status|read|compact|watch-once>``.
 
 Deliberately stdlib-only and deliberately small: the protocol is the
 product; this is just a convenient way to speak it from a shell. Agents post
@@ -37,9 +37,26 @@ def main(argv: list[str] | None = None) -> int:
     body.add_argument("--body")
     body.add_argument("--body-file", type=Path)
     p_post.add_argument("--force", action="store_true")
+    p_post.add_argument(
+        "--verify-refs",
+        type=Path,
+        default=None,
+        metavar="REPO",
+        help="refuse the post unless every name@sha in --refs resolves to a commit in REPO",
+    )
 
     p_status = sub.add_parser("status", help="print the doorbell and open-thread tail")
     p_status.add_argument("--root", type=Path, default=Path("."))
+
+    p_read = sub.add_parser("read", help="print entries: the open thread by default")
+    p_read.add_argument("--root", type=Path, default=Path("."))
+    p_read.add_argument("--thread", default=None, help="a thread slug (archives are searched too)")
+    p_read.add_argument("--since", type=int, default=None, metavar="SEQ", help="only entries with seq > SEQ")
+
+    p_compact = sub.add_parser("compact", help="relocate old closed threads to archive/ (supervisor housekeeping)")
+    p_compact.add_argument("--root", type=Path, default=Path("."))
+    p_compact.add_argument("--keep-days", type=float, default=14.0, help="keep threads closed more recently than this")
+    p_compact.add_argument("--dry-run", action="store_true")
 
     p_watch = sub.add_parser("watch-once", help="one watcher tick (run from cron / Task Scheduler)")
     p_watch.add_argument("--root", type=Path, default=Path("."))
@@ -56,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"initialized channel at {args.root} (parties {parties[0]!r}/{parties[1]!r}, supervisor {args.supervisor!r})")
         elif args.command == "post":
             text = args.body if args.body is not None else args.body_file.read_text(encoding="utf-8")
+            if args.verify_refs is not None:
+                channel.verify_refs(args.refs, args.verify_refs)
             entry_id = channel.post(
                 root=args.root,
                 sender=args.sender,
@@ -75,6 +94,30 @@ def main(argv: list[str] | None = None) -> int:
             if thread:
                 for entry in channel.thread_entries(args.root, thread):
                     print(f"  MSG-{entry.seq} {entry.sender} {entry.entry_type}")
+        elif args.command == "read":
+            _, entries = channel.read_raw(args.root / channel.CHANNEL_NAME)
+            if args.thread is not None:
+                blocks = [e for e in entries if e.thread == args.thread]
+                if not blocks:  # closed threads may have moved house
+                    archive = args.root / channel.ARCHIVE_DIR
+                    for path in sorted(archive.glob("CHANNEL-*.md")) if archive.is_dir() else []:
+                        _, archived = channel.read_raw(path)
+                        blocks.extend(e for e in archived if e.thread == args.thread)
+            elif args.since is None:
+                open_thread = str(channel.read_signal(args.root).get("thread", ""))
+                if not open_thread:
+                    print("no open thread", file=sys.stderr)
+                    return 0
+                blocks = [e for e in entries if e.thread == open_thread]
+            else:
+                blocks = list(entries)
+            if args.since is not None:
+                blocks = [e for e in blocks if e.seq > args.since]
+            for raw_entry in blocks:
+                print(raw_entry.raw.strip("\n") + "\n")
+        elif args.command == "compact":
+            for line in channel.compact(args.root, keep_days=args.keep_days, dry_run=args.dry_run):
+                print(line)
         elif args.command == "watch-once":
             raw = json.loads(args.config.read_text(encoding="utf-8"))
             config = WatcherConfig(

@@ -13,6 +13,7 @@ model in the README for why that distinction matters.
 | `debate.json` | channel config: parties, supervisor, thread cap | yes |
 | `CHANNEL.md` | append-only message log (the mailbox) | [your call — in-repo history is a feature] |
 | `signal.json` | the doorbell — tiny, machine-parseable, watched by both sides | [usually no] |
+| `archive/` | closed threads relocated verbatim by `debate compact`, plus `INDEX.md` | [same call as `CHANNEL.md`] |
 
 Never edit `CHANNEL.md` or `signal.json` by hand — all writes go through `debate post`,
 which guarantees the mailbox append lands before the doorbell bump.
@@ -48,6 +49,11 @@ Types and their meanings:
 - Normal lifecycle: `review-request → verdict → [fix-report → verdict …] → close`.
 - Corrections to the record are NEW entries (a `close`-typed post under a fresh slug opens
   nothing and wakes nobody), never edits to old ones.
+- **Reading discipline: agents read the open thread (`debate read`), never the whole
+  mailbox.** Context is a budget; the record's completeness is the supervisor's concern,
+  not the agents'. Claims about repo state come from git, not from channel history.
+- Refs cite `name@sha`, written AFTER the commit exists — read the hash from git, never
+  from memory or intention. [Recommended: post with `--verify-refs <repo>`.]
 
 ## 4. Watchers
 
@@ -89,3 +95,8 @@ Keep one — dated entries describing what changed and the incident or reasoning
 protocol that has never been amended has never been used in anger.
 
 - [date] — v1.0, adopted.
+- 2026-07-08 — v1.1 (upstream template): reading discipline (`debate read`), archival
+  (`debate compact` + `archive/`), and refs verification (`--verify-refs`). Motivated in
+  production: the mailbox hit 112 KB / 63 messages in four days, and one close message
+  cited a commit hash written down before the commit existed (correction entry MSG-63 in
+  the originating channel).

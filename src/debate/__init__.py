@@ -4,7 +4,20 @@ Enforced turns, an append-only audit log, and a human supervisor who can
 always see everything. See README.md for the trust model.
 """
 
-from debate.channel import ChannelConfig, ChannelError, Entry, init_channel, load_config, post, read_entries, read_signal
+from debate.channel import (
+    ChannelConfig,
+    ChannelError,
+    Entry,
+    RawEntry,
+    compact,
+    init_channel,
+    load_config,
+    post,
+    read_entries,
+    read_raw,
+    read_signal,
+    verify_refs,
+)
 from debate.watcher import Decision, WatcherConfig, decide, run_once
 
 __all__ = [
@@ -12,14 +25,18 @@ __all__ = [
     "ChannelError",
     "Decision",
     "Entry",
+    "RawEntry",
     "WatcherConfig",
+    "compact",
     "decide",
     "init_channel",
     "load_config",
     "post",
     "read_entries",
+    "read_raw",
     "read_signal",
     "run_once",
+    "verify_refs",
 ]
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
