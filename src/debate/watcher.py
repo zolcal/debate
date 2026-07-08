@@ -18,7 +18,9 @@ Design rules, each one paid for in production (see docs/case-study):
 - **Fixed prompts.** The command and prompt for each party are pinned in
   config — the watcher never composes free-form instructions.
 - **State lives outside the channel.** The watcher's memory (last seen seq,
-  invocation counts) must not pollute the shared channel directory.
+  invocation counts) must not pollute the shared channel directory. Enforced
+  at config construction: a ``state_path`` that resolves inside
+  ``channel_root`` is refused.
 """
 
 from __future__ import annotations
@@ -29,6 +31,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from debate.channel import ChannelError
 
 # Windows: suppress the console window a scheduled invocation would flash.
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -51,6 +55,15 @@ class WatcherConfig:
     debounce_seconds: dict[str, int] = field(default_factory=dict)
     retry_seconds: int = 30 * 60
     timeout_seconds: int = 30 * 60
+
+    def __post_init__(self) -> None:
+        state = self.state_path.resolve()
+        root = self.channel_root.resolve()
+        if state == root or state.is_relative_to(root):
+            raise ChannelError(
+                f"refused: state_path {self.state_path} resolves inside the channel root "
+                f"{self.channel_root}; the watcher's memory must live outside the shared folder"
+            )
 
     def command_for(self, party: str) -> list[str] | None:
         argv = self.commands.get(party)

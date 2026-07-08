@@ -14,7 +14,8 @@ place the protocol is *enforced* rather than requested:
   refused, not warned about. With no thread open, either party may post
   (otherwise whoever closed a thread could never open the next one).
 - **One open thread at a time.** Posting a different slug while a thread is
-  open is refused (``force=True`` exists for supervisor-directed exceptions).
+  open is refused. ``force=True`` overrides this — and is honoured only for
+  the supervisor; a party asking for force is refused outright.
 - **Write-then-signal ordering.** The mailbox append lands before the
   doorbell is replaced (atomically, via tmp-file rename), so a watcher that
   fires on ``seq`` never reads a half-written entry.
@@ -191,6 +192,11 @@ def post(
         raise ChannelError(f"refused: unknown sender {sender!r} (parties {config.parties}, supervisor {config.supervisor!r})")
     if not _SLUG_RE.fullmatch(thread):
         raise ChannelError(f"refused: invalid thread slug {thread!r} (lowercase alphanumerics and dashes)")
+    if force and sender != config.supervisor:
+        raise ChannelError(
+            f"refused: force is supervisor-only (supervisor {config.supervisor!r}); "
+            "a party cannot bypass one-thread-at-a-time"
+        )
 
     signal = read_signal(root)
     open_thread = str(signal.get("thread", ""))
@@ -225,13 +231,21 @@ def post(
         new_turn = str(signal["turn"])
     else:
         new_turn = config.other(sender)
+    # A supervisor interjection on a different slug (force) must not re-point
+    # the doorbell away from the open thread — it lands in the record only.
+    if entry_type == "close":
+        new_thread = ""
+    elif sender == config.supervisor and open_thread:
+        new_thread = open_thread
+    else:
+        new_thread = thread
     _atomic_write(
         root / SIGNAL_NAME,
         json.dumps(
             {
                 "seq": seq,
                 "turn": new_turn,
-                "thread": "" if entry_type == "close" else thread,
+                "thread": new_thread,
                 "last_entry": entry_id,
                 "updated_at": stamp,
             },

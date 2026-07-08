@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
-from debate.channel import init_channel, post, read_entries
+import pytest
+
+from debate.channel import ChannelError, init_channel, post, read_entries
 from debate.watcher import (
     WatcherConfig,
     decide,
@@ -14,24 +17,41 @@ from debate.watcher import (
 NOW = datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)
 
 
-def config(tmp_path: Path, **overrides) -> WatcherConfig:
-    defaults = dict(
+def config(tmp_path: Path, **overrides: Any) -> WatcherConfig:
+    # State lives OUTSIDE the channel root (enforced by WatcherConfig) —
+    # tmp_path is the channel root, so state goes to a per-test sibling.
+    defaults: dict[str, Any] = dict(
         channel_root=tmp_path,
-        state_path=tmp_path / "state" / "watcher.json",
+        state_path=tmp_path.parent / (tmp_path.name + "-watcher-state.json"),
         commands={"bob": ["echo", "{prompt}"]},
         prompts={"bob": "it is your turn"},
         debounce_seconds={},
         retry_seconds=1800,
     )
     defaults.update(overrides)
-    return WatcherConfig(**defaults)  # type: ignore[arg-type]
+    return WatcherConfig(**defaults)
 
 
-def signal(seq=1, turn="bob", thread="feature-x", updated_at="2026-07-06T11:00:00+00:00"):
+def signal(
+    seq: int = 1,
+    turn: str = "bob",
+    thread: str = "feature-x",
+    updated_at: str = "2026-07-06T11:00:00+00:00",
+) -> dict[str, Any]:
     return {"seq": seq, "turn": turn, "thread": thread, "last_entry": f"MSG-{seq}", "updated_at": updated_at}
 
 
-def test_no_open_thread_means_no_invocation(tmp_path):
+def test_state_path_inside_channel_root_is_refused(tmp_path: Path) -> None:
+    # Audit finding (thread debate-repo-audit): the README's "watcher memory
+    # lives outside the shared folder" is a hard rule, so the config refuses
+    # a state_path that resolves inside the channel root.
+    with pytest.raises(ChannelError, match="outside the shared folder"):
+        config(tmp_path, state_path=tmp_path / "state" / "watcher.json")
+    with pytest.raises(ChannelError, match="outside the shared folder"):
+        config(tmp_path, state_path=tmp_path)
+
+
+def test_no_open_thread_means_no_invocation(tmp_path: Path) -> None:
     # The production incident's near-miss: after a close, a stale turn field
     # must not fire an agent at an empty mailbox.
     decision = decide(signal(thread=""), {}, config(tmp_path), NOW)
@@ -40,13 +60,13 @@ def test_no_open_thread_means_no_invocation(tmp_path):
     assert "no open thread" in decision.reason
 
 
-def test_no_turn_means_no_invocation(tmp_path):
+def test_no_turn_means_no_invocation(tmp_path: Path) -> None:
     decision = decide(signal(turn=""), {}, config(tmp_path), NOW)
 
     assert decision.invoke is None
 
 
-def test_party_without_command_is_never_invoked(tmp_path):
+def test_party_without_command_is_never_invoked(tmp_path: Path) -> None:
     # A human-driven party simply has no command entry.
     decision = decide(signal(turn="alice"), {}, config(tmp_path), NOW)
 
@@ -54,13 +74,13 @@ def test_party_without_command_is_never_invoked(tmp_path):
     assert "no command" in decision.reason
 
 
-def test_first_invocation_fires(tmp_path):
+def test_first_invocation_fires(tmp_path: Path) -> None:
     decision = decide(signal(), {}, config(tmp_path), NOW)
 
     assert decision.invoke == "bob"
 
 
-def test_debounce_holds_fire_within_window(tmp_path):
+def test_debounce_holds_fire_within_window(tmp_path: Path) -> None:
     cfg = config(tmp_path, debounce_seconds={"bob": 600})
     fresh = signal(updated_at=(NOW - timedelta(seconds=300)).isoformat(timespec="seconds"))
 
@@ -70,9 +90,9 @@ def test_debounce_holds_fire_within_window(tmp_path):
     assert decide(stale, {}, cfg, NOW).invoke == "bob"
 
 
-def test_once_per_seq_then_timed_retry_then_escalate(tmp_path):
+def test_once_per_seq_then_timed_retry_then_escalate(tmp_path: Path) -> None:
     cfg = config(tmp_path)
-    state: dict = {}
+    state: dict[str, Any] = {}
 
     # First invocation fires and is recorded.
     assert decide(signal(), state, cfg, NOW).invoke == "bob"
@@ -99,7 +119,7 @@ def test_once_per_seq_then_timed_retry_then_escalate(tmp_path):
     assert again.escalate is None
 
 
-def test_new_seq_resets_the_invocation_budget(tmp_path):
+def test_new_seq_resets_the_invocation_budget(tmp_path: Path) -> None:
     cfg = config(tmp_path)
     state = record_invocation({}, 1, NOW)
 
@@ -108,7 +128,7 @@ def test_new_seq_resets_the_invocation_budget(tmp_path):
     assert decision.invoke == "bob"
 
 
-def test_new_entry_lines_are_incremental(tmp_path):
+def test_new_entry_lines_are_incremental(tmp_path: Path) -> None:
     init_channel(tmp_path, ("alice", "bob"), "owner")
     post(tmp_path, "alice", "review-request", "feature-x", "please review this branch")
     post(tmp_path, "bob", "verdict", "feature-x", "APPROVE — no findings")
@@ -120,7 +140,7 @@ def test_new_entry_lines_are_incremental(tmp_path):
     assert "MSG-2 bob verdict" in lines[0]
 
 
-def test_run_once_invokes_configured_command_and_mirrors_reply(tmp_path):
+def test_run_once_invokes_configured_command_and_mirrors_reply(tmp_path: Path) -> None:
     init_channel(tmp_path, ("alice", "bob"), "owner")
     post(tmp_path, "alice", "review-request", "feature-x", "please review")
 
@@ -157,7 +177,7 @@ def test_run_once_invokes_configured_command_and_mirrors_reply(tmp_path):
     assert any("MSG-2 bob verdict" in line for line in output)
 
 
-def test_run_once_records_state_before_launching_the_child(tmp_path):
+def test_run_once_records_state_before_launching_the_child(tmp_path: Path) -> None:
     # A crash mid-invocation must not double-fire the same seq on the next
     # tick: the invocation record is persisted before the subprocess runs.
     init_channel(tmp_path, ("alice", "bob"), "owner")
@@ -176,7 +196,7 @@ def test_run_once_records_state_before_launching_the_child(tmp_path):
     assert not any("invoked bob" in line for line in output2)
 
 
-def test_run_once_does_nothing_quietly_when_nothing_changed(tmp_path):
+def test_run_once_does_nothing_quietly_when_nothing_changed(tmp_path: Path) -> None:
     init_channel(tmp_path, ("alice", "bob"), "owner")
     cfg = config(tmp_path)
 
