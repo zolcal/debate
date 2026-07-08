@@ -4,66 +4,104 @@
 
 # debate
 
-**A tiny file-based protocol for two AI agents that review each other's work — with enforced
-turns, an append-only audit log, and a human who can always see everything.**
+<p align="center">
+  <a href="https://pypi.org/project/debate/"><img alt="PyPI" src="https://img.shields.io/pypi/v/debate"></a>
+  <img alt="Python 3.10+" src="https://img.shields.io/pypi/pyversions/debate">
+  <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-zero-brightgreen">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
+</p>
+
+**One AI agent writes the code. A second agent — from a different company, in a different
+app — checks it. They talk by taking turns in two text files, and you can read every word.**
 
 Zero dependencies. Two files. One rule: nobody posts out of turn.
 
-## The problem
+## What is this?
 
-Multi-agent frameworks assume one orchestrator owns all the agents in one runtime. Reality is
-messier: you have Claude Code in a terminal *and* some other agent on another harness — different
-vendors, different processes, maybe different machines — and you want one to **build** and the
-other to **review** without you being the copy-paste courier between them.
+You have Claude Code in one terminal. You have a second AI agent somewhere else — a
+different vendor, a different tool, maybe a different machine. You'd like one of them to
+*write* code and the other to *review* it, the way two developers review each other's pull
+requests. An AI reviewer from the same vendor tends to share the builder's blind spots; a
+second opinion is only a second opinion if it comes from somewhere else.
 
-debate is the smallest thing that solves this: the agents exchange messages through two files
-in a shared directory (a git repo works beautifully — the audit log becomes history you can
-diff), and a dumb watcher wakes whichever agent's turn it is. No framework, no server, no queue,
-no API keys. If your agent can be invoked from a shell and can read files, it can hold up its
-end of a review.
+Problem: those two agents can't talk to each other. There is no shared API between vendors,
+and the AI subscriptions you already pay for only work inside each vendor's own app. So in
+practice *you* become the messenger, copy-pasting between two windows.
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-dark.svg">
-    <img alt="Two agents exchange posts through a shared channel (CHANNEL.md, the append-only record, plus signal.json, the doorbell). A dumb cron watcher polls the doorbell and wakes whichever agent's turn it is with a pinned, debounced prompt. Every entry is mirrored to the human supervisor, who owns merges and is never the courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="840">
-  </picture>
-</p>
+`debate` fixes this with the simplest thing that could work: **a shared mailbox made of two
+text files** in a folder both agents can reach (a git repo is perfect — the history becomes
+your audit trail).
 
-## How it works
+- **`CHANNEL.md`** is the conversation. Messages are only ever *added*, never edited or
+  deleted, so it doubles as a complete record of who said what, when.
+- **`signal.json`** is the doorbell: five small fields that say whose turn it is and which
+  discussion is open.
 
-- **`CHANNEL.md`** — the mailbox. Append-only, human-readable, git-diffable. Every message has a
-  sequence number, sender, type (`review-request`, `verdict`, `fix-report`, `question`, `info`,
-  `close`), a thread slug, and refs (e.g. `branch@commit`).
-- **`signal.json`** — the doorbell. Five fields (`seq`, `turn`, `thread`, `last_entry`,
-  `updated_at`). Watchers poll this, never the mailbox.
-- **`debate post`** — the only writer, and the place the protocol is *enforced* rather than
-  requested: out-of-turn posts are refused, one thread open at a time, thread caps stop runaway
-  loops, and the mailbox append always lands before the doorbell bump (so a watcher firing on
-  `seq` never reads a half-written entry).
-- **`debate watch-once`** — one tick of a deliberately dumb watcher. Run it from cron every few
-  minutes: it mirrors new entries to wherever you already look, and if it's an agent's turn on an
-  open thread, invokes that agent's pinned command. No LLM runs when nothing changed.
+One command-line tool, `debate post`, is the only thing that writes to either file — and it
+*enforces* the rules instead of politely asking: you can't post out of turn, you can't open
+a second discussion while one is open, and a runaway back-and-forth gets cut off by a
+message cap. A small scheduled job wakes whichever agent the doorbell points at. No server,
+no message broker, no API keys, no framework to adopt.
 
-## Quickstart
+## What a review looks like
 
-```bash
-pip install debate            # or just vendor the two modules; they're stdlib-only
+After one round trip, `CHANNEL.md` reads like this:
 
-debate init --root ./collab --parties claude,glm --supervisor owner
+```markdown
+## MSG-12 | 2026-07-06T14:02:11+00:00 | from: claude | type: review-request | thread: retry-backoff | refs: retry-backoff@4e9f21c
 
-# The builder opens a review thread:
-debate post --root ./collab --from claude --type review-request \
-    --thread feature-x --refs feature-x@abc123 --body "Please review commit abc123: ..."
+Please review branch retry-backoff at 4e9f21c: adds exponential backoff to the
+HTTP client. 14 new tests. The part I'm least sure about is the jitter range.
 
-# The reviewer replies (their harness invokes this after reading the thread):
-debate post --root ./collab --from glm --type verdict \
-    --thread feature-x --refs feature-x@abc123 --body "APPROVE — verified: 27 tests pass at abc123."
+## MSG-13 | 2026-07-06T14:07:48+00:00 | from: glm | type: verdict | thread: retry-backoff | refs: retry-backoff@4e9f21c
 
-# Whoever acted last closes:
-debate post --root ./collab --from claude --type close --thread feature-x --body "Merged. Closing."
+APPROVE — checked out 4e9f21c and ran the suite myself: 87 passed. Verified the
+backoff caps at 60s and jitter cannot go negative. Non-blocking nit: the retry
+log line prints the attempt number twice.
+
+## MSG-14 | 2026-07-06T14:11:02+00:00 | from: claude | type: close | thread: retry-backoff | refs: retry-backoff@4e9f21c
+
+Nit fixed in 5a01d33, merged. Closing.
 ```
 
-Wire the watcher to a scheduler with a config that pins each agent's invocation:
+Every message has a sequence number, a sender, a type (`review-request`, `verdict`,
+`fix-report`, `question`, `info`, `close`), a thread name, and `refs` — the exact
+branch-and-commit it talks about, so claims are checkable. Note the reviewer *re-ran the
+tests itself* and said so. That culture is configured in the prompts; the format that makes
+it auditable is enforced by the tool.
+
+## Try it
+
+```bash
+pip install debate        # Python 3.10+, stdlib only — or just vendor the two modules
+
+# Create the mailbox: two agents named claude and glm, plus you as supervisor
+debate init --root ./collab --parties claude,glm --supervisor owner
+
+# The builder asks for a review:
+debate post --root ./collab --from claude --type review-request \
+    --thread feature-x --refs feature-x@abc123 \
+    --body "Please review commit abc123: ..."
+
+# The reviewer answers (its own tool/app runs this after reading the thread):
+debate post --root ./collab --from glm --type verdict \
+    --thread feature-x --refs feature-x@abc123 \
+    --body "APPROVE — verified: 27 tests pass at abc123."
+
+# Whoever acted last closes the thread:
+debate post --root ./collab --from claude --type close \
+    --thread feature-x --body "Merged. Closing."
+```
+
+Try posting twice in a row from the same party: the tool refuses. That refusal is the
+protocol.
+
+## Running it unattended
+
+`debate watch-once` is one tick of a deliberately simple watcher. Put it on a schedule
+(cron, every few minutes): it checks the doorbell, mirrors any new messages to wherever you
+already look (a Telegram chat, a log), and — if it's an agent's turn on an open thread —
+starts that agent with a fixed, pre-written prompt from a config file:
 
 ```json
 {
@@ -79,94 +117,109 @@ Wire the watcher to a scheduler with a config that pins each agent's invocation:
 debate watch-once --root ./collab --config watcher.json   # cron this every ~3 minutes
 ```
 
-A party without a `commands` entry is never invoked — that's how a human-driven side works: the
-human's live session answers the doorbell itself, and the watcher only covers for it when it
-doesn't (see `debounce_seconds`).
+When nothing changed, nothing runs — no model is invoked, no tokens are spent. A party with
+no `commands` entry is never started automatically; that's how a human-driven side works
+(the watcher waits `debounce_seconds` first, so a live session gets the chance to answer
+before the machinery steps in).
 
-## The trust model — read this before running agents unattended
+## What's enforced — and what isn't
 
-Be precise about what is enforced and what is merely requested:
+Be precise about what this tool guarantees, especially before running agents unattended:
 
-- **Enforced (hard):** turn order, one-open-thread, thread caps, entry format, write-then-signal
-  ordering. These live in `post`; an agent that misbehaves gets refused, not warned.
-- **Advisory (soft):** everything an agent does *outside* the mailbox. "Don't push to main",
-  "don't touch config" — if you put those in an agent's pinned prompt, you are trusting the
-  model to comply. In our production use this failed exactly once and exactly as theory
-  predicts: an unattended agent made a **true-at-some-point but stale claim** about repository
-  state because it inferred state from channel history instead of checking. The protocol can
-  force *when* an agent speaks; it cannot force what the agent says to be correct.
+- **Enforced, hard:** turn order, one open thread at a time, message caps, the message
+  format, and write ordering (the mailbox entry always lands before the doorbell rings, so
+  a watcher can never read a half-written message). An agent that breaks these rules gets
+  its post *refused*, not a warning.
+- **Advisory, soft:** everything an agent does *outside* the mailbox. "Don't push to main",
+  "don't touch the config" — if those live in a prompt, you are trusting the model to
+  comply. The tool can force *when* an agent speaks. It cannot force what the agent says to
+  be true.
 
-Mitigations that earn their keep: pin prompts in config (never compose them at runtime), require
-agents to cite fresh evidence (commit SHA + test count) in verdicts, gate merges on the *human*
-reading the mirrored verdict, and give unattended sessions an isolated worktree instead of your
-live checkout. The [case study](docs/case-study.md) walks through the real incident.
+That second bullet is not theoretical. The one time our unattended fallback fired in
+production, the agent did everything right — and also repeated a stale fact from the
+channel history as if it were current, because it never re-checked the repo. The fix is
+cultural and cheap: require verdicts to cite fresh evidence (commit hash + test count),
+keep merges in human hands, and give unattended sessions their own working copy. The full
+story is in the [case study](docs/case-study.md).
 
-## Design rules (each one paid for in production)
+## Rules we learned the hard way
 
-1. **Gate on an open thread, not the turn field.** After a `close`, `turn` means nothing.
-   debate clears both on close; the watcher checks both anyway.
-2. **Once per seq.** An invocation that produced no reply gets one timed retry, then a
-   supervisor escalation. Two agents in a refusal loop burn money forever; the cap is the brake.
-3. **Debounce before invoking.** A human-driven session may be about to answer; the fallback
-   should be a fallback.
-4. **The watcher's memory lives outside the channel.** Its state file is not part of the shared
-   record and never collides with a fresh clone.
-5. **Supervisor posts don't take a turn.** The human can interject at any point without
-   breaking the agents' alternation.
-6. **The mailbox is the record.** If it didn't happen in `CHANNEL.md`, it didn't happen — and
-   corrections are new entries (a `close`-typed post with a fresh slug drops a correction into
-   the record without opening a thread), never edits.
+Each of these is encoded in the tool or the shipped watcher, and each one was paid for:
+
+1. **Check for an open thread, not just the turn field** — after a close, the turn field
+   means nothing.
+2. **Invoke once per doorbell change** — an agent that produced no reply gets one timed
+   retry, then the human is pinged. Two agents in a refusal loop would burn money forever;
+   the cap is the brake.
+3. **Wait before waking an agent** — a human may be mid-reply; the fallback should behave
+   like a fallback.
+4. **The watcher's memory lives outside the shared folder** — its state file is not part of
+   the record and never collides with a fresh clone.
+5. **The supervisor can speak at any time without taking a turn** — the human interjecting
+   never breaks the agents' alternation.
+6. **The mailbox is the record** — if it didn't happen in `CHANNEL.md`, it didn't happen.
+   Corrections are new messages, never edits.
 
 ## Why not just…
 
-- **GitHub PRs + a review bot?** Works great *if* both agents live where your forge is. debate
-  is forge-independent, works fully offline/local, and round-trips in seconds on a cron tick
-  without webhooks or API tokens. (If you have GitHub and one vendor's bot, use them.)
-- **AutoGen / LangGraph / CrewAI?** Those orchestrate agents they own, in-process. debate
-  coordinates agents that *nobody* jointly owns — different vendors, different harnesses,
-  different lifetimes — and leaves a human-auditable trail as a first-class artifact.
-- **A message queue?** You'd be trading two greppable files and `git log` for a broker. The
-  audit log *is* the point.
+- **GitHub PRs and a review bot?** Great if both agents live where your repos are hosted.
+  `debate` needs no hosting service, works completely offline, and round-trips in seconds
+  on a cron tick — no webhooks, no tokens. (If GitHub fits your setup, use GitHub.)
+- **A multi-agent framework (AutoGen, LangGraph, CrewAI)?** Those orchestrate agents they
+  own, inside one program. `debate` coordinates agents that *nobody* jointly owns —
+  different vendors, different apps, different lifetimes — and leaves a human-readable
+  paper trail as the primary artifact.
+- **A message queue?** You'd be trading two greppable text files and `git log` for a broker
+  you have to run. The paper trail *is* the point.
 
-## Limitations, honestly
+## Limits, honestly
 
-- **Two parties.** Turn alternation between exactly two named agents (plus a supervisor) is a
-  feature, not a to-do: a review needs a builder and a reviewer. N-party consensus is a
-  different protocol.
-- **Polling.** The doorbell is designed to be cheap to poll on a minutes-scale cron. If you need
-  sub-second latency, this is not your transport.
-- **A tolerated race.** Two agents may open *different* new threads near-simultaneously when
-  none is open. With minutes-scale polling the window is tiny, and the supervisor untangles the
-  rare collision; single-writer locking would cost more than it buys.
-- **Reference implementation.** Extracted from a working production setup, generalized, and
-  tested — but young. Read the code; it's ~600 lines including the CLI.
+- **Two parties by design.** A review needs a builder and a reviewer; strict alternation
+  between exactly two named agents (plus a supervisor who can always interject) is the
+  feature. Getting N agents to agree is a different protocol.
+- **Polling, not push.** The doorbell is made to be checked every few minutes by cron. If
+  you need sub-second latency, this is not your transport.
+- **One tolerated race.** When no thread is open, both agents may open *different* threads
+  near-simultaneously. With minutes-scale polling the window is tiny, and the supervisor
+  untangles the rare collision; file locking would cost more than it buys.
+- **Young.** Extracted from a working production setup, generalized, and tested — but
+  read the code before trusting it; it's ~600 lines including the CLI.
 
-## Field notes
+## Where this comes from
 
-The production predecessor ran real code-review cycles between **Claude Code** (the builder,
-in a live terminal, on an Anthropic subscription) and a **GPT-5.5 reviewer** hosted on
-[Hermes](https://github.com/NousResearch/hermes-agent), Nous Research's open-source agent
-harness, authenticated through an OpenAI Codex subscription — whose cron scheduler also ran
-the watcher and mirrored every entry to the supervisor's phone through its Telegram gateway.
-No API key existed anywhere in the system: two flat-rate subscription logins, each valid only
-in its own harness, collaborating through two files. That's the intended shape: debate doesn't
-run your agents; whatever harnesses you already have, do. A typical review round-tripped in
-about five minutes of wall clock, most of it the reviewer independently re-running the test
-suite. The one night it went sideways is [the case study](docs/case-study.md).
+This is not a design exercise — it's the generalization of a channel that ran (and still
+runs) real code-review cycles between two commercial AI ecosystems:
 
-The direction is symmetric, and production used both: the same channel later carried
-**build requests the other way** — the reviewer-side agent implementing against a
-spec-and-tests contract (pinned-semantics tests plus a strict-xfail performance budget)
-authored by the stronger model, which then reviewed the diff. One round trip, ~10 minutes,
-137× speedup on the function under contract. Route work by what it is bound by; let the
-mailbox keep both sides honest.
+- **The builder seat: Claude Code**, Anthropic's terminal coding agent, running **Fable 5**
+  (their strongest model tier), on a flat-rate subscription.
+- **The reviewer seat: a GPT-5.5 agent on [Hermes](https://github.com/NousResearch/hermes-agent)**,
+  Nous Research's open-source agent harness, authenticated through an OpenAI Codex
+  subscription. Hermes matters here: it is not a chat window but a full agentic
+  environment with its own scheduler, its own subagents, and a Telegram gateway — its cron
+  ran the watcher, and every channel message was mirrored to the supervisor's phone by the
+  same infrastructure.
+
+No API key existed anywhere in the system. Two subscriptions, each valid only inside its
+own app, collaborating through two files in a repo. A typical review round-tripped in about
+five minutes, most of which was the reviewer independently re-running the test suite.
+
+One way to read that setup: **an orchestrator conducting another orchestrator.** The
+top-tier model doesn't just answer reviews — it writes the specs and test contracts, and
+the Hermes-side agent executes them inside its own 24/7 infrastructure, then the roles
+flip for review. In the best run of that shape, the stronger model authored a
+spec-and-tests contract, the Hermes agent implemented it, and the result — one round trip,
+about ten minutes — was a 137× speedup on the function under contract. `debate` is the
+baton between the two conductors, and the score everyone can read afterwards.
+
+The same shape fits whatever pair of ecosystems you already run — Claude Code on one side;
+Hermes, [OpenClaw](https://github.com/openclaw/openclaw), or your homegrown harness on the
+other. If it can read files and run a shell command, it can hold up its end of a review.
 
 ## The name
 
-Parliamentary, not adversarial: structured turns, one motion on the floor at a time, and
-everything said is on the record — `CHANNEL.md` is the hansard. (If you arrived from the
-"AI safety via debate" literature: this is not the formal debate game with opposing advocates
-before a judge — it's review correspondence with teeth.)
+Parliamentary, not adversarial: strict turns, one motion on the floor at a time, and
+everything said is on the record. (If you arrived from the "AI safety via debate"
+literature: this is not the formal debate game — it's review correspondence with teeth.)
 
 ## License
 

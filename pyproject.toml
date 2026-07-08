@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "debate"
 version = "0.1.1"
-description = "A tiny file-based protocol for two AI agents that review each other's work — enforced turns, an append-only audit log, and a human who can always see everything."
+description = "Two AI agents review each other's work through two shared text files — enforced turns, a full audit trail, a human always in charge. Zero dependencies."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
