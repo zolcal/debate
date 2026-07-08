@@ -204,11 +204,12 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
   feature. Getting N agents to agree is a different protocol.
 - **Polling, not push.** The doorbell is made to be checked every few minutes by cron. If
   you need sub-second latency, this is not your transport.
-- **One tolerated race.** When no thread is open, both agents may open *different* threads
-  near-simultaneously. With minutes-scale polling the window is tiny, and the supervisor
-  untangles the rare collision; file locking would cost more than it buys. (`compact` has
-  its own tiny window: it refuses to rewrite if the doorbell moved while it planned, and
-  its crash ordering can duplicate an entry across mailbox and archive but never lose one.)
+- **The writer lock is advisory.** `post` and `compact` serialize on a transient `.lock`
+  file in the channel root (a crashed holder's lock is broken after 30 seconds), so two
+  simultaneous posts cannot interleave — the second sees the first's thread open and is
+  refused. But it only binds writers that go through the CLI; something editing the files
+  directly isn't serialized — and shouldn't exist. (`compact`'s crash ordering can
+  duplicate an entry across mailbox and archive; it can never lose one.)
 - **Young.** Extracted from a working production setup, generalized, and tested — but
   read the code before trusting it; it's ~900 lines including the CLI.
 

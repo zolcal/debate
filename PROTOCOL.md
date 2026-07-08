@@ -14,6 +14,7 @@ model in the README for why that distinction matters.
 | `CHANNEL.md` | append-only message log (the mailbox) | [your call — in-repo history is a feature] |
 | `signal.json` | the doorbell — tiny, machine-parseable, watched by both sides | [usually no] |
 | `archive/` | closed threads relocated verbatim by `debate compact`, plus `INDEX.md` | [same call as `CHANNEL.md`] |
+| `.lock` | transient writer lock held during `post`/`compact` (auto-removed; broken after 30 s if a holder crashed) | no |
 
 Never edit `CHANNEL.md` or `signal.json` by hand — all writes go through `debate post`,
 which guarantees the mailbox append lands before the doorbell bump.

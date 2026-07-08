@@ -126,7 +126,70 @@ def test_read_raw_reproduces_the_file(root: Path) -> None:
     preamble, entries = read_raw(root / "CHANNEL.md")
 
     rebuilt = preamble + "".join(e.raw for e in entries)
-    assert rebuilt == (root / "CHANNEL.md").read_text(encoding="utf-8")
+    assert rebuilt.encode("utf-8") == (root / "CHANNEL.md").read_bytes()
+
+
+def _to_crlf(path: Path) -> None:
+    data = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    path.write_bytes(data)
+
+
+def test_read_raw_is_byte_exact_on_crlf_mailboxes(root: Path) -> None:
+    # A mailbox imported from (or checked out by) a CRLF system must survive
+    # parsing byte-for-byte — the "verbatim" claim is not LF-only.
+    _to_crlf(root / "CHANNEL.md")
+
+    preamble, entries = read_raw(root / "CHANNEL.md")
+
+    rebuilt = preamble + "".join(e.raw for e in entries)
+    assert rebuilt.encode("utf-8") == (root / "CHANNEL.md").read_bytes()
+    assert b"\r\n" in (root / "CHANNEL.md").read_bytes()
+
+
+def test_compact_preserves_crlf_bytes(root: Path) -> None:
+    _to_crlf(root / "CHANNEL.md")
+    moved = [e for e in read_raw(root / "CHANNEL.md")[1] if e.thread == "old-one"]
+    assert moved and all("\r\n" in e.raw for e in moved)  # sanity: CRLF went in
+
+    compact(root, keep_days=0, now=FUTURE)
+
+    archive = next((root / "archive").glob("CHANNEL-*.md"))
+    archive_text = archive.read_bytes().decode("utf-8")
+    for entry in moved:  # every block relocated byte-identically
+        assert entry.raw in archive_text
+    # Kept entries keep their CRLF endings through the rewrite.
+    kept = (root / "CHANNEL.md").read_bytes()
+    assert b"live-one" in kept and b"\r\n" in kept
+
+
+def test_writers_respect_a_held_lock(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from debate import channel as channel_module
+
+    monkeypatch.setattr(channel_module, "_LOCK_TIMEOUT_SECONDS", 0.2)
+    (root / ".lock").touch()
+
+    with pytest.raises(ChannelError, match="another writer"):
+        post(root, "bob", "verdict", "live-one", "APPROVE")
+    with pytest.raises(ChannelError, match="another writer"):
+        compact(root, keep_days=0, now=FUTURE)
+
+    (root / ".lock").unlink()
+    post(root, "bob", "verdict", "live-one", "APPROVE")  # lock released -> flows
+
+
+def test_stale_lock_is_broken(root: Path) -> None:
+    import os
+    import time
+
+    lock = root / ".lock"
+    lock.touch()
+    stale = time.time() - 120  # far beyond the 30s stale window
+    os.utime(lock, (stale, stale))
+
+    post(root, "bob", "verdict", "live-one", "APPROVE")  # breaks the corpse
+
+    assert read_signal(root)["seq"] == 8
+    assert not lock.exists()
 
 
 def test_read_cli_prints_open_thread_by_default(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
