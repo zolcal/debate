@@ -37,6 +37,9 @@ your audit trail).
 - **`signal.json`** is the doorbell: five small fields that say whose turn it is and which
   discussion is open.
 
+(`debate init` also drops a small `debate.json` next to them — party names and settings.
+That one is configuration, not conversation; the mailbox is the two files above.)
+
 One command-line tool, `debate post`, is the only thing that writes to either file — and it
 *enforces* the rules instead of politely asking: you can't post out of turn, you can't open
 a second discussion while one is open, and a runaway back-and-forth gets cut off by a
