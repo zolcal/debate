@@ -26,7 +26,9 @@ Design rules, each one paid for in production (see docs/case-study):
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -157,7 +159,76 @@ def new_entry_lines(entries: list[Any], after_seq: int) -> list[str]:
     return lines
 
 
+def tick_lock_path(state_path: Path) -> Path:
+    return state_path.with_suffix(state_path.suffix + ".lock")
+
+
+class WatcherLock:
+    """OS-level advisory lock on ``<state>.lock`` - the kernel is the referee.
+
+    ``fcntl.flock`` (POSIX) / ``msvcrt.locking`` (Windows) release when the
+    holder exits or crashes, so there is NO staleness logic, NO pid probing,
+    and NO takeover race by construction. The pid+stamp content is
+    diagnostics only; the file is never unlinked (inert when unlocked).
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._handle: Any = None
+
+    def acquire(self) -> bool:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(self._path, "a+", encoding="utf-8")
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            return False
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        handle.seek(0)
+        handle.truncate()
+        handle.write(f"{os.getpid()}\n{stamp}\n")
+        handle.flush()
+        self._handle = handle
+        return True
+
+    def release(self) -> None:
+        if self._handle is None:
+            return
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                self._handle.seek(0)
+                msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            self._handle.close()
+            self._handle = None
+
+
 def run_once(config: WatcherConfig) -> list[str]:
+    lock = WatcherLock(tick_lock_path(config.state_path))
+    if not lock.acquire():
+        raise ChannelError(f"refused: another watcher is driving {tick_lock_path(config.state_path)}")
+    try:
+        return _run_once_locked(config)
+    finally:
+        lock.release()
+
+
+def _run_once_locked(config: WatcherConfig) -> list[str]:
     """One watcher tick: mirror new entries, maybe invoke, maybe escalate.
 
     Returns the lines a scheduler should surface to the supervisor (stdout,
@@ -238,6 +309,6 @@ def _load_state(path: Path) -> dict[str, Any]:
 
 def _save_state(path: Path, state: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_name(f"{path.name}.tmp{os.getpid()}")
     tmp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
     tmp.replace(path)

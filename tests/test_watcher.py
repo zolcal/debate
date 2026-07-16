@@ -4,17 +4,20 @@ from typing import Any
 import json
 import subprocess
 import sys
+import time
 
 import pytest
 
 from debate.channel import ChannelError, init_channel, post, read_entries
 from debate.watcher import (
     WatcherConfig,
+    WatcherLock,
     decide,
     new_entry_lines,
     record_escalation,
     record_invocation,
     run_once,
+    tick_lock_path,
 )
 
 NOW = datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)
@@ -52,6 +55,41 @@ def signal(
     updated_at: str = "2026-07-06T11:00:00+00:00",
 ) -> dict[str, Any]:
     return {"seq": seq, "turn": turn, "thread": thread, "last_entry": f"MSG-{seq}", "updated_at": updated_at}
+
+
+LOCK_HOLDER_CODE = """
+import sys, time, pathlib
+lock_path = pathlib.Path(sys.argv[1]); ready = pathlib.Path(sys.argv[2])
+handle = open(lock_path, "a+")
+if sys.platform == "win32":
+    import msvcrt; handle.seek(0); msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+else:
+    import fcntl; fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+ready.write_text("held")
+time.sleep(30)
+"""
+
+
+def _hold_lock_in_child(lock: Path, ready: Path) -> subprocess.Popen[bytes]:
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen([sys.executable, "-c", LOCK_HOLDER_CODE, str(lock), str(ready)])
+    deadline = time.monotonic() + 10
+    while not ready.exists():
+        assert proc.poll() is None, "lock-holder child died"
+        assert time.monotonic() < deadline, "lock-holder child never became ready"
+        time.sleep(0.02)
+    return proc
+
+
+def _acquire_within(lock_path: Path, seconds: float) -> "WatcherLock":
+    """Bounded polling: kernel unlock after process death may be delayed (esp. Windows)."""
+    deadline = time.monotonic() + seconds
+    lock = WatcherLock(lock_path)
+    while True:
+        if lock.acquire():
+            return lock
+        assert time.monotonic() < deadline, f"lock not released within {seconds}s"
+        time.sleep(0.05)
 
 
 def test_state_path_inside_channel_root_is_refused(tmp_path: Path) -> None:
@@ -273,3 +311,48 @@ def test_escalated_seq_is_never_retried_even_after_retry_window(tmp_path: Path) 
 def test_non_string_command_elements_are_refused_at_config_time(tmp_path: Path) -> None:
     with pytest.raises(ChannelError, match="command"):
         config(tmp_path, commands={"alpha": ["agent", 42]})  # type: ignore[list-item]
+
+
+def test_run_once_refused_while_live_process_holds_lock(tmp_path: Path) -> None:
+    root = make_channel(tmp_path)
+    cfg = config(root, commands={}, prompts={})
+    child = _hold_lock_in_child(tick_lock_path(cfg.state_path), tmp_path / "ready")
+    try:
+        with pytest.raises(ChannelError, match="another watcher"):
+            run_once(cfg)
+    finally:
+        child.kill()
+        child.wait(timeout=10)
+
+
+def test_lock_released_by_kernel_when_holder_dies(tmp_path: Path) -> None:
+    """No staleness logic exists anywhere: the OS releases a crashed holder's lock."""
+    root = make_channel(tmp_path)
+    cfg = config(root, commands={}, prompts={})
+    child = _hold_lock_in_child(tick_lock_path(cfg.state_path), tmp_path / "ready")
+    child.kill()
+    child.wait(timeout=10)
+    lock = _acquire_within(tick_lock_path(cfg.state_path), 10.0)  # bounded poll, not immediate
+    lock.release()
+
+
+def test_two_opens_in_one_process_conflict(tmp_path: Path) -> None:
+    """flock binds to the open file description: in-process exclusion is real."""
+    lock_path = tmp_path / "state.json.lock"
+    first = WatcherLock(lock_path)
+    assert first.acquire() is True
+    second = WatcherLock(lock_path)
+    assert second.acquire() is False
+    first.release()
+    third = WatcherLock(lock_path)
+    assert third.acquire() is True
+    third.release()
+
+
+def test_state_tmp_files_are_pid_unique_and_cleaned(tmp_path: Path) -> None:
+    from debate.watcher import _save_state
+
+    target = tmp_path / "state.json"
+    _save_state(target, {"x": 1})
+    assert target.exists()
+    assert list(tmp_path.glob("state.json.tmp*")) == []  # renamed away, pid-unique name
