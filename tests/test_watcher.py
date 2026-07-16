@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+import subprocess
 
 import pytest
 
@@ -15,6 +16,16 @@ from debate.watcher import (
 )
 
 NOW = datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def make_channel(tmp_path: Path) -> Path:
+    """A channel with one open thread: beta requested review on t-one; turn=alpha; seq=1."""
+    from debate import channel
+
+    root = tmp_path / "chan"
+    channel.init_channel(root, ("alpha", "beta"), "owner")
+    channel.post(root, "beta", "review-request", "t-one", "please review")
+    return root
 
 
 def config(tmp_path: Path, **overrides: Any) -> WatcherConfig:
@@ -201,3 +212,19 @@ def test_run_once_does_nothing_quietly_when_nothing_changed(tmp_path: Path) -> N
     cfg = config(tmp_path)
 
     assert run_once(cfg) == []
+
+
+def test_agent_is_launched_with_stdin_detached(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An inherited tty/pipe stdin hung a real review for 3h (court-dict, 2026-07-15)."""
+    import debate.watcher as watcher_mod
+
+    root = make_channel(tmp_path)
+    seen: dict[str, Any] = {}
+
+    def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, stdout="")
+
+    monkeypatch.setattr(watcher_mod.subprocess, "run", fake_run)
+    run_once(config(root, commands={"alpha": ["agent"]}, prompts={"alpha": "go"}))
+    assert seen["stdin"] is subprocess.DEVNULL

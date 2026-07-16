@@ -188,6 +188,7 @@ def run_once(config: WatcherConfig) -> list[str]:
             argv,
             cwd=config.channel_root,
             text=True,
+            stdin=subprocess.DEVNULL,  # an inherited tty/pipe stdin hung a real agent for 3h
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=config.timeout_seconds,
