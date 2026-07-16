@@ -310,3 +310,36 @@ def test_turn_parked_since_never_raises_on_corrupted_signal(
     # The whole point is that this doesn't raise; the shape is secondary
     # (e.g. (None, 0) if nothing else can be recovered).
     assert result is None or isinstance(result, tuple)
+
+
+def make_closed_channel(tmp_path: Path) -> Path:
+    root = tmp_path / "chan"
+    channel.init_channel(root, ("alpha", "beta"), "owner")
+    channel.post(root, "beta", "review-request", "t-one", "review please")
+    channel.post(root, "alpha", "verdict", "t-one", "APPROVE")
+    channel.post(root, "beta", "close", "t-one", "merged, closing")
+    return root
+
+
+@pytest.mark.parametrize("entry_type", ["verdict", "fix-report"])
+def test_verdict_and_fix_report_cannot_open_a_thread(tmp_path: Path, entry_type: str) -> None:
+    """A stray verdict once reopened a CLOSED thread (baseline test, 2026-07-15)."""
+    root = make_closed_channel(tmp_path)
+    with pytest.raises(ChannelError, match="cannot open a thread"):
+        channel.post(root, "alpha", entry_type, "t-one", "stray reply")
+
+
+@pytest.mark.parametrize("entry_type", ["review-request", "question", "info", "close"])
+def test_opener_types_may_open_a_thread(tmp_path: Path, entry_type: str) -> None:
+    """close stays an opener: the one-shot close-correction idiom is shipped contract
+    (PROTOCOL.md:51, tests/test_channel.py:102, docs/case-study.md:81)."""
+    root = make_closed_channel(tmp_path)
+    channel.post(root, "alpha", entry_type, "t-two", "legitimate opener")
+
+
+def test_supervisor_verdict_with_nothing_open_creates_turnless_open_thread(tmp_path: Path) -> None:
+    root = make_closed_channel(tmp_path)
+    channel.post(root, "owner", "verdict", "t-one", "supervisor correction on the record")
+    signal = channel.read_signal(root)
+    assert signal["thread"] == "t-one"   # supervisor posts are exempt and open the slug
+    assert signal["turn"] == ""          # with no turn assigned - the supervisor-only state of D2

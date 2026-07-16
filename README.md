@@ -151,10 +151,11 @@ commands keep that honest:
 
 Be precise about what this tool guarantees, especially before running agents unattended:
 
-- **Enforced, hard:** turn order, one open thread at a time, message caps, the message
-  format, and write ordering (the mailbox entry always lands before the doorbell rings, so
-  a watcher can never read a half-written message). An agent that breaks these rules gets
-  its post *refused*, not a warning.
+- **Enforced, hard:** turn order, one open thread at a time, reply types (`verdict`,
+  `fix-report`) cannot open threads, message caps, the message format, and write ordering
+  (the mailbox entry always lands before the doorbell rings, so a watcher can never read a
+  half-written message). An agent that breaks these rules gets its post *refused*, not a
+  warning.
 - **Advisory, soft:** everything an agent does *outside* the mailbox. "Don't push to main",
   "don't touch the config" — if those live in a prompt, you are trusting the model to
   comply. The tool can force *when* an agent speaks. It cannot force what the agent says to
