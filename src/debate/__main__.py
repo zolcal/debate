@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from debate import channel
-from debate.watcher import WatcherConfig, run_once
+from debate.watcher import WatcherConfig, run_once, watch
 
 
 def _nonnegative_int(text: str) -> int:
@@ -30,6 +30,19 @@ def _positive_int(text: str) -> int:
     if value < 1:
         raise argparse.ArgumentTypeError(f"must be >= 1, got {value}")
     return value
+
+
+def _watcher_config(root: Path, config_path: Path) -> WatcherConfig:
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    return WatcherConfig(
+        channel_root=root,
+        state_path=Path(raw["state_path"]).expanduser(),
+        commands={k: list(v) for k, v in raw.get("commands", {}).items()},
+        prompts={k: str(v) for k, v in raw.get("prompts", {}).items()},
+        debounce_seconds={k: int(v) for k, v in raw.get("debounce_seconds", {}).items()},
+        retry_seconds=int(raw.get("retry_seconds", 1800)),
+        timeout_seconds=int(raw.get("timeout_seconds", 1800)),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -83,6 +96,13 @@ def main(argv: list[str] | None = None) -> int:
     p_watch = sub.add_parser("watch-once", help="one watcher tick (run from cron / Task Scheduler)")
     p_watch.add_argument("--root", type=Path, default=Path("."))
     p_watch.add_argument("--config", type=Path, required=True, help="watcher config JSON (see README)")
+
+    p_watchloop = sub.add_parser("watch", help="foreground watcher loop: drive the open thread to completion")
+    p_watchloop.add_argument("--root", type=Path, default=Path("."))
+    p_watchloop.add_argument("--config", type=Path, required=True, help="watcher config JSON (see README)")
+    p_watchloop.add_argument("--interval", type=_positive_int, default=180, metavar="SECONDS")
+    p_watchloop.add_argument("--until-close", action="store_true", help="exit 0 when no thread is open")
+    p_watchloop.add_argument("--max-ticks", type=_positive_int, default=None)
 
     args = parser.parse_args(argv)
 
@@ -163,18 +183,20 @@ def main(argv: list[str] | None = None) -> int:
             for line in channel.compact(args.root, keep_days=args.keep_days, dry_run=args.dry_run):
                 print(line)
         elif args.command == "watch-once":
-            raw = json.loads(args.config.read_text(encoding="utf-8"))
-            config = WatcherConfig(
-                channel_root=args.root,
-                state_path=Path(raw["state_path"]),
-                commands={k: list(v) for k, v in raw.get("commands", {}).items()},
-                prompts={k: str(v) for k, v in raw.get("prompts", {}).items()},
-                debounce_seconds={k: int(v) for k, v in raw.get("debounce_seconds", {}).items()},
-                retry_seconds=int(raw.get("retry_seconds", 1800)),
-                timeout_seconds=int(raw.get("timeout_seconds", 1800)),
-            )
+            config = _watcher_config(args.root, args.config)
             for line in run_once(config):
                 print(line)
+        elif args.command == "watch":
+            try:
+                return watch(
+                    _watcher_config(args.root, args.config),
+                    interval_seconds=args.interval,
+                    until_close=args.until_close,
+                    max_ticks=args.max_ticks,
+                    emit=print,
+                )
+            except KeyboardInterrupt:
+                return 130
     except channel.ChannelError as error:
         print(str(error), file=sys.stderr)
         return 1

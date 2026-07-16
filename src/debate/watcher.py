@@ -29,10 +29,11 @@ import json
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from debate.channel import ChannelError
 
@@ -251,6 +252,8 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
     if decision.escalate:
         output.append(f"ESCALATE: {decision.escalate}")
         state = record_escalation(state, str(signal.get("thread", "")), seq)
+    elif decision.reason.endswith("already escalated"):
+        output.append(f"STUCK: seq {seq} escalated; supervisor action required")
     elif decision.invoke:
         party = decision.invoke
         thread = str(signal.get("thread", ""))
@@ -290,6 +293,48 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
 
     _save_state(config.state_path, state)
     return output
+
+
+def watch(
+    config: WatcherConfig,
+    *,
+    interval_seconds: int,
+    until_close: bool,
+    max_ticks: int | None,
+    emit: Callable[[str], None],
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
+    """Foreground run-to-completion loop: own the lock, tick, sleep, repeat.
+
+    The lock is held for the PROCESS lifetime so a second watch - or a cron
+    watch-once - is refused even while this one sleeps. Exit codes: 0 thread
+    closed (with until_close), 4 escalated or stuck (supervisor must look),
+    5 max-ticks, 6 another live watcher holds the lock. 130 is CLI-only.
+    """
+    from debate import channel  # local import keeps module load light
+
+    lock = WatcherLock(tick_lock_path(config.state_path))
+    if not lock.acquire():
+        emit(f"another watcher is driving {tick_lock_path(config.state_path)} - exiting")
+        return 6
+    ticks = 0
+    try:
+        while True:
+            lines = _run_once_locked(config)
+            for line in lines:
+                emit(line)
+            if any(line.startswith(("ESCALATE:", "STUCK:")) for line in lines):
+                return 4
+            ticks += 1
+            if until_close and not str(channel.read_signal(config.channel_root).get("thread", "")):
+                emit(f"thread closed after {ticks} tick(s) - exiting")
+                return 0
+            if max_ticks is not None and ticks >= max_ticks:
+                emit(f"max ticks ({max_ticks}) reached - exiting")
+                return 5
+            sleep(interval_seconds)
+    finally:
+        lock.release()
 
 
 def _parse_stamp(value: str) -> datetime | None:
