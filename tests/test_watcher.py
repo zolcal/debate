@@ -257,8 +257,6 @@ def test_run_once_does_nothing_quietly_when_nothing_changed(tmp_path: Path) -> N
 
 def test_agent_is_launched_with_stdin_detached(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """An inherited tty/pipe stdin hung a real review for 3h (court-dict, 2026-07-15)."""
-    import debate.watcher as watcher_mod
-
     root = make_channel(tmp_path)
     seen: dict[str, Any] = {}
 
@@ -266,7 +264,7 @@ def test_agent_is_launched_with_stdin_detached(tmp_path: Path, monkeypatch: pyte
         seen.update(kwargs)
         return subprocess.CompletedProcess(argv, 0, stdout="")
 
-    monkeypatch.setattr(watcher_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
     run_once(config(root, commands={"alpha": ["agent"]}, prompts={"alpha": "go"}))
     assert seen["stdin"] is subprocess.DEVNULL
 
@@ -311,7 +309,7 @@ def test_escalated_seq_is_never_retried_even_after_retry_window(tmp_path: Path) 
 
 def test_non_string_command_elements_are_refused_at_config_time(tmp_path: Path) -> None:
     with pytest.raises(ChannelError, match="command"):
-        config(tmp_path, commands={"alpha": ["agent", 42]})  # type: ignore[list-item]
+        config(tmp_path, commands={"alpha": ["agent", 42]})
 
 
 def test_run_once_refused_while_live_process_holds_lock(tmp_path: Path) -> None:
