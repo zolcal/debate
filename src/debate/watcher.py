@@ -239,27 +239,45 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
     from debate import channel  # local import keeps module load light
 
     output: list[str] = []
-    signal = channel.read_signal(config.channel_root)
     state = _load_state(config.state_path)
 
-    entries = channel.read_entries(config.channel_root)
-    last_mirrored = int(state.get("last_mirrored_seq", 0))
-    output.extend(new_entry_lines(entries, last_mirrored))
-    state["last_mirrored_seq"] = max([last_mirrored, *[e.seq for e in entries]])
+    # Snapshot + decide + record under the CHANNEL WRITER LOCK: a mid-post
+    # writer cannot hold it, so signal and mailbox are consistent here by
+    # construction. Lock order: watcher lock (held by our caller) BEFORE the
+    # writer lock - never the reverse, so no cycle. The child launch happens
+    # AFTER release: an agent posting its reply via the CLI must not deadlock
+    # against its own watcher.
+    with channel.exclusive(config.channel_root):
+        signal = channel.read_signal(config.channel_root)
+        entries = channel.read_entries(config.channel_root)
+        seq = int(str(signal.get("seq", 0)))
+        mailbox_seq = max((entry.seq for entry in entries), default=0)
 
-    seq = int(str(signal.get("seq", 0)))
-    decision = decide(signal, state, config, datetime.now(timezone.utc))
-    if decision.escalate:
-        output.append(f"ESCALATE: {decision.escalate}")
-        state = record_escalation(state, str(signal.get("thread", "")), seq)
-    elif decision.reason.endswith("already escalated"):
-        output.append(f"STUCK: seq {seq} escalated; supervisor action required")
-    elif decision.invoke:
-        party = decision.invoke
-        thread = str(signal.get("thread", ""))
-        state = record_invocation(state, seq, datetime.now(timezone.utc))
-        _save_state(config.state_path, state)  # before the expensive child
-        argv = config.command_for(party)
+        last_mirrored = int(state.get("last_mirrored_seq", 0))
+        output.extend(new_entry_lines(entries, last_mirrored))
+        state["last_mirrored_seq"] = max([last_mirrored, *[e.seq for e in entries]])
+
+        if mailbox_seq > seq:
+            # A non-CLI writer violated append-then-signal mid-flight; the
+            # consistent-snapshot invariant failed - act on nothing this tick.
+            output.append(
+                f"mailbox ahead of signal (entries at {mailbox_seq}, signal at {seq}); deferring to next tick"
+            )
+            _save_state(config.state_path, state)
+            return output
+
+        decision = decide(signal, state, config, datetime.now(timezone.utc))
+        if decision.escalate:
+            output.append(f"ESCALATE: {decision.escalate}")
+            state = record_escalation(state, str(signal.get("thread", "")), seq)
+        elif decision.invoke:
+            state = record_invocation(state, seq, datetime.now(timezone.utc))
+        elif decision.reason.endswith("already escalated"):
+            output.append(f"STUCK: seq {seq} escalated; supervisor action required")
+        _save_state(config.state_path, state)  # recorded before the expensive child
+
+    if decision.invoke:
+        argv = config.command_for(decision.invoke)
         assert argv is not None  # decide() only returns invocable parties
         try:
             proc = subprocess.run(
@@ -274,17 +292,20 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
             )
         except subprocess.TimeoutExpired:
             # Already on the books; the once-per-seq retry machinery takes it from here.
-            output.append(f"invoked {party} for seq {seq}: TIMEOUT after {config.timeout_seconds}s (killed)")
+            output.append(
+                f"invoked {decision.invoke} for seq {seq}: TIMEOUT after {config.timeout_seconds}s (killed)"
+            )
         except (OSError, ValueError) as error:
             # A missing binary or bad argv will not heal on retry: terminal.
-            output.append(f"invoke failed for {party}: {error}")
+            output.append(f"invoke failed for {decision.invoke}: {error}")
             output.append(
-                f"ESCALATE: cannot launch agent for {party!r} on thread {thread!r} - fix the watcher config"
+                f"ESCALATE: cannot launch agent for {decision.invoke!r} "
+                f"on thread {signal.get('thread')!r} - fix the watcher config"
             )
-            state = record_escalation(state, thread, seq)
+            state = record_escalation(state, str(signal.get("thread", "")), seq)
         else:
             status = "ok" if proc.returncode == 0 else f"exit {proc.returncode}"
-            output.append(f"invoked {party} for seq {seq}: {status}")
+            output.append(f"invoked {decision.invoke} for seq {seq}: {status}")
         refreshed = channel.read_entries(config.channel_root)
         output.extend(new_entry_lines(refreshed, int(state.get("last_mirrored_seq", 0))))
         state["last_mirrored_seq"] = max(

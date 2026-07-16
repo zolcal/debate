@@ -245,7 +245,7 @@ def post(
             "a party cannot bypass one-thread-at-a-time"
         )
 
-    with _exclusive(root):
+    with exclusive(root):
         signal = read_signal(root)
         open_thread = str(signal.get("thread", ""))
         # Turn alternation binds only WITHIN an open thread; with no thread open,
@@ -444,7 +444,7 @@ def compact(
 
     archived_seqs = {e.seq for thread in moving for e in by_thread[thread]}
 
-    with _exclusive(root):
+    with exclusive(root):
         # Defense-in-depth: planning happened outside the lock; a writer that
         # bypasses the lock (hand edits, an old client) shows up as a moved seq.
         if _as_int(read_signal(root)["seq"]) != seq_before:
@@ -519,7 +519,7 @@ def _as_int(value: object) -> int:
 
 
 @contextmanager
-def _exclusive(root: Path) -> Iterator[None]:
+def exclusive(root: Path) -> Iterator[None]:
     """Hold the channel's writer lock: O_EXCL-create ``root/.lock``.
 
     Advisory but honoured by every shipped writer (``post``, ``compact``),
