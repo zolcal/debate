@@ -125,6 +125,22 @@ no `commands` entry is never started automatically; that's how a human-driven si
 (the watcher waits `debounce_seconds` first, so a live session gets the chance to answer
 before the machinery steps in).
 
+### Running to completion
+
+Cron is for unattended operation. At the keyboard and just want the current review driven
+to its close? Run the same watcher in the foreground:
+
+```bash
+debate watch --root ./collab --config watcher.json --until-close
+```
+
+Same config, same safety rails - agents launch with stdin detached and a timeout
+(`timeout_seconds`, default 1800), a crashed or hung agent is reported and retried once,
+a stuck thread exits loudly (code 4) instead of spinning, and a kernel-enforced lock
+beside the watcher state file keeps a foreground `watch` and a cron `watch-once` from
+double-driving the same channel. `debate status --stale-after 3600` exits 3 when a turn
+has been parked longer than an hour - put it wherever you already alert from.
+
 ## Housekeeping: the mailbox grows, agents shouldn't read all of it
 
 The conversation file grows forever by design. Real numbers from the production channel
