@@ -312,6 +312,20 @@ def test_turn_parked_since_never_raises_on_corrupted_signal(
     assert result is None or isinstance(result, tuple)
 
 
+def test_read_signal_raises_channel_error_on_corrupted_json(tmp_path: Path) -> None:
+    """A torn/truncated signal.json must refuse deterministically, not raise
+    json.JSONDecodeError up through callers that only guard for ChannelError."""
+    root = _open_channel(tmp_path)
+    (root / channel.SIGNAL_NAME).write_bytes(b'{"seq": 1, tru')
+
+    with pytest.raises(ChannelError, match="unreadable signal"):
+        channel.read_signal(root)
+    # turn_parked_since calls read_signal internally and must propagate the
+    # same ChannelError rather than crashing some other way.
+    with pytest.raises(ChannelError, match="unreadable signal"):
+        channel.turn_parked_since(root, datetime.now(timezone.utc))
+
+
 def make_closed_channel(tmp_path: Path) -> Path:
     root = tmp_path / "chan"
     channel.init_channel(root, ("alpha", "beta"), "owner")
