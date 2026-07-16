@@ -25,6 +25,9 @@ place the protocol is *enforced* rather than requested:
   another writer's.
 - **The supervisor never takes a turn.** Supervisor posts land in the record
   and bump ``seq`` but do not flip whose turn it is.
+- **Thread opening requires an action.** With no thread open, a party may open
+  one only via review-request, question, info, or one-shot close correction.
+  Verdict and fix-report are refused (supervisor exempt).
 
 What this module deliberately does NOT do: run agents, schedule anything, or
 talk to the network. Enforcement of *behavior beyond the mailbox* (what an
