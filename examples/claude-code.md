@@ -37,8 +37,8 @@ the verdict and acts. The human merges.
     "reviewer": ["your-agent", "--headless", "{prompt}"]
   },
   "prompts": {
-    "claude":   "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread in CHANNEL.md. Verify signal.json still shows turn=='claude' — if not, exit. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
-    "reviewer": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
+    "claude":   "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole CHANNEL.md. Verify signal.json still shows an open thread AND turn=='claude' — if not, exit. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
+    "reviewer": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab`. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
   },
   "debounce_seconds": { "claude": 600 },
   "retry_seconds": 1800

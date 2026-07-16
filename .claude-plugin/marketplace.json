@@ -1,0 +1,20 @@
+{
+  "name": "debate",
+  "owner": {
+    "name": "Zoltan Soos",
+    "url": "https://github.com/zolcal"
+  },
+  "metadata": {
+    "description": "Marketplace for the debate plugin — cross-vendor AI code review through two shared text files.",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "debate",
+      "source": "./",
+      "description": "Debate — cross-vendor code review: hold your seat on a debate review channel (enforced turns, append-only audit trail). Skill wraps the pip-installed debate CLI.",
+      "category": "workflow",
+      "keywords": ["code-review", "multi-agent", "cross-vendor", "governance"]
+    }
+  ]
+}

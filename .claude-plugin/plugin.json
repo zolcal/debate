@@ -1,0 +1,12 @@
+{
+  "name": "debate",
+  "version": "0.2.0",
+  "description": "Debate — cross-vendor code review: one AI agent writes the code, a second agent from a different vendor reviews it, through two shared text files with enforced turns and a full audit trail. Requires the debate CLI (pip install debate).",
+  "author": {
+    "name": "Zoltan Soos",
+    "url": "https://github.com/zolcal/debate"
+  },
+  "homepage": "https://github.com/zolcal/debate",
+  "license": "MIT",
+  "keywords": ["code-review", "multi-agent", "cross-vendor", "governance", "audit-trail"]
+}
