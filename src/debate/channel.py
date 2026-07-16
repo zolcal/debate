@@ -56,6 +56,10 @@ _LOCK_STALE_SECONDS = 30.0
 
 ENTRY_TYPES = ("review-request", "verdict", "fix-report", "question", "info", "close")
 
+# Types that may START a discussion. verdict/fix-report are replies by nature;
+# close stays an opener for the documented one-shot close-correction idiom.
+OPENER_TYPES: tuple[str, ...] = ("review-request", "question", "info", "close")
+
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _HEADER_RE = re.compile(
     r"^## MSG-(?P<seq>\d+) \| (?P<ts>[^|]+) \| from: (?P<sender>[\w-]+) "
@@ -248,6 +252,11 @@ def post(
     with exclusive(root):
         signal = read_signal(root)
         open_thread = str(signal.get("thread", ""))
+        if sender != config.supervisor and not open_thread and entry_type not in OPENER_TYPES:
+            raise ChannelError(
+                f"refused: {entry_type!r} cannot open a thread - only review-request/question/info "
+                "(or a one-shot close correction) may start one"
+            )
         # Turn alternation binds only WITHIN an open thread; with no thread open,
         # either party may post to start one (a closer must be able to open next).
         if sender != config.supervisor and _as_int(signal["seq"]) > 0 and open_thread and signal["turn"] != sender:

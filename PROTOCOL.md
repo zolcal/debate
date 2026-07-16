@@ -44,6 +44,9 @@ Types and their meanings:
   With no thread open, either party may post to start one — otherwise a closer could never
   open the next thread.
 - **One open thread at a time.** `force` is supervisor-only — enforced by `post`, not requested: a party asking for it is refused.
+- **A thread is opened by `review-request`, `question`, `info` — or a one-shot close
+  correction.** `verdict` and `fix-report` are replies: with no thread open they are refused
+  (supervisor exempt).
 - **Thread cap: [8] entries.** At the cap only `close` is accepted; the watcher escalates to
   the supervisor. A thread that long means the agents are looping, not converging.
 - Supervisor posts never flip the turn and are accepted at any time.
