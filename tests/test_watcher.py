@@ -456,3 +456,56 @@ def test_second_watch_exits_six_while_first_watch_sleeps(tmp_path: Path) -> None
         stop.set()
         first.join(timeout=30)
     assert first_result == [5]  # first watch finished its max_ticks run cleanly
+
+
+def _freeze_mid_post(root: Path, sender: str, entry_type: str, thread: str, body: str) -> None:
+    """Reproduce a writer paused between mailbox append and signal replace:
+    perform a real post, then restore the pre-post signal bytes."""
+    from debate import channel as channel_mod
+
+    before = (root / "signal.json").read_bytes()
+    channel_mod.post(root, sender, entry_type, thread, body)
+    (root / "signal.json").write_bytes(before)
+
+
+def test_mid_post_state_defers_invocation(tmp_path: Path) -> None:
+    root = make_channel(tmp_path)  # signal seq 1, turn=alpha
+    cfg = config(root, commands={"alpha": [sys.executable, "-c", "pass"]}, prompts={"alpha": "go"})
+    _freeze_mid_post(root, "alpha", "verdict", "t-one", "reply in flight")  # mailbox 2, signal 1
+    lines = run_once(cfg)
+    assert any("mailbox ahead of signal" in line for line in lines)
+    assert not any(line.startswith("invoked ") for line in lines)
+    state = json.loads(cfg.state_path.read_text(encoding="utf-8"))
+    assert state.get("invocations", {}) == {}
+
+
+def test_mid_post_state_defers_new_escalation(tmp_path: Path) -> None:
+    root = make_channel(tmp_path)
+    cfg = config(root, commands={"alpha": [sys.executable, "-c", "pass"]}, prompts={"alpha": "go"})
+    state = {"last_mirrored_seq": 1,
+             "invocations": {"1": {"count": 2, "last_at": "2020-01-01T00:00:00+00:00"}},
+             "escalated": []}
+    cfg.state_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg.state_path.write_text(json.dumps(state), encoding="utf-8")
+    _freeze_mid_post(root, "alpha", "verdict", "t-one", "reply in flight")
+    lines = run_once(cfg)  # would have escalated seq 1 - but the world moved
+    assert any("mailbox ahead of signal" in line for line in lines)
+    assert not any(line.startswith("ESCALATE:") for line in lines)
+    assert json.loads(cfg.state_path.read_text(encoding="utf-8"))["escalated"] == []
+
+
+def test_mid_post_state_suppresses_persisted_stuck_line(tmp_path: Path) -> None:
+    """The persisted-escalation STUCK line derives from the same snapshot: with the
+    mailbox ahead, the escalated seq is about to be superseded - emitting STUCK
+    (and exiting watch with 4) would be false."""
+    root = make_channel(tmp_path)
+    cfg = config(root, commands={"alpha": [sys.executable, "-c", "pass"]}, prompts={"alpha": "go"})
+    state = {"last_mirrored_seq": 1,
+             "invocations": {"1": {"count": 1, "last_at": "2020-01-01T00:00:00+00:00"}},
+             "escalated": ["t-one:1"]}
+    cfg.state_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg.state_path.write_text(json.dumps(state), encoding="utf-8")
+    _freeze_mid_post(root, "alpha", "verdict", "t-one", "reply in flight")
+    lines = run_once(cfg)
+    assert any("mailbox ahead of signal" in line for line in lines)
+    assert not any(line.startswith("STUCK:") for line in lines)
