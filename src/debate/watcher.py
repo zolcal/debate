@@ -64,6 +64,9 @@ class WatcherConfig:
                 f"refused: state_path {self.state_path} resolves inside the channel root "
                 f"{self.channel_root}; the watcher's memory must live outside the shared folder"
             )
+        for party, argv in self.commands.items():
+            if not all(isinstance(part, str) for part in argv):
+                raise ChannelError(f"refused: command for {party!r} has non-string elements: {argv!r}")
 
     def command_for(self, party: str) -> list[str] | None:
         argv = self.commands.get(party)
@@ -111,20 +114,18 @@ def decide(
     last_at = _parse_stamp(str(record.get("last_at", "")))
     age = (now - last_at).total_seconds() if last_at is not None else None
 
+    if f"{thread}:{seq}" in set(state.get("escalated", [])):
+        return Decision(None, None, f"seq {seq} already escalated")
     if count == 0:
         return Decision(turn, None, f"first invocation for seq {seq}")
     if count == 1 and age is not None and age >= config.retry_seconds:
         return Decision(turn, None, f"retry for seq {seq} after {int(age)}s without a reply")
     if count >= 2 and age is not None and age >= config.retry_seconds:
-        already = set(state.get("escalated", []))
-        key = f"{thread}:{seq}"
-        if key not in already:
-            return Decision(
-                None,
-                f"thread {thread!r} stuck on {turn!r} at seq {seq} after {count} invocations",
-                "retries exhausted",
-            )
-        return Decision(None, None, f"seq {seq} already escalated")
+        return Decision(
+            None,
+            f"thread {thread!r} stuck on {turn!r} at seq {seq} after {count} invocations",
+            "retries exhausted",
+        )
     return Decision(None, None, f"waiting on seq {seq} (invoked {count}x)")
 
 
@@ -180,22 +181,36 @@ def run_once(config: WatcherConfig) -> list[str]:
         output.append(f"ESCALATE: {decision.escalate}")
         state = record_escalation(state, str(signal.get("thread", "")), seq)
     elif decision.invoke:
+        party = decision.invoke
+        thread = str(signal.get("thread", ""))
         state = record_invocation(state, seq, datetime.now(timezone.utc))
         _save_state(config.state_path, state)  # before the expensive child
-        argv = config.command_for(decision.invoke)
+        argv = config.command_for(party)
         assert argv is not None  # decide() only returns invocable parties
-        proc = subprocess.run(
-            argv,
-            cwd=config.channel_root,
-            text=True,
-            stdin=subprocess.DEVNULL,  # an inherited tty/pipe stdin hung a real agent for 3h
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=config.timeout_seconds,
-            creationflags=CREATE_NO_WINDOW,
-        )
-        status = "ok" if proc.returncode == 0 else f"exit {proc.returncode}"
-        output.append(f"invoked {decision.invoke} for seq {signal.get('seq')}: {status}")
+        try:
+            proc = subprocess.run(
+                argv,
+                cwd=config.channel_root,
+                text=True,
+                stdin=subprocess.DEVNULL,  # an inherited tty/pipe stdin hung a real agent for 3h
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=config.timeout_seconds,
+                creationflags=CREATE_NO_WINDOW,
+            )
+        except subprocess.TimeoutExpired:
+            # Already on the books; the once-per-seq retry machinery takes it from here.
+            output.append(f"invoked {party} for seq {seq}: TIMEOUT after {config.timeout_seconds}s (killed)")
+        except (OSError, ValueError) as error:
+            # A missing binary or bad argv will not heal on retry: terminal.
+            output.append(f"invoke failed for {party}: {error}")
+            output.append(
+                f"ESCALATE: cannot launch agent for {party!r} on thread {thread!r} - fix the watcher config"
+            )
+            state = record_escalation(state, thread, seq)
+        else:
+            status = "ok" if proc.returncode == 0 else f"exit {proc.returncode}"
+            output.append(f"invoked {party} for seq {seq}: {status}")
         refreshed = channel.read_entries(config.channel_root)
         output.extend(new_entry_lines(refreshed, int(state.get("last_mirrored_seq", 0))))
         state["last_mirrored_seq"] = max(
