@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         type=_nonnegative_int,
         default=None,
         metavar="SECONDS",
-        help="exit 3 when the open thread is stuck at least this long (turnless or unknown-age threads always count as stuck)",
+        help="exit 3 when the open thread is stuck this long (turnless/unknown-age always counts as stuck)",
     )
 
     p_read = sub.add_parser("read", help="print entries: the open thread by default")
@@ -125,7 +125,10 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     age, assigning_seq = parked
                     if age is None:
-                        print(f"turn '{signal.get('turn')}' parked (age unknown; malformed stamps) on '{thread}' (seq {assigning_seq})")
+                        print(
+                            f"turn '{signal.get('turn')}' parked (age unknown; malformed stamps) "
+                            f"on '{thread}' (seq {assigning_seq})"
+                        )
                         stuck = True  # unknown counts as stale - conservative
                     else:
                         hours, rem = divmod(age, 3600)

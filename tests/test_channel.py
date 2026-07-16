@@ -296,3 +296,17 @@ def test_turn_parked_since_both_stamps_malformed_reports_unknown(
     assert result is not None
     age, seq = result
     assert age is None and seq == 1  # unknown age - never a fabricated number, never a raise
+
+
+def test_turn_parked_since_never_raises_on_corrupted_signal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A corrupted signal.json missing 'seq' and 'updated_at' entirely must not raise:
+    the docstring promises turn_parked_since never does, but signal["seq"] direct-indexing
+    used to raise KeyError on exactly this shape."""
+    root = _open_channel(tmp_path)
+    monkeypatch.setattr(channel, "read_signal", lambda r: {"thread": "t-one", "turn": "alpha"})
+    result = channel.turn_parked_since(root, datetime.now(timezone.utc))
+    # The whole point is that this doesn't raise; the shape is secondary
+    # (e.g. (None, 0) if nothing else can be recovered).
+    assert result is None or isinstance(result, tuple)
