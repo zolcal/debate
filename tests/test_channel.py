@@ -1,8 +1,11 @@
+import dataclasses
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from debate import channel
 from debate.channel import (
     ChannelError,
     init_channel,
@@ -195,3 +198,101 @@ def test_multiline_bodies_round_trip(root: Path) -> None:
     post(root, "alice", "review-request", "feature-x", body)
 
     assert read_entries(root)[0].body == body
+
+
+def _open_channel(tmp_path: Path) -> Path:
+    root = tmp_path / "chan"
+    channel.init_channel(root, ("alpha", "beta"), "owner")
+    channel.post(root, "beta", "review-request", "t-one", "review please")  # assigns turn=alpha, seq 1
+    return root
+
+
+def test_turn_parked_since_survives_supervisor_interjection(tmp_path: Path) -> None:
+    root = _open_channel(tmp_path)
+    channel.post(root, "owner", "info", "t-one", "supervisor note")  # preserves turn, refreshes updated_at
+    now = datetime.now(timezone.utc) + timedelta(hours=3)
+    result = channel.turn_parked_since(root, now)
+    assert result is not None
+    age, seq = result
+    assert seq == 1
+    assert age is not None and age >= 3 * 3600  # NOT reset by the interjection
+
+
+def test_turn_parked_since_none_when_no_open_thread(tmp_path: Path) -> None:
+    root = tmp_path / "chan"
+    channel.init_channel(root, ("alpha", "beta"), "owner")
+    assert channel.turn_parked_since(root, datetime.now(timezone.utc)) is None
+
+
+def test_turn_parked_since_none_for_turnless_supervisor_opened_thread(tmp_path: Path) -> None:
+    """Supervisor opener leaves turn empty: both parties are turn-refused (channel.py:220),
+    so there is no parked party — a supervisor-only state. The open-thread scan filter is
+    exercised here: the only party entries belong to the closed thread and must not leak in."""
+    root = _open_channel(tmp_path)
+    channel.post(root, "alpha", "verdict", "t-one", "ok")
+    channel.post(root, "beta", "close", "t-one", "closing")
+    channel.post(root, "owner", "verdict", "t-new", "supervisor opener")  # open thread, turn ""
+    assert channel.turn_parked_since(root, datetime.now(timezone.utc)) is None
+
+
+def test_turn_parked_since_open_thread_filter_skips_foreign_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Genuinely exercise the open-thread scan filter (the turnless test above returns
+    before scanning): inject a NEWER party entry on a foreign thread and prove the
+    assignment still comes from the open thread's own party entry."""
+    import dataclasses
+
+    root = _open_channel(tmp_path)  # open thread t-one, opener seq 1 by beta
+    entries = channel.read_entries(root)
+    foreign = dataclasses.replace(entries[-1], seq=99, thread="t-foreign",
+                                  timestamp="2026-07-15T23:00:00+00:00")
+    monkeypatch.setattr(channel, "read_entries", lambda r: [*entries, foreign])
+    now = datetime(2026, 7, 16, 0, 0, 0, tzinfo=timezone.utc)
+    result = channel.turn_parked_since(root, now)
+    assert result is not None
+    _, seq = result
+    assert seq == 1  # the foreign newer entry was skipped by the thread filter
+
+
+def test_turn_parked_since_naive_stamp_counts_as_utc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = _open_channel(tmp_path)
+    entries = channel.read_entries(root)
+    naive = [dataclasses.replace(e, timestamp="2026-07-15T00:00:00") for e in entries]  # no tzinfo
+    monkeypatch.setattr(channel, "read_entries", lambda r: naive)
+    now = datetime(2026, 7, 15, 2, 0, 0, tzinfo=timezone.utc)
+    result = channel.turn_parked_since(root, now)
+    assert result is not None
+    age, _ = result
+    assert age == 2 * 3600  # exact: naive parsed as UTC
+
+
+def test_turn_parked_since_malformed_party_stamp_falls_back_to_updated_at(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _open_channel(tmp_path)
+    entries = channel.read_entries(root)
+    broken = [dataclasses.replace(e, timestamp="not-a-stamp") for e in entries]
+    monkeypatch.setattr(channel, "read_entries", lambda r: broken)
+    updated_at = datetime.fromisoformat(str(channel.read_signal(root)["updated_at"]))
+    now = updated_at + timedelta(hours=2)  # make the fallback value distinctly nonzero
+    result = channel.turn_parked_since(root, now)
+    assert result is not None
+    age, _ = result
+    assert age is not None and abs(age - 2 * 3600) <= 2  # the FALLBACK value, not a fabricated 0
+
+
+def test_turn_parked_since_both_stamps_malformed_reports_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _open_channel(tmp_path)
+    entries = channel.read_entries(root)
+    broken = [dataclasses.replace(e, timestamp="not-a-stamp") for e in entries]
+    monkeypatch.setattr(channel, "read_entries", lambda r: broken)
+    signal = dict(channel.read_signal(root))
+    signal["updated_at"] = "also-garbage"
+    monkeypatch.setattr(channel, "read_signal", lambda r: signal)
+    result = channel.turn_parked_since(root, datetime.now(timezone.utc))
+    assert result is not None
+    age, seq = result
+    assert age is None and seq == 1  # unknown age - never a fabricated number, never a raise

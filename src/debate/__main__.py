@@ -11,10 +11,25 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from debate import channel
 from debate.watcher import WatcherConfig, run_once
+
+
+def _nonnegative_int(text: str) -> int:
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0, got {value}")
+    return value
+
+
+def _positive_int(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be >= 1, got {value}")
+    return value
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -47,6 +62,13 @@ def main(argv: list[str] | None = None) -> int:
 
     p_status = sub.add_parser("status", help="print the doorbell and open-thread tail")
     p_status.add_argument("--root", type=Path, default=Path("."))
+    p_status.add_argument(
+        "--stale-after",
+        type=_nonnegative_int,
+        default=None,
+        metavar="SECONDS",
+        help="exit 3 when the open thread is stuck at least this long (turnless or unknown-age threads always count as stuck)",
+    )
 
     p_read = sub.add_parser("read", help="print entries: the open thread by default")
     p_read.add_argument("--root", type=Path, default=Path("."))
@@ -89,11 +111,30 @@ def main(argv: list[str] | None = None) -> int:
             print(f"posted {entry_id} (turn -> {turn})")
         elif args.command == "status":
             signal = channel.read_signal(args.root)
-            print(json.dumps(signal, indent=2))
+            parked = channel.turn_parked_since(args.root, datetime.now(timezone.utc))
+            shown = dict(signal)
+            if parked is not None and parked[0] is not None:
+                shown["turn_age_seconds"] = parked[0]
+            print(json.dumps(shown, indent=2))
             thread = str(signal.get("thread", ""))
+            stuck = False
             if thread:
+                if parked is None:
+                    print(f"thread '{thread}' open with no turn - supervisor close required")
+                    stuck = True  # both parties are turn-refused; a non-close supervisor post preserves ""
+                else:
+                    age, assigning_seq = parked
+                    if age is None:
+                        print(f"turn '{signal.get('turn')}' parked (age unknown; malformed stamps) on '{thread}' (seq {assigning_seq})")
+                        stuck = True  # unknown counts as stale - conservative
+                    else:
+                        hours, rem = divmod(age, 3600)
+                        print(f"turn '{signal.get('turn')}' parked {hours}h{rem // 60:02d}m on '{thread}' (seq {assigning_seq})")
+                        stuck = args.stale_after is not None and age >= args.stale_after
                 for entry in channel.thread_entries(args.root, thread):
                     print(f"  MSG-{entry.seq} {entry.sender} {entry.entry_type}")
+            if args.stale_after is not None and thread and stuck:
+                return 3
         elif args.command == "read":
             _, entries = channel.read_raw(args.root / channel.CHANNEL_NAME)
             if args.thread is not None:
