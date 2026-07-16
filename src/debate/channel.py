@@ -147,7 +147,13 @@ def read_signal(root: Path) -> dict[str, object]:
     path = root / SIGNAL_NAME
     if not path.exists():
         return _fresh_signal()
-    return dict(json.loads(path.read_text(encoding="utf-8")))
+    try:
+        return dict(json.loads(path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, OSError) as error:
+        # A torn/truncated write or a file that vanished mid-read must refuse
+        # deterministically - callers only guard for ChannelError, and a raw
+        # JSONDecodeError/OSError would otherwise surface as a traceback.
+        raise ChannelError(f"refused: unreadable signal file {path}: {error}") from error
 
 
 def read_entries(root: Path) -> list[Entry]:
@@ -198,7 +204,10 @@ def turn_parked_since(root: Path, now: datetime) -> tuple[int | None, int] | Non
     no open thread, or the thread has no turn (supervisor opener - a
     supervisor-only state, since turn enforcement refuses both parties).
     age None: both the party stamp and ``updated_at`` are malformed - age is
-    unknown, never fabricated, and this function never raises.
+    unknown, never fabricated. This function never raises on its own account -
+    the sole exception is :class:`ChannelError` propagated from ``read_signal``
+    when ``signal.json`` itself is unreadable (torn write, vanished file); that
+    is a refused-channel condition, not something to paper over as "unknown".
     """
     signal = read_signal(root)
     open_thread = str(signal.get("thread", ""))

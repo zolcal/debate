@@ -52,17 +52,36 @@ def test_status_turnless_thread_supervisor_required(tmp_path: Path, capsys: pyte
     assert '"turn_age_seconds"' not in out
 
 
-def test_status_unknown_age_line_and_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_status_unknown_age_line_and_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Pin the CLI's unknown-age contract: the line, the omitted JSON field, and exit 3."""
     root = tmp_path / "chan"
     channel.init_channel(root, ("alpha", "beta"), "owner")
     channel.post(root, "beta", "review-request", "t-one", "x")
     monkeypatch.setattr(channel, "turn_parked_since", lambda r, now: (None, 1))
     assert main(["status", "--root", str(root), "--stale-after", "999999"]) == 3
+    out = capsys.readouterr().out
+    assert "(age unknown; malformed stamps)" in out
+    assert '"turn_age_seconds"' not in out
     # and without --stale-after: exit 0, unknown-age line printed, no JSON age field
     assert main(["status", "--root", str(root)]) == 0
+    out = capsys.readouterr().out
+    assert "(age unknown; malformed stamps)" in out
+    assert '"turn_age_seconds"' not in out
 
 
 def test_stale_after_trips_on_turnless_thread_at_any_threshold(tmp_path: Path) -> None:
     root = _turnless_channel(tmp_path)
     assert main(["status", "--root", str(root), "--stale-after", "999999"]) == 3  # unconditionally stuck
+
+
+def test_status_corrupted_signal_no_traceback(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A truncated signal.json must exit 1 with a plain message, never a traceback."""
+    root = tmp_path / "chan"
+    channel.init_channel(root, ("alpha", "beta"), "owner")
+    (root / channel.SIGNAL_NAME).write_bytes(b'{"seq": 1, tru')
+
+    assert main(["status", "--root", str(root)]) == 1
+    err = capsys.readouterr().err
+    assert "unreadable signal" in err
