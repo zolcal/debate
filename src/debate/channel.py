@@ -199,25 +199,20 @@ def turn_parked_since(root: Path, now: datetime) -> tuple[int | None, int] | Non
         return None
     config = load_config(root)
     stamp_text = ""
-    seq = _as_int(signal["seq"])
+    try:
+        seq = _as_int(signal.get("seq", 0))
+    except (ChannelError, ValueError, TypeError):
+        seq = 0  # corrupt/missing seq: never raise, just report unknown
     for entry in reversed(read_entries(root)):
         if entry.thread == open_thread and entry.sender in config.parties:
             stamp_text, seq = entry.timestamp, entry.seq
             break
-    stamp = _parse_stamp_utc(stamp_text)
+    stamp = _parse_ts(stamp_text)
     if stamp is None:
-        stamp = _parse_stamp_utc(str(signal.get("updated_at", "")))  # conservative fallback
+        stamp = _parse_ts(str(signal.get("updated_at", "")))  # conservative fallback
     if stamp is None:
         return (None, seq)  # both malformed: unknown, not fabricated
     return (max(0, int((now - stamp).total_seconds())), seq)
-
-
-def _parse_stamp_utc(text: str) -> datetime | None:
-    try:
-        stamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return stamp.replace(tzinfo=timezone.utc) if stamp.tzinfo is None else stamp
 
 
 def post(
