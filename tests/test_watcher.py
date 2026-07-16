@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+import json
 import subprocess
+import sys
 
 import pytest
 
@@ -228,3 +230,46 @@ def test_agent_is_launched_with_stdin_detached(tmp_path: Path, monkeypatch: pyte
     monkeypatch.setattr(watcher_mod.subprocess, "run", fake_run)
     run_once(config(root, commands={"alpha": ["agent"]}, prompts={"alpha": "go"}))
     assert seen["stdin"] is subprocess.DEVNULL
+
+
+def test_agent_timeout_is_reported_not_raised(tmp_path: Path) -> None:
+    root = make_channel(tmp_path)
+    cfg = config(
+        root,
+        commands={"alpha": [sys.executable, "-c", "import time; time.sleep(5)"]},
+        prompts={"alpha": "go"},
+        timeout_seconds=1,
+    )
+    lines = run_once(cfg)  # must not raise
+    assert any("TIMEOUT after 1s (killed)" in line for line in lines)
+    state = json.loads(cfg.state_path.read_text(encoding="utf-8"))
+    assert state["invocations"]["1"]["count"] == 1  # retry machinery still armed
+
+
+def test_missing_binary_escalates_and_never_relaunches(tmp_path: Path) -> None:
+    root = make_channel(tmp_path)
+    cfg = config(root, commands={"alpha": ["/nonexistent/bin/agent-xyz"]}, prompts={"alpha": "go"})
+    first = run_once(cfg)
+    assert any(line.startswith("invoke failed for alpha:") for line in first)
+    assert any(line.startswith("ESCALATE:") for line in first)
+    second = run_once(cfg)  # later tick: escalation is terminal
+    assert not any("invoke failed" in line for line in second)
+    assert not any(line.startswith("ESCALATE:") for line in second)
+    state = json.loads(cfg.state_path.read_text(encoding="utf-8"))
+    assert state["invocations"]["1"]["count"] == 1  # exactly one launch attempt ever
+
+
+def test_escalated_seq_is_never_retried_even_after_retry_window(tmp_path: Path) -> None:
+    state = {
+        "invocations": {"1": {"count": 1, "last_at": "2020-01-01T00:00:00+00:00"}},
+        "escalated": ["t-one:1"],
+    }
+    cfg = config(tmp_path, commands={"alpha": ["agent"]}, prompts={"alpha": "go"})
+    decision = decide(signal(turn="alpha", thread="t-one", seq=1), state, cfg, NOW)
+    assert decision.invoke is None
+    assert decision.reason.endswith("already escalated")
+
+
+def test_non_string_command_elements_are_refused_at_config_time(tmp_path: Path) -> None:
+    with pytest.raises(ChannelError, match="command"):
+        config(tmp_path, commands={"alpha": ["agent", 42]})  # type: ignore[list-item]
