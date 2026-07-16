@@ -18,6 +18,7 @@ from debate.watcher import (
     record_invocation,
     run_once,
     tick_lock_path,
+    watch,
 )
 
 NOW = datetime(2026, 7, 6, 12, 0, 0, tzinfo=timezone.utc)
@@ -356,3 +357,102 @@ def test_state_tmp_files_are_pid_unique_and_cleaned(tmp_path: Path) -> None:
     _save_state(target, {"x": 1})
     assert target.exists()
     assert list(tmp_path.glob("state.json.tmp*")) == []  # renamed away, pid-unique name
+
+
+def _fail_sleep(seconds: float) -> None:
+    raise AssertionError("watch slept - expected exit before any sleep")
+
+
+def _post_cmd(root: Path, sender: str, entry_type: str, thread: str, body: str) -> list[str]:
+    """An 'agent' that speaks the protocol: posts one entry via the real library."""
+    src = Path(__file__).resolve().parents[1] / "src"
+    code = (
+        "import sys; sys.path.insert(0, {src!r}); from pathlib import Path; "
+        "from debate import channel; "
+        "channel.post(Path({root!r}), {sender!r}, {entry_type!r}, {thread!r}, {body!r})"
+    ).format(src=str(src), root=str(root), sender=sender, entry_type=entry_type, thread=thread, body=body)
+    return [sys.executable, "-c", code]
+
+
+def test_watch_until_close_exits_zero(tmp_path: Path) -> None:
+    root = make_channel(tmp_path)
+    cfg = config(root, commands={"alpha": _post_cmd(root, "alpha", "close", "t-one", "done, closing")},
+                 prompts={"alpha": "go"})
+    lines: list[str] = []
+    code = watch(cfg, interval_seconds=1, until_close=True, max_ticks=5, emit=lines.append, sleep=_fail_sleep)
+    assert code == 0
+    assert any("thread closed after 1 tick" in line for line in lines)
+
+
+def test_watch_new_escalation_exits_four(tmp_path: Path) -> None:
+    root = make_channel(tmp_path)
+    cfg = config(root, commands={"alpha": [sys.executable, "-c", "pass"]}, prompts={"alpha": "go"})
+    state = {"last_mirrored_seq": 1,
+             "invocations": {"1": {"count": 2, "last_at": "2020-01-01T00:00:00+00:00"}},
+             "escalated": []}
+    cfg.state_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg.state_path.write_text(json.dumps(state), encoding="utf-8")
+    assert watch(cfg, interval_seconds=1, until_close=True, max_ticks=3,
+                 emit=lambda s: None, sleep=_fail_sleep) == 4
+
+
+def test_watch_exits_four_on_persisted_escalation_instead_of_spinning(tmp_path: Path) -> None:
+    """A cron watch-once already recorded the escalation; a later watch --until-close
+    (max_ticks=None!) must terminate loudly on tick one. _fail_sleep guarantees this
+    test FAILS rather than hangs if the exit regresses."""
+    root = make_channel(tmp_path)
+    cfg = config(root, commands={"alpha": [sys.executable, "-c", "pass"]}, prompts={"alpha": "go"})
+    state = {"last_mirrored_seq": 1,
+             "invocations": {"1": {"count": 1, "last_at": "2020-01-01T00:00:00+00:00"}},
+             "escalated": ["t-one:1"]}
+    cfg.state_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg.state_path.write_text(json.dumps(state), encoding="utf-8")
+    lines: list[str] = []
+    assert watch(cfg, interval_seconds=1, until_close=True, max_ticks=None,
+                 emit=lines.append, sleep=_fail_sleep) == 4
+    assert any(line.startswith("STUCK:") for line in lines)
+
+
+def test_watch_max_ticks_exits_five(tmp_path: Path) -> None:
+    root = make_channel(tmp_path)
+    cfg = config(root, commands={}, prompts={})  # nobody invocable: ticks are no-ops
+    sleeps: list[float] = []
+    assert watch(cfg, interval_seconds=1, until_close=True, max_ticks=2,
+                 emit=lambda s: None, sleep=sleeps.append) == 5
+    assert len(sleeps) == 1  # slept between tick 1 and 2, exited at the cap without a further sleep
+
+
+def test_second_watch_exits_six_while_first_watch_sleeps(tmp_path: Path) -> None:
+    """REAL process-lifetime exclusion: a first watch parked in its sleep still excludes
+    both a second watch and a bare run_once."""
+    import threading
+
+    root = make_channel(tmp_path)
+    cfg = config(root, commands={}, prompts={})
+    sleeping = threading.Event()
+    stop = threading.Event()
+
+    def parked_sleep(seconds: float) -> None:
+        sleeping.set()
+        stop.wait(timeout=30)
+
+    first_result: list[int] = []
+    first = threading.Thread(
+        target=lambda: first_result.append(
+            watch(cfg, interval_seconds=1, until_close=False, max_ticks=2,
+                  emit=lambda s: None, sleep=parked_sleep)
+        )
+    )
+    first.start()
+    assert sleeping.wait(timeout=10), "first watch never reached its sleep"
+    try:
+        lines: list[str] = []
+        assert watch(cfg, interval_seconds=1, until_close=True, max_ticks=1,
+                     emit=lines.append, sleep=_fail_sleep) == 6
+        assert any("another watcher" in line for line in lines)
+        with pytest.raises(ChannelError, match="another watcher"):
+            run_once(cfg)
+    finally:
+        stop.set()
+        first.join(timeout=30)
+    assert first_result == [5]  # first watch finished its max_ticks run cleanly
