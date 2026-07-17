@@ -237,6 +237,7 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
 
 ## Where this comes from
 
+This is the setup `debate` was extracted from — provenance, not prescription.
 This is not a design exercise — it's the generalization of a channel that ran (and still
 runs) real code-review cycles between two commercial AI ecosystems:
 
@@ -261,9 +262,11 @@ spec-and-tests contract, the Hermes agent implemented it, and the result — one
 about ten minutes — was a 137× speedup on the function under contract. `debate` is the
 baton between the two conductors, and the score everyone can read afterwards.
 
-The same shape fits whatever pair of ecosystems you already run — Claude Code on one side;
-Hermes, [OpenClaw](https://github.com/openclaw/openclaw), or your homegrown harness on the
-other. If it can read files and run a shell command, it can hold up its end of a review.
+The same shape fits whatever pair of ecosystems you already run. The origin above is one
+example, not the design: a GLM + Kimi pairing works the same way (see
+[`examples/glm-kimi.md`](examples/glm-kimi.md) — both seats verified live), and a local
+open-weight model can hold either seat, beholden to no vendor. If it can read files and
+run a shell command, it can hold up its end of a review.
 
 ## The name
 
