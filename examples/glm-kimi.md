@@ -21,12 +21,23 @@ set -euo pipefail
 . ~/.secrets   # provides GLM_API_KEY - never inline it in watcher.json
 export ANTHROPIC_BASE_URL="https://api.z.ai/api/anthropic"
 export ANTHROPIC_AUTH_TOKEN="$GLM_API_KEY"
-export ANTHROPIC_MODEL="glm-4.6"   # override any locally pinned model
+export ANTHROPIC_MODEL="glm-5.2"   # override any locally pinned model
 exec claude -p "$1" </dev/null
 ```
 
 Make it executable and PATH-visible for the watcher (cron inherits a minimal PATH —
 use an absolute argv in `watcher.json` if unsure): `chmod +x ~/.local/bin/glm-agent`.
+
+**Tool permissions (required for a fresh host):** non-interactive `claude -p` only runs
+tools the project allows. Grant the debate CLI narrowly in the project's
+`.claude/settings.json` — never a blanket permission skip:
+
+```json
+{ "permissions": { "allow": ["Bash(debate *)", "Bash(git diff*)", "Bash(git log*)"] } }
+```
+
+(Widen deliberately if your pinned prompt asks the seat to run tests. The Kimi seat needs
+no equivalent: its prompt mode auto-approves, as noted below.)
 
 **Fail-closed identity check (run at setup, and after any `claude` upgrade) — it refuses,
 not warns:**
