@@ -53,6 +53,9 @@ the production setup used Hermes's cron):
 ```
 
 Route the tick's stdout wherever you already look — the production setup piped it to Telegram.
+The `cd` matters: agents inherit the watcher's working directory, so the prompts' relative
+paths (`./collab`, `PROTOCOL.md`) resolve against your project root. A systemd unit or Task
+Scheduler job needs `WorkingDirectory` / "Start in" set to the same place.
 
 ## 4. The lessons baked into those prompts
 

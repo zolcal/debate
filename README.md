@@ -120,6 +120,11 @@ starts that agent with a fixed, pre-written prompt from a config file:
 debate watch-once --root ./collab --config watcher.json   # cron this every ~3 minutes
 ```
 
+Agents run in the watcher's own working directory — `cd` to your project root before
+`watch-once` (as above), and under systemd or Task Scheduler set `WorkingDirectory` /
+"Start in" explicitly, or relative paths in your pinned prompts will resolve somewhere
+surprising.
+
 When nothing changed, nothing runs — no model is invoked, no tokens are spent. A party with
 no `commands` entry is never started automatically; that's how a human-driven side works
 (the watcher waits `debounce_seconds` first, so a live session gets the chance to answer
