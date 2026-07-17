@@ -292,6 +292,26 @@ skill-distribution plans):
    provenance, or stay local? Affects whether this plan's own review round becomes part of
    the release record.
 
+## Implementation evidence (2026-07-17, executor)
+
+Slices A+B implemented on branch `anti-encapsulation` (worktree `/home/zoltan/Projects/debate-anti-encap`):
+
+- A3 identity check (GLM seat): `env ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
+  ANTHROPIC_AUTH_TOKEN=$GLM_API_KEY ANTHROPIC_MODEL=glm-4.6 claude -p "Reply with exactly:
+  SEAT-OK <your model name>"` → `SEAT-OK glm-4.6` (claude 2.1.212).
+- A3 headless check (Kimi seat): `kimi -p "Reply with exactly: SEAT-OK <model>"` →
+  `SEAT-OK Kimi Code` (kimi 0.20.x).
+- A3 real watcher-driven round: scratch project, `debate init --parties glm,kimi`,
+  review-request posted as glm, then ONE `debate watch-once --root collab` tick run from the
+  project root (published config shape, `["kimi", "-p", "{prompt}"]`): the watcher woke the
+  real Kimi CLI, which read the thread via `debate read` and posted
+  `MSG-2 kimi verdict: APPROVE SEAT-SMOKE kimi` via `debate post`; turn flipped to glm;
+  watcher exit 0. cwd inheritance (v0.3.1) exercised in flow.
+- A3 JSON validity: the example's fenced `watcher.json` parses (`json.loads`).
+- B: operative-rule note applied above the metrics table in
+  `docs/plans/2026-07-15-skill-distribution-research.md`; table and appended review untouched;
+  the doc ships with the branch (resolves the on-main-vs-local contradiction).
+
 ## Review — (pending)
 
 Reviews append below this line; the body above is edited only by the executor.
