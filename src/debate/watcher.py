@@ -280,9 +280,14 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         argv = config.command_for(decision.invoke)
         assert argv is not None  # decide() only returns invocable parties
         try:
+            # No cwd override: the agent runs where the watcher runs. The
+            # documented pattern is `cd <project> && debate watch-once --root
+            # <channel>`, so the watcher's cwd IS the project root - and every
+            # relative path in a pinned prompt (PROTOCOL.md, `debate read
+            # --root collab`) resolves there. Launching inside the channel
+            # root broke them all (found by a real review round, 2026-07-16).
             proc = subprocess.run(
                 argv,
-                cwd=config.channel_root,
                 text=True,
                 stdin=subprocess.DEVNULL,  # an inherited tty/pipe stdin hung a real agent for 3h
                 stdout=subprocess.PIPE,

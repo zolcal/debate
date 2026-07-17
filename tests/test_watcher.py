@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+import os
 import json
 import subprocess
 import sys
@@ -507,3 +508,17 @@ def test_mid_post_state_suppresses_persisted_stuck_line(tmp_path: Path) -> None:
     lines = run_once(cfg)
     assert any("mailbox ahead of signal" in line for line in lines)
     assert not any(line.startswith("STUCK:") for line in lines)
+
+
+def test_agent_inherits_watcher_cwd_not_channel_root(tmp_path: Path) -> None:
+    """The documented cron pattern is `cd <project> && debate watch-once --root collab`:
+    the project root is the watcher's cwd, and the agent must run there too. Launching
+    the child inside the channel root broke every relative path in the pinned prompts
+    (PROTOCOL.md, `debate read --root collab`) - found by a real review round."""
+    root = make_channel(tmp_path)
+    out = tmp_path / "child-cwd.txt"
+    cwd_cmd = [sys.executable, "-c", f"import os; open({str(out)!r}, 'w').write(os.getcwd())"]
+    cfg = config(root, commands={"alpha": cwd_cmd}, prompts={"alpha": "go"})
+    run_once(cfg)
+    assert out.read_text() == os.getcwd()          # the watcher's own cwd...
+    assert out.read_text() != str(root)            # ...never the channel root
