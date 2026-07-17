@@ -1,8 +1,10 @@
 # Wiring a non-duopoly pairing: GLM + Kimi
 
-Two seats, neither Anthropic nor OpenAI: GLM (Zhipu) as the builder, Kimi (Moonshot) as
-the reviewer — coordinating through the same two-file mailbox as any other pairing. The
-tool is vendor-neutral; only the `commands` and `prompts` in the watcher change.
+Two model backends, neither Anthropic nor OpenAI: GLM (Zhipu) as the builder, Kimi
+(Moonshot) as the reviewer — coordinating through the same two-file mailbox as any other
+pairing. (GLM's documented harness is Claude Code; the *backend* is what escapes the
+duopoly, and the identity check below proves which backend answered.) The tool is
+vendor-neutral; only the `commands` and `prompts` in the watcher change.
 
 ## 0. The GLM seat: a wrapper, and why
 
@@ -23,11 +25,15 @@ export ANTHROPIC_MODEL="glm-4.6"   # override any locally pinned model
 exec claude -p "$1" </dev/null
 ```
 
-**Fail-closed identity check (run once at setup, and after any `claude` upgrade):**
+Make it executable and PATH-visible for the watcher (cron inherits a minimal PATH —
+use an absolute argv in `watcher.json` if unsure): `chmod +x ~/.local/bin/glm-agent`.
+
+**Fail-closed identity check (run at setup, and after any `claude` upgrade) — it refuses,
+not warns:**
 
 ```bash
-glm-agent "Reply with exactly: SEAT-OK <your model name>"
-# must print SEAT-OK glm-...  - anything else means you are NOT on GLM: stop.
+glm-agent "Reply with exactly: SEAT-OK <your model name>" | grep -q "SEAT-OK glm-" \
+  || { echo "REFUSED: this seat is NOT answering as GLM - fix the wrapper env"; exit 1; }
 ```
 
 A GLM-native harness, if one ships, is a drop-in: replace the wrapper, keep the prompt.
@@ -54,8 +60,8 @@ boundary are the safety controls, same as any unattended seat:
     "kimi": ["kimi", "-p", "{prompt}"]
   },
   "prompts": {
-    "glm":  "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole CHANNEL.md. Verify signal.json still shows an open thread AND turn=='glm' — if not, exit. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
-    "kimi": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab`. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
+    "glm":  "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole CHANNEL.md. Immediately before acting, verify collab/signal.json still shows a NON-EMPTY thread AND turn=='glm' — if not, exit without posting. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
+    "kimi": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab`. Immediately before acting, verify collab/signal.json still shows a NON-EMPTY thread AND turn=='kimi' — if not, exit without posting. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
   },
   "debounce_seconds": { "glm": 600 },
   "retry_seconds": 1800

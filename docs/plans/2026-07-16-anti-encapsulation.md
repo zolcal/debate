@@ -201,7 +201,7 @@ The appended review stays untouched.
 
 - [ ] The note is inserted above the table only; the table rows, the `Go = any two of the
       four` line, and the `## Review — 2026-07-15 · codex` section are unchanged.
-- [ ] `grep -n "Anti-encapsulation note" docs/plans/2026-07-15-skill-distribution-research.md`
+- [ ] `grep -n "Anti-encapsulation re-denomination" docs/plans/2026-07-15-skill-distribution-research.md`
       returns exactly one match, located above the metrics table.
 
 ---
@@ -229,15 +229,18 @@ in the v0.3.0 tag.** Recorded so it is not lost.
 
 ## Release finish (after A + B; owner's call)
 
-- [ ] With A and B on `main` and re-reviewed (see flow below), tag `v0.3.0`. The
-      `tag==version` release gate (`109cd92`) is already in place.
-- [ ] Prune the stale worktrees: `/home/zoltan/Projects/debate-reliability-v0.3` (merged,
-      same commit as `main`) and the detached `/tmp/.../pre-task2-wt`.
-- [ ] `docs/plans/2026-07-15-skill-distribution-research.md` SHIPS with Slice B applied
-      (resolves the on-main-vs-local contradiction codex flagged). `collab/` and the handover
-      STAY LOCAL for this tag per the debate outcome (MSG-24: live mailbox carries machine
-      paths; a curated provenance artifact can follow) — final call remains the owner's.
+- [ ] With A and B merged to `main` and the implementation review APPROVEd, require green CI
+      at the exact merged commit, then tag **`v0.3.1`** (code is 0.3.1 four-way since the cwd
+      fix; v0.3.0 was never tagged). The `tag==version` release gate verifies it.
 - [ ] Run or explicitly waive the plugin-install smoke (HANDOVER-SESSION-1.md) before tag.
+- [ ] `docs/plans/2026-07-15-skill-distribution-research.md` SHIPS with Slice B applied.
+      `collab/` and the handover STAY LOCAL for this tag per the debate outcome (MSG-24) —
+      final call remains the owner's.
+
+Housekeeping (separate from the release gate, destructive — owner runs when convenient):
+re-run `pip install -e /home/zoltan/Projects/debate` (the active editable install points at
+the reliability worktree), then prune stale worktrees
+(`debate-reliability-v0.3`, `debate-cwd-v0.3.1`, the detached `/tmp/.../pre-task2-wt`).
 
 ---
 
@@ -301,12 +304,15 @@ Slices A+B implemented on branch `anti-encapsulation` (worktree `/home/zoltan/Pr
   SEAT-OK <your model name>"` → `SEAT-OK glm-4.6` (claude 2.1.212).
 - A3 headless check (Kimi seat): `kimi -p "Reply with exactly: SEAT-OK <model>"` →
   `SEAT-OK Kimi Code` (kimi 0.20.x).
-- A3 real watcher-driven round: scratch project, `debate init --parties glm,kimi`,
-  review-request posted as glm, then ONE `debate watch-once --root collab` tick run from the
-  project root (published config shape, `["kimi", "-p", "{prompt}"]`): the watcher woke the
-  real Kimi CLI, which read the thread via `debate read` and posted
-  `MSG-2 kimi verdict: APPROVE SEAT-SMOKE kimi` via `debate post`; turn flipped to glm;
-  watcher exit 0. cwd inheritance (v0.3.1) exercised in flow.
+- A3 real watcher-driven round — BOTH seats, full thread lifecycle (r2 fix round,
+  2026-07-17): scratch project, `debate init --parties glm,kimi`; tick 1
+  (`["kimi","-p","{prompt}"]`) woke the real Kimi CLI → `MSG-2 kimi verdict: APPROVE
+  SEAT-SMOKE kimi`; tick 2 woke the GLM seat through the EXACT `glm-agent` wrapper script
+  (chmod +x, resolved via PATH, secrets sourced inside) → `MSG-3 glm close`, thread closed,
+  both watcher ticks exit 0, run from the project root with relative `--root collab` (cwd
+  inheritance exercised). Fail-closed identity check ran through the same wrapper:
+  `glm-agent "Reply with exactly: SEAT-OK <model>" | grep -q "SEAT-OK glm-"` → PASS
+  (refuses with exit 1 on mismatch).
 - A3 JSON validity: the example's fenced `watcher.json` parses (`json.loads`).
 - B: operative-rule note applied above the metrics table in
   `docs/plans/2026-07-15-skill-distribution-research.md`; table and appended review untouched;

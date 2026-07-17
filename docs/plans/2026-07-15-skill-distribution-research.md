@@ -124,8 +124,10 @@ event. Naming, everywhere a display name is allowed: **"Debate — cross-vendor 
    | Completed review rounds by external users (issue/discussion/transcript evidence) | ≥ 1 | ≥ 3 |
    | Author-profile click-through from listings | reported | reported (no threshold) |
 
-   **Go = any two of the four thresholded metrics met at day 90.** Otherwise stop: no further
-   promotion spend — that is the experiment's honest exit. If go: pursue the curated
+   **Go = any two of the three PRIMARY thresholds met at day 90** (GitHub referral stars,
+   PyPI download lift, completed externally-evidenced review rounds — see the re-denomination
+   note above; marketplace installs are secondary evidence and cannot substitute). Otherwise
+   stop: no further promotion spend — that is the experiment's honest exit. If go: pursue the curated
    claude.com/plugins tier (Anthropic's sole discretion; the only surface with public install
    counts + "Made by Zoltan Soos" attribution). **Done for the curated gate =** nomination/
    submission package delivered to Anthropic and the response recorded in this doc; the
