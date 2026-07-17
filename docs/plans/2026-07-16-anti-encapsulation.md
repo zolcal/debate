@@ -1,7 +1,7 @@
-# Anti-encapsulation — make a non-duopoly pairing first-class before the v0.3.0 tag
+# Anti-encapsulation — make a non-duopoly pairing first-class before the v0.3.1 tag
 
 **Date:** 2026-07-16 · **Owner/executor:** Claude (Fable 5), session 64ea3310 (executor seat taken 2026-07-17 on owner's go) · **Status:** r2 — both appended reviews folded in; cwd blocker fixed upstream (v0.3.1, `2591b2c` on main); BOTH seats live-smoked on this machine (GLM: `SEAT-OK glm-4.6` via env-repointed `claude -p`; Kimi: `SEAT-OK Kimi Code` via `kimi -p`)
-**Motivation:** The owner's stated priority is *not to be encapsulated into the two top US models* (Anthropic + OpenAI). The `debate` tool is already vendor-neutral at the code layer (verified: `src/debate/` has zero HTTP/API/vendor coupling; the only model contact is `watcher.py:185 subprocess.run(config.command_for(party))`, a configurable argv). v0.3 is code-complete on `main` (`35513c3`, version `0.3.0` in all four places) but **not yet tagged**. The encapsulation that remains is in three *narrative/distribution* surfaces, not the code. This plan closes them while the tag is still unpushed, so the released `v0.3.0` ships a non-duopoly-co-equal posture instead of canonizing the current Claude+GPT origin story.
+**Motivation:** The owner's stated priority is *not to be encapsulated into the two top US models* (Anthropic + OpenAI). The `debate` tool is already vendor-neutral at the code layer (verified: `src/debate/` has zero HTTP/API/vendor coupling; the only model contact is `watcher.py:185 subprocess.run(config.command_for(party))`, a configurable argv). v0.3 is code-complete on `main` (0.3.1 four-way since the cwd fix, `d44165d`) but **not yet tagged**. The encapsulation that remains is in three *narrative/distribution* surfaces, not the code. This plan closes them while the tag is still unpushed, so the released `v0.3.1` ships a non-duopoly-co-equal posture instead of canonizing the current Claude+GPT origin story.
 
 ## What v0.3 already settled (no work needed here — context only)
 
@@ -14,7 +14,7 @@ v0.3 did **not** touch the README origin story, `examples/`, or the skill-distri
 
 ## Goals
 
-Ship, before the `v0.3.0` tag, a state where: a stranger reading the repo sees a non-duopoly pairing as a first-class, documented path (not a Claude+GPT project that happens to be model-agnostic under the hood); and the project's own reputation metric no longer optimizes for duopoly-storefront adoption as its primary signal.
+Ship, before the `v0.3.1` tag, a state where: a stranger reading the repo sees a non-duopoly pairing as a first-class, documented path (not a Claude+GPT project that happens to be model-agnostic under the hood); and the project's own reputation metric no longer optimizes for duopoly-storefront adoption as its primary signal.
 
 ## Non-goals
 
@@ -40,9 +40,11 @@ End-to-end, independently shippable: a reader who wants a non-US-model pairing c
 ````markdown
 # Wiring a non-duopoly pairing: GLM + Kimi
 
-Two seats, neither Anthropic nor OpenAI: GLM (Zhipu) as the builder, Kimi (Moonshot) as
-the reviewer — coordinating through the same two-file mailbox as any other pairing. The
-tool is vendor-neutral; only the `commands` and `prompts` in the watcher change.
+Two model backends, neither Anthropic nor OpenAI: GLM (Zhipu) as the builder, Kimi
+(Moonshot) as the reviewer — coordinating through the same two-file mailbox as any other
+pairing. (GLM's documented harness is Claude Code; the *backend* is what escapes the
+duopoly, and the identity check below proves which backend answered.) The tool is
+vendor-neutral; only the `commands` and `prompts` in the watcher change.
 
 ## 0. The GLM seat: a wrapper, and why
 
@@ -59,15 +61,30 @@ set -euo pipefail
 . ~/.secrets   # provides GLM_API_KEY - never inline it in watcher.json
 export ANTHROPIC_BASE_URL="https://api.z.ai/api/anthropic"
 export ANTHROPIC_AUTH_TOKEN="$GLM_API_KEY"
-export ANTHROPIC_MODEL="glm-4.6"   # override any locally pinned model
+export ANTHROPIC_MODEL="glm-5.2"   # override any locally pinned model
 exec claude -p "$1" </dev/null
 ```
 
-**Fail-closed identity check (run once at setup, and after any `claude` upgrade):**
+Make it executable and PATH-visible for the watcher (cron inherits a minimal PATH —
+use an absolute argv in `watcher.json` if unsure): `chmod +x ~/.local/bin/glm-agent`.
+
+**Tool permissions (required for a fresh host):** non-interactive `claude -p` only runs
+tools the project allows. Grant the debate CLI narrowly in the project's
+`.claude/settings.json` — never a blanket permission skip:
+
+```json
+{ "permissions": { "allow": ["Bash(debate *)", "Bash(git diff*)", "Bash(git log*)"] } }
+```
+
+(Widen deliberately if your pinned prompt asks the seat to run tests. The Kimi seat needs
+no equivalent: its prompt mode auto-approves, as noted below.)
+
+**Fail-closed identity check (run at setup, and after any `claude` upgrade) — it refuses,
+not warns:**
 
 ```bash
-glm-agent "Reply with exactly: SEAT-OK <your model name>"
-# must print SEAT-OK glm-...  - anything else means you are NOT on GLM: stop.
+glm-agent "Reply with exactly: SEAT-OK <your model name>" | grep -q "SEAT-OK glm-" \
+  || { echo "REFUSED: this seat is NOT answering as GLM - fix the wrapper env"; exit 1; }
 ```
 
 A GLM-native harness, if one ships, is a drop-in: replace the wrapper, keep the prompt.
@@ -94,8 +111,8 @@ boundary are the safety controls, same as any unattended seat:
     "kimi": ["kimi", "-p", "{prompt}"]
   },
   "prompts": {
-    "glm":  "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole CHANNEL.md. Verify signal.json still shows an open thread AND turn=='glm' — if not, exit. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
-    "kimi": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab`. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
+    "glm":  "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole CHANNEL.md. Immediately before acting, verify collab/signal.json still shows a NON-EMPTY thread AND turn=='glm' — if not, exit without posting. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
+    "kimi": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab`. Immediately before acting, verify collab/signal.json still shows a NON-EMPTY thread AND turn=='kimi' — if not, exit without posting. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
   },
   "debounce_seconds": { "glm": 600 },
   "retry_seconds": 1800
@@ -191,11 +208,11 @@ committed to git…"):
 > externally-evidenced review rounds. **Secondary evidence (reported, never decisive):**
 > marketplace installs and author-profile clicks — they measure duopoly-storefront reach,
 > not adoption of the idea.
-> **Operative rule (supersedes the line below the table):** Go = any two of the three
-> PRIMARY thresholds met at day 90. Marketplace installs cannot substitute for a primary.
 
-The table's rows and thresholds stay; only the go rule is superseded, explicitly, above it.
-The appended review stays untouched.
+AND the go line below the table is **replaced** so exactly one operative rule exists:
+`Go = any two of the three PRIMARY thresholds met at day 90` (marketplace installs cannot
+substitute for a primary). The table's rows and thresholds stay; the appended review stays
+untouched.
 
 ### Done conditions (Slice B)
 
@@ -210,7 +227,7 @@ The appended review stays untouched.
 
 The deepest sovereignty move: one seat on a local open-weight model on the owner's GPUs
 (3090 Ti 24GB + 5060 Ti 16GB), so that seat can never be encapsulated by any vendor. **Not
-in the v0.3.0 tag.** Recorded so it is not lost.
+in the v0.3.1 tag.** Recorded so it is not lost.
 
 - [ ] Pick weights that fit 24 GB at a usable quantization (Qwen-Coder-32B / DeepSeek-Coder /
       Codestral class; exact current SOTA verified at implementation time — the line moves
@@ -223,7 +240,7 @@ in the v0.3.0 tag.** Recorded so it is not lost.
       setup choice — the `commands[]` *shape* is model-agnostic and can be written now.
 - [ ] Run one real attended review round on the local pairing before documenting it as
       supported. Only then promote it in the README alongside the GLM/Kimi path.
-- [ ] Ship as `v0.3.1` (docs-only bump) or fold into the next feature release.
+- [ ] Ship as a follow-up docs bump or fold into the next feature release.
 
 ---
 
@@ -291,7 +308,7 @@ skill-distribution plans):
 2. **Mistral.** If there is a European-sovereignty angle to "not the two US models", Mistral
    (open-weight, EU) is the non-US-non-China option and can also be the local seat. Worth a
    third example, or out of scope for this tag?
-3. **Committing the channel.** Should `collab/` (the review transcript) ship in `v0.3.0` as
+3. **Committing the channel.** Should `collab/` (the review transcript) ship in `v0.3.1` as
    provenance, or stay local? Affects whether this plan's own review round becomes part of
    the release record.
 
