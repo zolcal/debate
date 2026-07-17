@@ -216,8 +216,10 @@ untouched.
 
 ### Done conditions (Slice B)
 
-- [ ] The note is inserted above the table only; the table rows, the `Go = any two of the
-      four` line, and the `## Review — 2026-07-15 · codex` section are unchanged.
+- [ ] The note is inserted above the table; the table rows and the
+      `## Review — 2026-07-15 · codex` section are unchanged; the go line below the table is
+      REPLACED by `Go = any two of the three PRIMARY thresholds met at day 90` — exactly one
+      operative rule exists.
 - [ ] `grep -n "Anti-encapsulation re-denomination" docs/plans/2026-07-15-skill-distribution-research.md`
       returns exactly one match, located above the metrics table.
 
