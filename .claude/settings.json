@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(debate *)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git status*)",
+      "Bash(git show*)"
+    ]
+  }
+}

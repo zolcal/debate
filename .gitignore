@@ -10,3 +10,12 @@ __pycache__/
 .pytest_cache/
 dist/
 .pytest-tmp/
+
+# Channel doorbell + writer lock are runtime state, not record.
+collab/signal.json
+collab/.lock
+
+# Host-specific live config stays local; sanitized examples are committed instead.
+watcher.json
+.claude/settings.local.json
+docs/HANDOVER-SESSION-1.md
