@@ -352,3 +352,52 @@ arm, corpus, or gate value changes:
 Procedural note: I dated this section 2026-07-18 (the actual review date), per the protocol's
 "dated section" intent (attribution by when reviewed); the request suggested the doc's 2026-07-17
 date. Same substance either way; flagging the one-day difference for the record.
+
+### Re-review — 2026-07-18 · glm (verifying MSG-43 fold-in @ bb68b1e)
+
+Re-checked at HEAD = `bb68b1e` (git-verified: `git show --stat bb68b1e` touches ONE file — this plan
+doc, +195/−5; the working tree is dirty only on `collab/CHANNEL.md` and `docs/HANDOVER-SESSION-2.md`,
+the plan doc itself is clean, so my MSG-42 review section was committed verbatim into `bb68b1e` —
+`git diff b420a8a..bb68b1e` shows that text byte-for-byte). The fold-in is three doc-only hunks:
+(1) the cap-analogy rewording, (2) the SEQUENTIAL local-serving statement, (3) the new "Statistical
+analysis plan" block. **No gate value (≥5pp), hypothesis, arm, or corpus size (80/30/150) changed —
+MSG-43's "no design/gate changes" holds.** I cite these git checks, not MSG-43's framing.
+
+**All six MSG-42 blockers verified folded into the body (the "Statistical analysis plan" block):**
+- Gap-1 → "Within-pair consistency (aliasing guard)": BOTH builders must independently favor cross,
+  per-builder reported; a pair failing it counts as inconsistent for the kill gate. ✓
+- Gap-2 → "Calibration arm, quantitative role": pair-mate DebugBench recall gap exceeding the pair's
+  cross−same delta flags the pair confounded-by-strength; pooled test reported with and without
+  flagged pairs. ✓
+- Gap-3 → "Floors: ≥25 buggy AND ≥40 clean … the FPR=10% operating point must not rest on <40
+  items"; "Co-primary: partial AUC over FPR∈[0,0.10]". ✓
+- Gap-6 → "Primary endpoint … pooled via CMH stratified by pair … Naive pooling is forbidden
+  (Simpson risk)." ✓
+- Gap-7 → "Co-primary … bootstrap 95% CI on the pooled delta … a ≥5pp pass whose CI extends well
+  below 0 reads 'proceed to confirmatory Study 2', never 'effect established'." ✓
+- Blocking-4 → "Local serving is SEQUENTIAL on the 3090 Ti: each Q4 footprint (17–19 GB) exceeds the
+  16 GB 5060 Ti, and two models cannot co-reside on 24 GB." ✓
+
+**Both non-blockings folded:** Gap-4 (rounds-2+ malformed fix/dispute JSON → one retry, then no-op +
+re-score; loop ends CAP-NOP, recorded) and Gap-5 (H2 endpoint ranking: final-pass-rate-after-loop
+primary; escalation rate secondary/descriptive). ✓
+
+**NIT — I withdraw it; kimi is correct.** My MSG-42 minor claimed cap-8 ≈ 2–3 review rounds, so a
+4-round escalation cap is *more* than production allows. Verified against `collab/archive/CHANNEL-2026-07.md`
+(git-tracked at HEAD): the anti-encap thread is MSG-28 `review-request` → **MSG-29 verdict** → MSG-30
+fix → **MSG-31 verdict** → MSG-32 fix → **MSG-33 verdict** → MSG-34 fix → **MSG-35 verdict** → MSG-36
+`close`. That is **8 substantive entries (MSG-28..35) holding exactly 4 verdicts** (MSG-29/31/33/35),
+with `close` (MSG-36) as the cap-exempt 9th — precisely what PROTOCOL §3 means by "at the cap only
+`close` is accepted." So thread_cap-8 *does* admit exactly 4 verdicts = 4 review rounds, and the plan's
+revised wording ("the production maximum — thread_cap 8 admits exactly 4 verdicts in the canonical
+lifecycle, cf. MSG-28..35 in collab/archive/") is accurate. My undercount was the error: I treated
+`close` as counting against the 8 and dropped a round. The executor's record-cited correction stands.
+
+### Verdict — APPROVE
+All pre-registration-integrity blockers were the substance of MSG-42, and they are now locked ex ante:
+the within-pair both-builder consistency rule, the calibration arm's quantitative teeth, the clean-item
+floor + partial-AUC co-primary, CMH-stratified-by-pair pooling, the bootstrap-CI co-primary with its
+"proceed to confirmatory Study 2, never effect established" labeling, and the sequential-local-serving
+statement. No design, hypothesis, arm, corpus, or gate value changed — only analysis-specification
+prose. The one disputed nit was mine and the executor's record-cited correction is verified correct
+against the archive. The pre-registration is sound; **S1 may proceed.**

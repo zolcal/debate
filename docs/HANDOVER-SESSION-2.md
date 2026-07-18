@@ -41,6 +41,25 @@ Reconfiguring this repo's collab channel from claude/codex to **kimi (builder, h
 - Main's 4 plan docs + test docstring redacted in 3118e69 (visible redaction commit;
   old blobs remain in history by owner decision — no force-push).
 
+## Benchmark pilot — IN PROGRESS (2026-07-17)
+- Owner approved a pre-registered Study-1 pilot: does cross-vendor code review beat
+  same-vendor review? Plan: `docs/plans/2026-07-17-cross-vendor-review-benchmark-pilot.md`
+  (committed b420a8a; GLM reviewing via channel, thread benchmark-pilot-plan, MSG-41).
+- Design: H1 kill gate (cross-vs-same recall ≥5pp @ FPR=10%, pooled 3 pairs); H2 full
+  debate lifecycle (agreement-or-escalation, production-mirrored); two-tier corpus
+  (80 LCB-2026 + 30 SWE-rebench-2026 per builder); DebugBench calibration arm; pairs =
+  Fable5↔GPT-5.6 (subscriptions, FIRST — Codex window closes in days), K3↔GLM-5.2,
+  local Qwen3.6-27B↔Gemma4-31B (selection gate at pull time; spec-decoding allowed).
+- Execution repo `~/Projects/debate-bench` to be created (PRIVATE until gate passes).
+- Research basis (3-agent sweep, 2026-07-17): naive debate doesn't replicate at matched
+  compute; heterogeneity + self-preference bias (10-25%) are the defensible ingredients;
+  no published cross-vs-same-vendor code-review head-to-head exists.
+- NEXT after verdict: fold in findings → S1 (harness, GLM-5.2 pipeline proof) → S2
+  (premium builders first) → S3 (reviews+lifecycle) → S4 (analysis, kill/proceed).
+- Owner note: marketing context — README seat-tense update + video-3 still pending;
+  benchmark is the potential headline for both. Owner also flagged a "major project"
+  to discuss after the push judgment (delivered: safe to push).
+
 ## Next Steps (owner)
 1. Merge `glm-reviewer-seat` to main (ff) + push — the merge decision was left to you per protocol §6.
 2. Cron or not for this channel; if yes: `*/3 * * * * cd ~/Projects/debate && ~/miniconda3/bin/debate watch-once --root collab --config watcher.json` (cd-first is load-bearing).
