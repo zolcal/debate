@@ -17,8 +17,8 @@ Task 9 requires a clean worktree.
 ## Global Constraints
 
 - Zero runtime dependencies; stdlib only. Python floor 3.10.
-- **Every shell block begins with `W=/home/zoltan/Projects/debate-reliability-v0.3` and operates in
-  `$W`** (the worktree created in Task 0). The main checkout `/home/zoltan/Projects/debate` is touched
+- **Every shell block begins with `W=~/Projects/debate-reliability-v0.3` and operates in
+  `$W`** (the worktree created in Task 0). The main checkout `~/Projects/debate` is touched
   only to create the worktree and to post on its `collab/` channel (absolute path) in Task 9.
 - Do NOT modify `skills/debate/SKILL.md` beyond the verbatim copy in Task 0.
 - Staging: explicit paths only — NEVER `git add -A` / `git add .`.
@@ -38,8 +38,8 @@ Task 9 requires a clean worktree.
 - [ ] **Step 1:**
 
 ```bash
-W=/home/zoltan/Projects/debate-reliability-v0.3
-git -C /home/zoltan/Projects/debate worktree add "$W" -b reliability-v0.3 main
+W=~/Projects/debate-reliability-v0.3
+git -C ~/Projects/debate worktree add "$W" -b reliability-v0.3 main
 test -d "$W/src/debate" || { echo "worktree missing"; exit 1; }
 ```
 
@@ -48,9 +48,9 @@ test -d "$W/src/debate" || { echo "worktree missing"; exit 1; }
   `examples/claude-code.md` prompt fix:
 
 ```bash
-W=/home/zoltan/Projects/debate-reliability-v0.3
-cp -r /home/zoltan/Projects/debate/.claude-plugin /home/zoltan/Projects/debate/skills "$W/"
-cp /home/zoltan/Projects/debate/examples/claude-code.md "$W/examples/claude-code.md"
+W=~/Projects/debate-reliability-v0.3
+cp -r ~/Projects/debate/.claude-plugin ~/Projects/debate/skills "$W/"
+cp ~/Projects/debate/examples/claude-code.md "$W/examples/claude-code.md"
 cd "$W" && git add .claude-plugin skills examples/claude-code.md && \
   git commit -m "feat: Claude Code skill + plugin manifests; examples use debate read (distribution slice 1)"
 ```
@@ -62,9 +62,9 @@ publishes nothing; the owner runs `claude plugin marketplace add` when they choo
   points the reviewer at their relative paths):
 
 ```bash
-W=/home/zoltan/Projects/debate-reliability-v0.3
-cp /home/zoltan/Projects/debate/docs/plans/2026-07-15-reliability-hardening.md \
-   /home/zoltan/Projects/debate/docs/plans/2026-07-15-reliability-hardening-plan.md "$W/docs/plans/"
+W=~/Projects/debate-reliability-v0.3
+cp ~/Projects/debate/docs/plans/2026-07-15-reliability-hardening.md \
+   ~/Projects/debate/docs/plans/2026-07-15-reliability-hardening-plan.md "$W/docs/plans/"
 cd "$W" && git add docs/plans/2026-07-15-reliability-hardening.md docs/plans/2026-07-15-reliability-hardening-plan.md && \
   git commit -m "docs: reliability v0.3 spec (r4, codex-approved) + implementation plan"
 ```
@@ -85,7 +85,7 @@ cd "$W" && git add docs/plans/2026-07-15-reliability-hardening.md docs/plans/202
 
 ```python
 def test_agent_is_launched_with_stdin_detached(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """An inherited tty/pipe stdin hung a real review for 3h (court-dict, 2026-07-15)."""
+    """An inherited tty/pipe stdin hung a real review for 3h (a production channel, 2026-07-15)."""
     import debate.watcher as watcher_mod
 
     root = make_channel(tmp_path)
@@ -1258,7 +1258,7 @@ has been parked longer than an hour - put it wherever you already alert from.
 - [ ] **Step 1:** Clean-tree gate — the cited SHA must equal the reviewed files:
 
 ```bash
-W=/home/zoltan/Projects/debate-reliability-v0.3
+W=~/Projects/debate-reliability-v0.3
 test -z "$(git -C "$W" status --porcelain)" || { echo "worktree dirty - commit or drop before review"; exit 1; }
 SHA=$(git -C "$W" rev-parse --short HEAD); echo "$SHA"
 ```
@@ -1268,24 +1268,24 @@ SHA=$(git -C "$W" rev-parse --short HEAD); echo "$SHA"
 
 ```bash
 set -e
-W=/home/zoltan/Projects/debate-reliability-v0.3
+W=~/Projects/debate-reliability-v0.3
 test "$(git -C "$W" rev-parse --abbrev-ref HEAD)" = "reliability-v0.3" || { echo "wrong branch"; exit 1; }
 test -z "$(git -C "$W" status --porcelain)" || { echo "worktree dirty"; exit 1; }
 SHA=$(git -C "$W" rev-parse --short HEAD)
 test -n "$SHA" || { echo "no SHA"; exit 1; }
 cd "$W" && PYTHONPATH=src python3 -m debate post \
-  --root /home/zoltan/Projects/debate/collab --from claude --type review-request \
+  --root ~/Projects/debate/collab --from claude --type review-request \
   --thread reliability-v0-3 --refs "reliability-v0.3@$SHA" --verify-refs "$W" \
-  --body "Please review branch reliability-v0.3 at $SHA (worktree /home/zoltan/Projects/debate-reliability-v0.3, clean tree - the SHA is the full reviewed state). Spec: docs/plans/2026-07-15-reliability-hardening.md r4 incl. your three appended review rounds; plan r4. Verify each MSG-9/11/13 finding is resolved IN CODE: kernel flock/msvcrt lock (zero pid probing), writer-locked decision snapshot covering invoke/new-escalation/persisted-STUCK with the frozen mid-post tests, turn-age signature+fallback+turnless semantics with stale-after stuck rules, raising-sleep spin regression, CLI pass-through 0/4/5/6/130, four-way lockstep test, release tag gate. Run the suite yourself: PYTHONPATH=src python3 -m pytest tests/ -q --basetemp=.pytest-tmp. Cite commit + test counts."
+  --body "Please review branch reliability-v0.3 at $SHA (worktree ~/Projects/debate-reliability-v0.3, clean tree - the SHA is the full reviewed state). Spec: docs/plans/2026-07-15-reliability-hardening.md r4 incl. your three appended review rounds; plan r4. Verify each MSG-9/11/13 finding is resolved IN CODE: kernel flock/msvcrt lock (zero pid probing), writer-locked decision snapshot covering invoke/new-escalation/persisted-STUCK with the frozen mid-post tests, turn-age signature+fallback+turnless semantics with stale-after stuck rules, raising-sleep spin regression, CLI pass-through 0/4/5/6/130, four-way lockstep test, release tag gate. Run the suite yourself: PYTHONPATH=src python3 -m pytest tests/ -q --basetemp=.pytest-tmp. Cite commit + test counts."
 ```
 
 - [ ] **Step 3:** Invoke the reviewer (stdin detached, background, generous ceiling), cwd `$W`, channel root absolute:
 
 ```bash
 set -e
-W=/home/zoltan/Projects/debate-reliability-v0.3
+W=~/Projects/debate-reliability-v0.3
 SHA=$(git -C "$W" rev-parse --short HEAD); test -n "$SHA"
-cd "$W" && codex exec --sandbox workspace-write "It is your turn on the debate review channel at /home/zoltan/Projects/debate/collab (party 'codex'). CLI: PYTHONPATH=src python3 -m debate ... Read the open thread (debate read --root /home/zoltan/Projects/debate/collab), review the branch in THIS directory per the request, run the test suite yourself, then post your verdict (--from codex, same --root, --refs reliability-v0.3@$SHA --verify-refs .) citing fresh evidence. No merges, no pushes." </dev/null
+cd "$W" && codex exec --sandbox workspace-write "It is your turn on the debate review channel at ~/Projects/debate/collab (party 'codex'). CLI: PYTHONPATH=src python3 -m debate ... Read the open thread (debate read --root ~/Projects/debate/collab), review the branch in THIS directory per the request, run the test suite yourself, then post your verdict (--from codex, same --root, --refs reliability-v0.3@$SHA --verify-refs .) citing fresh evidence. No merges, no pushes." </dev/null
 ```
 
 - [ ] **Step 4:** On APPROVE: close the thread; merge is the owner's call. On REQUEST CHANGES: fix-report cycle per protocol (mind the thread cap).

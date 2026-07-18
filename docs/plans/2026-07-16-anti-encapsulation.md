@@ -257,7 +257,7 @@ in the v0.3.1 tag.** Recorded so it is not lost.
       final call remains the owner's.
 
 Housekeeping (separate from the release gate, destructive — owner runs when convenient):
-re-run `pip install -e /home/zoltan/Projects/debate` (the active editable install points at
+re-run `pip install -e ~/Projects/debate` (the active editable install points at
 the reliability worktree), then prune stale worktrees
 (`debate-reliability-v0.3`, `debate-cwd-v0.3.1`, the detached `/tmp/.../pre-task2-wt`).
 
@@ -274,7 +274,7 @@ skill-distribution plans):
    --refs anti-encapsulation-plan@<sha> --body "..."` — and let the reviewer (codex) append
    `## Review — YYYY-MM-DD · codex`. Fold any `REQUEST CHANGES` into r2 before implementing.
 2. **Implementation:** in a dedicated worktree
-   (`git -C /home/zoltan/Projects/debate worktree add ../debate-anti-encap -b anti-encapsulation main`),
+   (`git -C ~/Projects/debate worktree add ../debate-anti-encap -b anti-encapsulation main`),
    not the dirty shared checkout. Stage **explicit paths only** (never `git add -A`) — the
    shared tree carries a live channel and uncommitted docs.
 3. **Implementation re-review:** post a `review-request` citing the implementation
@@ -316,7 +316,7 @@ skill-distribution plans):
 
 ## Implementation evidence (2026-07-17, executor)
 
-Slices A+B implemented on branch `anti-encapsulation` (worktree `/home/zoltan/Projects/debate-anti-encap`):
+Slices A+B implemented on branch `anti-encapsulation` (worktree `~/Projects/debate-anti-encap`):
 
 - A3 identity check (GLM seat): `env ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic
   ANTHROPIC_AUTH_TOKEN=$GLM_API_KEY ANTHROPIC_MODEL=glm-4.6 claude -p "Reply with exactly:
@@ -397,11 +397,11 @@ stated metric change operative, and the release finish has unresolved contradict
 
 I reviewed the full plan and the appended Claude review against `main@35513c3`, the recent
 commit history through `c046bbf`, `7945f4a`, `be70fbb`, `109cd92`, and `35513c3`, and the live
-working tree. I checked [README.md](/home/zoltan/Projects/debate/README.md:1),
-[examples/claude-code.md](/home/zoltan/Projects/debate/examples/claude-code.md:1), the current
-[skill-distribution plan](/home/zoltan/Projects/debate/docs/plans/2026-07-15-skill-distribution-research.md:1),
-[watcher.py](/home/zoltan/Projects/debate/src/debate/watcher.py:44), the release workflow and
-version-lock test, and [HANDOVER-SESSION-1.md](/home/zoltan/Projects/debate/docs/HANDOVER-SESSION-1.md:1).
+working tree. I checked [README.md](~/Projects/debate/README.md:1),
+[examples/claude-code.md](~/Projects/debate/examples/claude-code.md:1), the current
+[skill-distribution plan](~/Projects/debate/docs/plans/2026-07-15-skill-distribution-research.md:1),
+[watcher.py](~/Projects/debate/src/debate/watcher.py:44), the release workflow and
+version-lock test, and [HANDOVER-SESSION-1.md](~/Projects/debate/docs/HANDOVER-SESSION-1.md:1).
 I also ran the installed `kimi` 0.20.1 and Claude Code 2.1.211 help/auth/config checks and
 read-only CLI parser/path probes. No test suite was run because this is a plan review and the
 task forbids writes other than this append.
@@ -428,8 +428,8 @@ task forbids writes other than this append.
    `ANTHROPIC_API_KEY`. The configured `GLM_API_KEY` is not consumed by bare Claude Code.
    Moreover, the watcher performs literal argv replacement and `subprocess.run(...,
    shell=False)` with the inherited environment
-   ([watcher.py](/home/zoltan/Projects/debate/src/debate/watcher.py:74),
-   [watcher.py](/home/zoltan/Projects/debate/src/debate/watcher.py:283)); `$GLM_API_KEY` in JSON
+   ([watcher.py](~/Projects/debate/src/debate/watcher.py:74),
+   [watcher.py](~/Projects/debate/src/debate/watcher.py:283)); `$GLM_API_KEY` in JSON
    would not expand. Use a dedicated wrapper/settings profile or watcher-service environment
    that sources the credential outside `watcher.json`, sets the GLM endpoint and a supported
    model mapping, and overrides the inherited Fable selection. Add a fail-closed setup check
@@ -440,7 +440,7 @@ task forbids writes other than this append.
 
 3. **The example inherits a watcher working-directory bug that neither prior review finding
    catches.** The child starts with `cwd=config.channel_root`, so the documented cron command
-   with `--root collab` launches both agents *inside* `/home/zoltan/Projects/debate/collab`.
+   with `--root collab` launches both agents *inside* `~/Projects/debate/collab`.
    From there A1's `PROTOCOL.md`, `./collab`, and `debate read --root collab` resolve to the
    wrong places; there is no `collab/PROTOCOL.md`. I reproduced the consequence read-only:
    from the channel directory, `debate read --root collab` prints `no open thread`, while
@@ -453,7 +453,7 @@ task forbids writes other than this append.
 
 4. **Slice B does not currently re-denominate anything.** The source table has one
    thresholded marketplace-install row, not "two marketplace-install rows"
-   ([skill-distribution plan](/home/zoltan/Projects/debate/docs/plans/2026-07-15-skill-distribution-research.md:104)).
+   ([skill-distribution plan](~/Projects/debate/docs/plans/2026-07-15-skill-distribution-research.md:104)).
    Its existing `Go = any two of the four` rule already makes marketplace installs alone
    insufficient. Adding a contradictory interpretive note while requiring the table and its
    operative rule to remain unchanged is not a measurable policy change. The direction is
@@ -465,7 +465,7 @@ task forbids writes other than this append.
    three primary thresholds); otherwise drop the claim that this slice changes the decision.
 
 5. **A2's edit anchors are accurate, but its new claims are not yet accurate.** The opening
-   anchor and old closing paragraph match [README.md](/home/zoltan/Projects/debate/README.md:233)
+   anchor and old closing paragraph match [README.md](~/Projects/debate/README.md:233)
    through line 261, and the relative example link is correct. Change "GLM and Kimi pair just
    as well" to a claim supported by the completed watcher smoke. Change "a local open-weight
    model can hold either seat with no vendor in the path at all": one local seat paired with
@@ -478,8 +478,8 @@ task forbids writes other than this append.
    `main` and then separately allows the untracked Slice-B target document not to ship. Decide
    which is true: commit that document with B, or remove B from the tag gate. The current
    handover also leaves the Claude plugin marketplace/install/invoke smoke unresolved
-   ([HANDOVER-SESSION-1.md](/home/zoltan/Projects/debate/docs/HANDOVER-SESSION-1.md:18),
-   [HANDOVER-SESSION-1.md](/home/zoltan/Projects/debate/docs/HANDOVER-SESSION-1.md:50)); run it
+   ([HANDOVER-SESSION-1.md](~/Projects/debate/docs/HANDOVER-SESSION-1.md:18),
+   [HANDOVER-SESSION-1.md](~/Projects/debate/docs/HANDOVER-SESSION-1.md:50)); run it
    before the tag or record an explicit waiver. Require green CI at the exact implementation
    commit and the GLM/Kimi watcher smoke before tagging. Version mechanics themselves are
    sound: all four locations are `0.3.0`, the lockstep test and tag/package gate exist, and
