@@ -257,7 +257,7 @@ def test_run_once_does_nothing_quietly_when_nothing_changed(tmp_path: Path) -> N
 
 
 def test_agent_is_launched_with_stdin_detached(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """An inherited tty/pipe stdin hung a real review for 3h (court-dict, 2026-07-15)."""
+    """An inherited tty/pipe stdin hung a real review for 3h (a production channel, 2026-07-15)."""
     root = make_channel(tmp_path)
     seen: dict[str, Any] = {}
 
