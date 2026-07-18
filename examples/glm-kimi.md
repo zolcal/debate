@@ -27,6 +27,10 @@ exec claude -p "$1" </dev/null
 
 Make it executable and PATH-visible for the watcher (cron inherits a minimal PATH —
 use an absolute argv in `watcher.json` if unsure): `chmod +x ~/.local/bin/glm-agent`.
+If `debate` itself is not on the seat's default PATH (e.g. it lives in a conda env's
+`bin/`), export it in the wrapper as well — `export PATH="/path/to/env/bin:$PATH"`
+before the `exec` — the seat resolves `debate` at runtime and cron's minimal PATH will
+not find it otherwise.
 
 **Tool permissions (required for a fresh host):** non-interactive `claude -p` only runs
 tools the project allows. Grant the debate CLI narrowly in the project's
