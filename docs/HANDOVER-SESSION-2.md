@@ -41,6 +41,16 @@ Reconfiguring this repo's collab channel from claude/codex to **kimi (builder, h
 - Main's 4 plan docs + test docstring redacted in 3118e69 (visible redaction commit;
   old blobs remain in history by owner decision — no force-push).
 
+## MERGED & PUSHED (2026-07-18)
+- `glm-reviewer-seat` (10 commits) fast-forwarded to **main@5fdd8a5**, pushed to origin;
+  CI green (run 29654455470). Includes: channel reconfiguration kimi/glm, sanitization
+  (machine refs scrubbed, supervisor=owner, watcher.json untracked + watcher.example.json),
+  the GLM-reviewed benchmark pilot plan, README seat-tense patch (full README rewrite
+  deliberately deferred until AFTER benchmark results — owner's call, verbiage TBD by data).
+- Push note: stored GITHUB_TOKEN env var is EXPIRED and shadows gh — prefix git/gh
+  commands with `env -u GITHUB_TOKEN` (keyring credential for zolcal works, has
+  repo+workflow scopes). Refresh the token in ~/.secrets when convenient.
+
 ## Benchmark pilot — CLEARED FOR S1 (2026-07-18)
 - Pre-registered Study-1 plan at `docs/plans/2026-07-17-cross-vendor-review-benchmark-pilot.md`
   passed FULL debate review (thread benchmark-pilot-plan, MSG-41..45): GLM REQUEST CHANGES
