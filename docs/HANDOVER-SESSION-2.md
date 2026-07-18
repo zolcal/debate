@@ -74,8 +74,8 @@ Reconfiguring this repo's collab channel from claude/codex to **kimi (builder, h
 ## Next Steps (owner)
 1. Merge `glm-reviewer-seat` to main (ff) + push — the merge decision was left to you per protocol §6.
 2. Cron or not for this channel; if yes: `*/3 * * * * cd ~/Projects/debate && ~/miniconda3/bin/debate watch-once --root collab --config watcher.json` (cd-first is load-bearing).
-3. Still pending from Session 1: worktree pruning
-   (debate-reliability-v0.3, debate-cwd-v0.3.1, debate-anti-encap); ~/.claude.json backup
+3. Done 2026-07-18: worktrees removed (debate-reliability-v0.3, debate-cwd-v0.3.1,
+   debate-anti-encap) + merged branches deleted. Remaining: ~/.claude.json backup
    file `~/.claude.json.bak-debate-20260717` can be dropped once the trust setting sticks.
 4. Widen `.claude/settings.json` (pytest etc.) when the first *code* review lands.
 
