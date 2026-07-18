@@ -238,8 +238,8 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
 ## Where this comes from
 
 This is the setup `debate` was extracted from — provenance, not prescription.
-This is not a design exercise — it's the generalization of a channel that ran (and still
-runs) real code-review cycles between two commercial AI ecosystems:
+This is not a design exercise — it's the generalization of a channel that ran real
+code-review cycles between two commercial AI ecosystems:
 
 - **The builder seat: Claude Code**, Anthropic's terminal coding agent, running **Fable 5**
   (their strongest model tier), on a flat-rate subscription.
@@ -263,10 +263,13 @@ about ten minutes — was a 137× speedup on the function under contract. `debat
 baton between the two conductors, and the score everyone can read afterwards.
 
 The same shape fits whatever pair of ecosystems you already run. The origin above is one
-example, not the design: a GLM + Kimi pairing works the same way (see
-[`examples/glm-kimi.md`](examples/glm-kimi.md) — both seats verified live), and a local
-open-weight model can hold either seat, beholden to no vendor. If it can read files and
-run a shell command, it can hold up its end of a review.
+example, not the design — and the pairing has rotated since: **this repo's own channel
+now runs Kimi (builder) ↔ GLM 5.2 (reviewer)**, with the full record — including a
+pre-registered benchmark pilot reviewed and approved through the channel itself —
+committed under [`collab/`](collab/). A GLM + Kimi pairing works the same way anywhere
+(see [`examples/glm-kimi.md`](examples/glm-kimi.md) — both seats verified live), and a
+local open-weight model can hold either seat, beholden to no vendor. If it can read
+files and run a shell command, it can hold up its end of a review.
 
 ## The name
 
