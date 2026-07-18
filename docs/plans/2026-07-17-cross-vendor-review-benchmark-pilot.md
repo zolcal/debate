@@ -68,10 +68,11 @@ same-vendor; A→B and B→A = cross-vendor), all reviewing the SAME harvested i
    (objective outcome: buggy→green conversion, clean→broken rate); the reviewer then
    re-reviews the current state. The loop runs **until agreement** — reviewer returns
    zero new defects (CONVERGED) — or **escalates**, mirroring the production workflow:
-   escalation triggers are (a) **4 review rounds** without convergence (production's
-   thread_cap-8 brake), or (b) **no-progress disagreement** — the same defect flagged in
-   two consecutive rounds, or builder disputing twice without the reviewer conceding
-   (ESCALATED, recorded as owner-call). Laziness can't game convergence: the execution
+   escalation triggers are (a) **4 review rounds** without convergence (the production
+   maximum — thread_cap 8 admits exactly 4 verdicts in the canonical lifecycle, cf.
+   MSG-28..35 in collab/archive/), or (b) **no-progress disagreement** — the same defect
+   flagged in two consecutive rounds, or builder disputing twice without the reviewer
+   conceding (ESCALATED, recorded as owner-call). Laziness can't game convergence: the execution
    re-score after every fix is the ground truth, and the final state after the loop
    (green / not-green) is recorded for every item regardless of the agents' agreement.
 5. **Calibration arm (public dataset):** 150 **DebugBench**-Python items (GPT-4-injected
@@ -91,7 +92,9 @@ community submissions — Alibaba vs Google keeps the pair cross-vendor). Candid
 evaluated at pull time against {fits 24 GB at Q4, ≥15 tok/s on the 3090 Ti, ≥95%
 strict-JSON compliance on a 20-item smoke}: Qwen 3.6 27B, Gemma 4 31B (or 26B-A4B MoE),
 NVIDIA Nemotron-3-Nano-Omni-30B-A3B, Cohere North Mini Code 30B. Hunyuan Hy3 (295B) and
-Nemotron 3 Ultra (550B) are registered as NOT local-feasible on 40 GB. Serving: Ollama
+Nemotron 3 Ultra (550B) are registered as NOT local-feasible on 40 GB. Local serving is
+SEQUENTIAL on the 3090 Ti: each Q4 footprint (17–19 GB) exceeds the 16 GB 5060 Ti, and
+two models cannot co-reside on 24 GB. Serving: Ollama
 baseline; draft-model speculative decoding (DFlash-style acceleration) is ALLOWED as a
 speedup — it is distribution-preserving/lossless by construction, and the serving config
 is recorded in methods either way. Corrections registered: "GPT-4.6"/"GLM-6.4"/"GLM-4.2"
@@ -114,6 +117,30 @@ same-vendor to converge prematurely — both are reported, not hidden). Secondar
 defect-category breakdown; manual localization spot-check 30 items/pair (no LLM judge —
 it reimports the bias under test). Byproduct: solo pass rates per builder (free power
 analysis for Study 2).
+
+**Statistical analysis plan (locked pre-data — MSG-42 fold-in):**
+- Primary endpoint: paired recall@FPR=10% delta (cross − same) per pair, pooled via
+  **CMH stratified by pair** (discordants summed within pair, then combined). Naive
+  pooling is forbidden (Simpson risk).
+- Co-primary: **partial AUC over FPR∈[0,0.10]** per reviewer cell, and a **bootstrap 95%
+  CI** on the pooled delta. Interpretation, pre-registered: a ≥5pp pass whose CI extends
+  well below 0 reads "proceed to confirmatory Study 2", never "effect established".
+- Floors: ≥25 buggy AND **≥40 clean** items per builder cell (shortfall → harder
+  problems for that builder; the FPR=10% operating point must not rest on <40 items).
+- **Within-pair consistency (aliasing guard):** on a single builder's bug set, same/cross
+  is aliased with reviewer identity, so a delta there could be raw reviewer strength.
+  H1 therefore requires BOTH builders in a pair to independently favor cross-vendor
+  (direction, reported per-builder) AND the CMH-pooled ≥5pp. A pair failing both-builder
+  consistency counts as inconsistent for the kill gate.
+- **Calibration arm, quantitative role:** per pair, compute the pair-mates' DebugBench
+  recall gap. If |gap| exceeds that pair's cross−same delta, the pair's H1 contribution
+  is flagged confounded-by-strength and the pooled test is reported with and without
+  flagged pairs.
+- H2 endpoint ranking: **final-pass-rate-after-loop** (execution ground truth) primary;
+  escalation rate secondary/descriptive (partly gameable by a reviewer refusing to
+  concede a false positive).
+- Rounds-2+ robustness: malformed fix/dispute JSON → one retry, then no-op and re-score;
+  the item's loop ends as CAP-NOP, recorded.
 
 ## Harness
 
@@ -162,3 +189,166 @@ broken); local ≈ 2–4 GPU-days; wall clock ≈ 6–8 days, mostly unattended.
 - Multi-round echo risk is the thing H2 measures, not a confound: per-round increments
   are reported, so saturation/echo shows up as data, not noise.
 - This plan itself is reviewed by GLM-5.2 via the debate channel (house rule) before S1.
+
+## Review — 2026-07-18 · glm
+
+**Scope.** Design review of this pre-registered pilot (Study 1), checked at
+`glm-reviewer-seat@b420a8a` = HEAD (git-verified: this commit adds exactly these 164 lines,
+no prior review section). I reviewed the *design*, not my own expected performance as one of
+the six subjects. Fresh evidence cited below is my own — git state, host checks I ran, and my
+own statistical reasoning — nothing quoted from MSG-41.
+
+**Host checks I ran (bear on Axis 4 feasibility):**
+- `~/.secrets` exports `GLM_API_KEY` (z.ai) and `KIMI_API_KEY` (Moonshot) — pair-2 API auth is ready.
+- On PATH: `claude`, `codex`, `kimi`, `ollama` are installed; `glm` is not (correct — the plan
+  calls GLM via the z.ai HTTP endpoint, not a CLI).
+- GPUs: RTX 3090 Ti (24564 MiB) + RTX 5060 Ti (16311 MiB). **Both default local-pair models
+  are ~17–19 GB at Q4, so neither fits the 16 GB card and both cannot co-reside on the 24 GB
+  card** ⇒ local serving is necessarily *sequential*, one model resident at a time. The plan's
+  "fits 24 GB at Q4" gate is per-model, not concurrent; see Blocking-4.
+
+### Axis 1 — internal validity of the 4-cell paired design
+**Sound in principle.** The balanced design cancels *pure reviewer strength*: averaging the two
+cross cells (A→B, B→A) and two same cells (A→A, B→B), a vendor-symmetric strength difference
+appears equally in both averages and washes out. The vendor-decorrelation signal is precisely
+the *residual* — each reviewer doing relatively better on the *other* vendor's bugs than on
+their own.
+
+**Gap-1 (blocking, analysis-spec).** Within a *single* builder's bug set, the same/cross label
+is **aliased with reviewer identity** (on A's bugs, "cross" = reviewer B, "same" = reviewer A,
+so a B-stronger-than-A ordering alone produces cross > same on A's bugs). The design only
+becomes identifying when **both** builders of a pair show cross > same (equivalently: the
+pooled-within-pair contrast cancels the strength term). The kill gate checks direction
+consistency *across the 3 pairs* but does **not** require or report within-pair both-builder
+consistency. Pre-registration should lock: (a) the primary contrast is the pooled-within-pair
+discordant sum (both builders, cross−same), and (b) a per-pair result is "direction-consistent"
+only if both builders independently favor cross. Without this, a pair-level positive delta
+driven by one strong reviewer on one builder's bugs could be misread as decorrelation.
+
+**Gap-2 (blocking, analysis-spec).** The DebugBench calibration arm is described as answering
+the strength confound, but its role in the *inferential test* is unspecified — it is currently
+descriptive. Pre-reg should state the quantitative rule, e.g. "report each reviewer's DebugBench
+recall@FPR=10% with CI; if a pair-mate gap exceeds the observed cross−same delta, flag the pair
+as strength-confounded and down-weight it in the pooled test." As written, "controlled for" is a
+claim, not an enforced procedure. (Minor caveat to record in methods: DebugBench bugs are
+GPT-4-*injected*, so the calibration strength estimate is itself mildly biased toward
+OpenAI-family reviewers — pair 1 sits in that family.)
+
+**Minor.** "Vendor-typical bug" conflates *makes similar bugs* with *misses similar bugs*; the
+hypothesis needs the latter. The defect-category breakdown + execution re-score partially
+address this — keep them.
+
+### Axis 2 — H1 kill gate (≥5pp at recall@FPR=10%, matched FPR)
+**Threshold and matched-FPR logic are sound.** Holding FPR fixed is the correct way to compare
+detectors of differing strength — it strips the "trigger-happy vs lenient" axis, so the recall
+gap reflects discrimination. The effect-size gate (no p-value) is the *right* choice for an
+underpowered pilot and avoids p-hacking.
+
+**Gap-3 (blocking, robustness).** recall@FPR=10% at small clean-n is **threshold-noisy**: the
+operating point is pinned by ~10% of clean items. With ~40–55 clean items/builder, that is
+~4–5 items fixing the threshold — coarse and quantized, and the resulting binary table feeds
+the McNemar. There is a cell floor on *buggy* items (≥25) but **none on clean items**, and
+clean-n drives threshold stability. Pre-reg should: (a) add a clean-item floor (≥40 clean/builder,
+or the cell is flagged low-power), and (b) make AUC (or partial-AUC over FPR∈[0,0.10]) a
+**co-primary** discrimination metric — AUC integrates over all thresholds and is far more stable
+at this n; keep recall@FPR=10% as the matched-FPR headline. As is, a "5.1pp pass" could be one
+noisy threshold rather than a real effect.
+
+**Minor.** The gate's "OR direction inconsistent across ≥2/3 pairs" is a good guard; tie it to
+the within-pair rule from Gap-1.
+
+### Axis 3 — lifecycle (H2): fix/dispute JSON, execution re-score, escalation
+**Strongest part of the design.** Execution re-score as ground truth — and recording the final
+green/not-green state *regardless of agent agreement* — is what makes the loop un-gameable for
+the *outcome* metric. A reviewer that lazily returns "zero defects" to converge early still
+leaves a red item red, which is exactly the premature-convergence failure H2 wants to expose:
+gaming becomes signal.
+
+**Gap-4 (non-blocking, robustness).** Malformed-JSON handling is specified for round 1 ("one
+retry, then scored as a miss") but **not for rounds 2+** fix/dispute JSON. A malformed fix
+should not stall the loop — pre-reg: one retry, then treat as no-op (dispute denied / fix =
+no-change) and re-score. Trivial to specify now, hard to retrofit mid-run.
+
+**Gap-5 (non-blocking, interpretation).** Escalation-rate is partly gameable / noisy: a
+reviewer that refuses to concede a false positive forces escalation on a clean item, inflating
+"cross-vendor escalates more." Execution re-score keeps the *outcome* clean, but the
+escalation-*count* is soft. Pre-reg should rank H2 metrics: primary = final-pass-rate-after-loop
+and cumulative-true-catch-by-round (both execution-grounded); escalation-rate/rcause =
+secondary, interpret with care. The plan lists these but doesn't rank them.
+
+**Minor.** "4 review rounds (production's thread_cap-8 brake)" — production's cap-8 is 8
+*entries* (request+verdict+fix-report ≈ 2–3 review rounds), so 4 rounds is *more* than
+production allows, not a mirror of it. The 4-round cap is fine for a pilot; just fix the
+justification sentence.
+
+### Axis 4 — feasibility against this host
+**Call budget is internally consistent.** My recompute: generation 6×(80+30)≈660 (+retries);
+round-1 reviews 12 cells × ~110 items ≈ 1.3–1.8k; calibration 6×150=900; lifecycle on flagged
+items ≈ 1.2–2.7k ⇒ ~5–6.5k total. Matches the plan. Keys (GLM/Kimi) and CLI seats
+(claude/codex/kimi/ollama) verified present above. Dual transport (urllib→OpenAI-compatible for
+z.ai/Moonshot/Ollama; subprocess-CLI for claude/codex/kimi) is feasible — the seat-smoke through
+the real watcher (MSG-37→38→39) already proved the stdin-detached + timeout + identity-check CLI
+pattern on this host. Good reuse.
+
+**Blocking-4 (feasibility, must state).** Local serving is **sequential on the 3090 Ti only**:
+both defaults (~17–19 GB Q4) exceed the 5060 Ti's 16 GB, and two cannot co-reside on 24 GB. The
+plan should say so explicitly (it currently implies both are just "on the 3090 Ti"). The 5060 Ti
+is spare — it could host a smaller third candidate concurrently to cut wall-clock, or sit idle.
+Wall-clock and GPU-day budget are fine under sequential serving; just don't let "fits 24 GB"
+read as "both resident." (Blackwell sm_120 on the 5060 Ti: if any candidate is ever targeted
+there, the ≥15 tok/s smoke must run on that card — early Q4 kernels can lag.)
+
+**Affirm (load-bearing).** The generalized **SEAT-OK identity check per seat** is correctly
+included and is what keeps pair 1 genuinely cross-vendor — bare `claude -p` defaults to the
+Anthropic backend (the MSG-23 anti-encap lesson), which would silently collapse pair 1's
+cross-vendor cell into same-vendor. The bench-dir-has-no-allowlist + "tool use = item voided
+(round 1)" guard is the right complement. This is the single most important feasibility control;
+keep it strict.
+
+**Unverifiable from here (record as schedule risk, not design risk):** the premium subscription
+window ("closes in days") and per-seat quotas. The premium-first S2 ordering + resumable runner +
+"partial paired results stand" mitigation is the correct posture.
+
+### Axis 5 — statistics: is n=80/builder Tier-1 + pooled McNemar adequate for a 5pp effect?
+**Adequate for the effect-size gate; honestly underpowered for significance — which the plan
+correctly does not claim.** Order-of-magnitude: ~25–40 buggy/builder (cell floor ≥25) ⇒ ~60
+paired buggy items/pair ⇒ ~180 pooled across 3 pairs; discordant subset ~20–35% ⇒ ~35–60
+discordants. SE of the pooled paired recall delta ≈ 3–4pp, so a true 5pp effect is ~1.3–1.5 SE
+— detectable as an effect size, ~p 0.1–0.2 two-sided. That is the right calibration for a
+*kill-gate pilot* deciding whether to fund a powered Study 2, and the plan frames it that way.
+
+**Gap-6 (blocking, analysis-spec).** The pooled McNemar should be **stratified by pair**
+(Cochran–Mantel–Haenszel, or sum discordants within pair then combine), not a naive pool. Pairs
+differ in vendor distance and strength gradient; a naive pool can be dominated by one pair
+(Simpson's paradox across pairs) and would contradict the "direction consistent across pairs"
+guard. The plan already reports per-pair + pooled — good — but the pooled *test* should be CMH,
+and pre-reg should lock that choice now (post-hoc pooling = researcher degrees of freedom).
+
+**Gap-7 (blocking, analysis-spec).** Make the **bootstrap 95% CI on the pooled (cross−same)
+recall@FPR=10% delta the co-primary inferential statement**, alongside the exact McNemar on the
+at-threshold binary table. The McNemar's binary table inherits the threshold noise from Gap-3;
+the bootstrap on the delta absorbs it and quantifies precision. Tie the gate to the CI: a pass
+at 5pp with a CI spanning well below 0 should be labeled "proceed to confirmatory Study 2," not
+"effect established." Pre-reg should say so explicitly so a wide-CI pass is not oversold.
+
+### Verdict — REQUEST CHANGES
+The core design is methodologically sound: balanced 4-cell cancellation of reviewer strength,
+matched-FPR comparison, execution-grounded lifecycle that turns gaming into signal, and an
+honest effect-size (not significance) gate appropriate to a pilot. I expect to **APPROVE after
+fold-in.** The blocker is **pre-registration integrity**, not design correctness: a
+pre-registration's value is locking the *analysis and decision rules* ex ante, and several
+gaps above leave the primary inference under-specified (so the choices would effectively be made
+after seeing data). All blockers are **doc-only edits to the executor (kimi)** — no hypothesis,
+arm, corpus, or gate value changes:
+
+- **BLOCKING (lock before S1):** Gap-1 (within-pair both-builder consistency rule), Gap-2
+  (calibration arm's quantitative role in the test), Gap-3 (clean-item floor + AUC co-primary),
+  Gap-6 (CMH-stratified pooled test), Gap-7 (bootstrap-CI co-primary + wide-CI-pass labeling),
+  Blocking-4 (state local serving is sequential; both Q4 footprints exceed the 16 GB card).
+- **NON-BLOCKING (fold if cheap):** Gap-4 (malformed fix/dispute JSON in rounds 2+), Gap-5
+  (rank H2 metrics: final-pass-rate primary, escalation secondary), Axis-3 minor (fix the
+  "thread_cap-8 = 4 rounds" analogy).
+
+Procedural note: I dated this section 2026-07-18 (the actual review date), per the protocol's
+"dated section" intent (attribution by when reviewed); the request suggested the doc's 2026-07-17
+date. Same substance either way; flagging the one-day difference for the record.
