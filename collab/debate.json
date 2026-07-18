@@ -1,0 +1,8 @@
+{
+  "parties": [
+    "kimi",
+    "glm"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 8
+}

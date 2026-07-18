@@ -1,0 +1,6 @@
+- skill-distribution-plan: MSG-1..MSG-7 (7 entries, closed 2026-07-15T22:47:34+00:00) -> CHANNEL-2026-07.md
+- reliability-v0-3-plan: MSG-8..MSG-16 (9 entries, closed 2026-07-16T03:57:43+00:00) -> CHANNEL-2026-07.md
+- reliability-v0-3: MSG-17..MSG-21 (5 entries, closed 2026-07-16T07:46:25+00:00) -> CHANNEL-2026-07.md
+- anti-encapsulation: MSG-22..MSG-24 (3 entries, closed 2026-07-16T20:54:10+00:00) -> CHANNEL-2026-07.md
+- cwd-fix-v0-3-1: MSG-25..MSG-27 (3 entries, closed 2026-07-17T15:06:03+00:00) -> CHANNEL-2026-07.md
+- anti-encap-impl: MSG-28..MSG-36 (9 entries, closed 2026-07-17T15:47:01+00:00) -> CHANNEL-2026-07.md

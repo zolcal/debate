@@ -1,0 +1,10 @@
+{
+  "state_path": "~/.local/state/debate/debate-repo.json",
+  "commands": { "glm": ["~/.local/bin/glm-agent", "{prompt}"] },
+  "prompts": {
+    "glm": "Review channel ./collab: it is your turn. Read collab/PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole CHANNEL.md. Immediately before acting, verify collab/signal.json still shows a NON-EMPTY thread AND turn=='glm' — if not, exit without posting. You are the REVIEWER: check what the request cites; for verdicts cite YOUR OWN fresh evidence (current HEAD from git, your own inspection) — never evidence quoted from the request. When reviewing a plan doc, append your full review as a dated section `## Review — YYYY-MM-DD · glm` at the END of the document (never edit its body) before posting your verdict. Constraints: read-only verification, doc review-section appends, and posting in the main checkout; any build/test runs in a separate git worktree; no commits to main, no merges, no pushes; verify any claim about repo state against git directly, never from channel history. Post via `debate post --root collab`, then stop."
+  },
+  "debounce_seconds": { "glm": 60 },
+  "retry_seconds": 1800,
+  "timeout_seconds": 1800
+}
