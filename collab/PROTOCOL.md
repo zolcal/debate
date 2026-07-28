@@ -32,7 +32,10 @@ Types and their meanings:
   refs (`branch@sha`). State what to verify and what evidence a verdict must carry.
 - `verdict` — reviewer → builder: APPROVE or REQUEST CHANGES, with findings. A verdict MUST
   cite freshly gathered evidence (the reviewer's own run: current HEAD, test count) — never
-  evidence quoted from the request.
+  evidence quoted from the request. For code-branch reviews, the verdict MUST also paste the
+  reviewer's actual test-run output (the exact command and its result lines, e.g. the pytest
+  summary line with counts) — enough for the supervisor to spot-check in seconds that a real
+  run happened.
 - `fix-report` — builder → reviewer: what changed, the new commit, what to re-verify.
 - `question` / `info` — either direction; supervisor context rides as `info`.
 - `close` — ends the thread. Clears both the open thread AND the turn.
@@ -92,6 +95,20 @@ merges to main, scope changes, and watcher/scheduler changes.
 
 ## Amendment log
 
+- 2026-07-27 — §2 `verdict`: code-branch verdicts must PASTE the reviewer's actual
+  test-run output (exact command + result lines), not merely claim a run. Closes the gap
+  that a fabricated "I ran the tests, 47 passed" was indistinguishable from a real one in
+  the channel record; motivated by the motivated-mislabeling failure mode in Anthropic's
+  *Agentic Misalignment — Summer 2026* report. Norm, not enforcement (Phase-2 hard
+  enforcement stays deferred). Origin: thread verdict-evidence-amendment (MSG-72..74),
+  plan `docs/plans/2026-07-22-verdict-evidence-amendment.md`. Approved 2026-07-22,
+  executed 2026-07-27 (delayed by a host crash and owner absence).
+- 2026-07-19 — Plan-doc status-marker convention standardized: gated docs are born with
+  `Status: DRAFT — pending debate review` in the header and flip to
+  `Status: APPROVED (MSG-n)` when the gate passes. Builder-side rule lives in the global
+  `AGENTS.md` ("Debate review gate"); procedure in skill `debate-review-gate`; reminder
+  hooks for Claude Code + Kimi. Origin: thread review-gate-plan (MSG-61..63), plan
+  `docs/plans/2026-07-18-review-gate-integration.md`.
 - 2026-07-17 — v1.0, adopted. Seats reconfigured claude/codex → kimi/glm; the claude/codex
   record (MSG-1..36) was relocated verbatim to `archive/CHANNEL-2026-07.md` by
   `debate compact --keep-days 0`. Mechanics and norms carried over from the upstream
