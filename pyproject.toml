@@ -27,7 +27,12 @@ Issues = "https://github.com/zolcal/debate/issues"
 "Case study" = "https://github.com/zolcal/debate/blob/main/docs/case-study.md"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "ruff>=0.4.0", "mypy>=1.10.0"]
+# ruff is PINNED to a minor range on purpose: an unpinned linter makes CI
+# non-reproducible, because a new ruff ships new rules and turns unchanged code
+# red. That happened on 2026-08-02 — code green on 0.7.x failed on 0.16.1 with
+# 17 findings, 8 of them in files untouched for weeks. Bump this deliberately,
+# with the rule changes reviewed, rather than inheriting them on a random push.
+dev = ["pytest>=8.0.0", "ruff>=0.7,<0.8", "mypy>=1.10.0"]
 
 [project.scripts]
 debate = "debate.__main__:main"
