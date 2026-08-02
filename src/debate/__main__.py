@@ -32,6 +32,17 @@ def _positive_int(text: str) -> int:
     return value
 
 
+def _flushing_print(line: str) -> None:
+    """Unbuffered emit for the long-lived `watch` loop.
+
+    A redirected stdout is block-buffered, so a healthy watcher writes
+    nothing to its log for minutes. That is indistinguishable from a dead
+    one, and it was read as death during a real incident. `watch-once` under
+    a scheduler does not need this — it exits per tick, and the exit flushes.
+    """
+    print(line, flush=True)
+
+
 def _watcher_config(root: Path, config_path: Path) -> WatcherConfig:
     raw = json.loads(config_path.read_text(encoding="utf-8"))
     return WatcherConfig(
@@ -220,7 +231,10 @@ def main(argv: list[str] | None = None) -> int:
                     interval_seconds=args.interval,
                     until_close=args.until_close,
                     max_ticks=args.max_ticks,
-                    emit=print,
+                    # flush=True or nothing reaches a redirected log until the
+                    # buffer fills: under `nohup` an empty log read as a dead
+                    # watcher and cost real debugging time (2026-07-28).
+                    emit=_flushing_print,
                 )
             except KeyboardInterrupt:
                 return 130
