@@ -132,6 +132,221 @@ def decide(
     return Decision(None, None, f"waiting on seq {seq} (invoked {count}x)")
 
 
+@dataclass(frozen=True)
+class LockState:
+    """What a non-blocking flock probe found. ``held`` is the only trustworthy
+    field: the lock FILE persists when free (it is never unlinked), so its pid
+    and stamp describe the LAST holder, live or dead."""
+
+    held: bool
+    pid: int | None
+    stamp: str
+    cwd: str | None
+
+
+@dataclass(frozen=True)
+class WatchStatus:
+    """One channel's liveness, as a verdict plus the reasoning behind it."""
+
+    verdict: str
+    detail: str
+
+
+def status(
+    signal: dict[str, Any],
+    state: dict[str, Any],
+    config: WatcherConfig,
+    now: datetime,
+    lock: LockState,
+    grace_seconds: int = 120,
+) -> WatchStatus:
+    """Pure verdict core: no I/O, no clock reads — the same rule as ``decide()``.
+
+    Verdict order is deliberate. ESCALATED outranks everything (a human is
+    already owed an answer); MANUAL outranks staleness (a party with no
+    configured command is answered by a live session, so "the watcher did not
+    fire" is the design, not a fault). Only then do the timing verdicts apply.
+    """
+    thread = str(signal.get("thread", ""))
+    turn = str(signal.get("turn", ""))
+    seq = int(signal.get("seq", 0))
+    holder = _holder_note(lock)
+
+    if not thread:
+        return WatchStatus("IDLE", "no open thread; nothing is waiting to be driven")
+    if f"{thread}:{seq}" in set(state.get("escalated", [])):
+        return WatchStatus("ESCALATED", f"seq {seq} escalated on {thread!r}; supervisor action required{holder}")
+    if not turn:
+        return WatchStatus("MANUAL", f"thread {thread!r} has no turn (supervisor opener); no seat is due{holder}")
+    if config.command_for(turn) is None:
+        return WatchStatus(
+            "MANUAL",
+            f"turn {turn!r} has no command configured; a live session answers this seat, "
+            f"not the watcher{holder}",
+        )
+
+    record = dict(dict(state.get("invocations", {})).get(str(seq), {}))
+    count = int(record.get("count", 0))
+
+    if count:
+        last_at = _parse_stamp(str(record.get("last_at", "")))
+        if last_at is None:
+            return WatchStatus("STALE", f"seq {seq} invoked {count}x but its stamp is unreadable{holder}")
+        age = int((now - last_at).total_seconds())
+        if age < config.retry_seconds:
+            return WatchStatus(
+                "INVOKED",
+                f"seq {seq} invoked {count}x, awaiting reply for {age}s of {config.retry_seconds}s{holder}",
+            )
+        return WatchStatus(
+            "STALE",
+            f"seq {seq} invoked {count}x, {age}s ago — past the {config.retry_seconds}s retry window, "
+            f"so no tick is running{holder}",
+        )
+
+    # count == 0: an uninvoked seq has NO invocation record, so its age can only
+    # be measured from the doorbell. Pinned at review (MSG-117 F4).
+    posted_at = _parse_stamp(str(signal.get("updated_at", "")))
+    if posted_at is None:
+        return WatchStatus("STALE", f"seq {seq} uninvoked and the signal stamp is unreadable{holder}")
+    age = int((now - posted_at).total_seconds())
+    due = int(config.debounce_seconds.get(turn, 0)) + grace_seconds
+    if age < due:
+        return WatchStatus("DRIVING", f"seq {seq} posted {age}s ago, not yet due ({due}s debounce+grace){holder}")
+    return WatchStatus(
+        "STALE",
+        f"seq {seq} uninvoked for {age}s, past its {due}s debounce+grace — nothing is driving {thread!r}{holder}",
+    )
+
+
+# How many invocation records the report prints before it says it capped.
+_INVOCATIONS_SHOWN = 5
+
+
+def read_status(
+    config: WatcherConfig, now: datetime, grace_seconds: int = 120
+) -> tuple[list[str], WatchStatus]:
+    """Gather one channel's liveness: the report lines plus the verdict.
+
+    The only impure half of watch-status. Reads the doorbell, the state file and
+    the lock; writes nothing and creates nothing — a diagnosis must not perturb
+    the thing being diagnosed (an absent state file in particular must stay
+    absent, or the next real tick inherits a file this command invented).
+    """
+    from debate import channel  # local import keeps module load light
+
+    signal = channel.read_signal(config.channel_root)
+    state = _load_state(config.state_path) if config.state_path.exists() else {}
+    lock = probe_lock(tick_lock_path(config.state_path))
+    result = status(signal, state, config, now, lock, grace_seconds=grace_seconds)
+
+    present = "present" if config.state_path.exists() else "absent — never ticked"
+    lines = [
+        f"channel:  {config.channel_root.resolve()}",
+        f"state:    {config.state_path} ({present})",
+        f"signal:   seq {signal.get('seq', 0)} · turn {str(signal.get('turn', '')) or '-'} · "
+        f"thread {str(signal.get('thread', '')) or '-'} · updated {signal.get('updated_at', '-')}",
+        f"mirrored: last_mirrored_seq {state.get('last_mirrored_seq', 0)}",
+    ]
+    records = sorted(dict(state.get("invocations", {})).items(), key=lambda kv: int(kv[0]))
+    shown = records[-_INVOCATIONS_SHOWN:]
+    for seq_key, record in shown:
+        entry = dict(record)
+        stamp = _parse_stamp(str(entry.get("last_at", "")))
+        age = f"{int((now - stamp).total_seconds())}s ago" if stamp else "age unknown"
+        lines.append(f"  seq {seq_key}: invoked {entry.get('count', 0)}x, last {age}")
+    # Never truncate silently: an unannounced cap reads as "that is all of them".
+    if len(records) > len(shown):
+        lines.append(f"  ({len(records) - len(shown)} older invocation records not shown)")
+    if lock.held:
+        lines.append(
+            f"lock:     HELD by pid {lock.pid} since {lock.stamp} · "
+            f"cwd {lock.cwd or 'unavailable on this platform'}"
+        )
+    else:
+        lines.append("lock:     free (probed, not guessed)")
+    return lines, result
+
+
+def probe_lock(path: Path) -> LockState:
+    """Non-blocking flock probe. NEVER infers from file existence.
+
+    The tick lock file outlives its holder by design (``WatcherLock`` never
+    unlinks it), so a file on disk proves only that a watcher ran here once —
+    reading it as "a watcher is running" is exactly what made incident 2 look
+    healthy from the outside. The kernel is the only honest answer, so we ask
+    it: if we can take the lock, nobody held it, and we drop it immediately.
+
+    Read-only by contract: a missing file is reported free rather than created.
+    """
+    if not path.exists():
+        return LockState(held=False, pid=None, stamp="", cwd=None)
+    try:
+        handle = open(path, "a+", encoding="utf-8")
+    except OSError:
+        return LockState(held=False, pid=None, stamp="", cwd=None)
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pid, stamp = _read_lock_note(handle)
+        return LockState(held=True, pid=pid, stamp=stamp, cwd=_cwd_of(pid))
+    finally:
+        handle.close()
+    return LockState(held=False, pid=None, stamp="", cwd=None)
+
+
+def _read_lock_note(handle: Any) -> tuple[int | None, str]:
+    """pid + stamp from a held lock file, tolerating a mid-rewrite blank.
+
+    ``acquire`` truncates before writing, so a probe can land on an empty or
+    half-written file. Observed live during a review round — report the holder
+    as unnamed rather than crashing or inventing one.
+    """
+    try:
+        handle.seek(0)
+        lines = handle.read().splitlines()
+    except OSError:
+        return None, ""
+    pid: int | None = None
+    if lines:
+        try:
+            pid = int(lines[0].strip())
+        except ValueError:
+            pid = None
+    return pid, lines[1].strip() if len(lines) > 1 else ""
+
+
+def _cwd_of(pid: int | None) -> str | None:
+    """The holder's working directory — the channel-identity answer both
+    incidents needed. ``/proc`` is Linux-only; elsewhere callers print the pid
+    and say the cwd is unavailable rather than guessing."""
+    if pid is None or not sys.platform.startswith("linux"):
+        return None
+    try:
+        return os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        return None
+
+
+def _holder_note(lock: LockState) -> str:
+    """Name the lock holder only when the PROBE proved one live: the lock file
+    survives release, so its pid is otherwise the last holder, not the current."""
+    if not lock.held:
+        return ""
+    where = lock.cwd or "cwd unavailable on this platform"
+    return f" [tick lock held by pid {lock.pid} since {lock.stamp}, {where}]"
+
+
 def record_invocation(state: dict[str, Any], seq: int, now: datetime) -> dict[str, Any]:
     invocations = dict(state.get("invocations", {}))
     record = dict(invocations.get(str(seq), {}))
