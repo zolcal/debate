@@ -434,10 +434,32 @@ class WatcherLock:
             self._handle = None
 
 
+def _refusal_message(lock_path: Path) -> str:
+    """Name the competing driver, not just the busy file.
+
+    "another watcher is driving <path>" left the operator to find the holder by
+    hand — which is how incident 1 ended with the wrong process killed. The
+    holder's own note answers it, and `watch-status` answers the rest.
+    """
+    holder = probe_lock(lock_path)
+    if not holder.held:
+        return (
+            f"refused: another watcher held {lock_path} and released it while we looked; "
+            "re-run the tick, or use `debate watch-status` to see the channel's state"
+        )
+    pid = holder.pid if holder.pid is not None else "unknown (holder was rewriting its note)"
+    where = f", cwd {holder.cwd}" if holder.cwd else ""
+    return (
+        f"refused: another watcher is driving {lock_path} — pid {pid} since {holder.stamp or 'unknown'}{where}. "
+        "One driver per channel: a scheduler running `watch-once`, OR a long-lived `debate watch` — "
+        "never both. Run `debate watch-status --root <channel> --config <watcher.json>` to see which."
+    )
+
+
 def run_once(config: WatcherConfig) -> list[str]:
     lock = WatcherLock(tick_lock_path(config.state_path))
     if not lock.acquire():
-        raise ChannelError(f"refused: another watcher is driving {tick_lock_path(config.state_path)}")
+        raise ChannelError(_refusal_message(tick_lock_path(config.state_path)))
     try:
         return _run_once_locked(config)
     finally:
