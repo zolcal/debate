@@ -78,6 +78,13 @@ Types and their meanings:
   timer versus its own long agent run is NOT this case: systemd will not start a second
   instance of a still-activating `Type=oneshot`, so that self-heals. `debate watch` is for
   driving a single review round interactively; it exits when the thread closes.
+- **One channel = one folder = one state file = one timer unit.** A channel's identity is the
+  *stem* of its state file: it names the timer unit (`debate-watch-<stem>`), tags every
+  `watch` log line, and is recorded in the state file and the tick lock. Give each channel a
+  project-named state file — two channels that both take a generic default collide in all
+  four places at once, and the unit silently overwrites the other. `watch-status` prints the
+  conventional unit name for the channel you point it at, so the mapping is readable rather
+  than remembered. (Scheduling itself stays host configuration; the tool never installs it.)
 - **Diagnosis before action.** `debate watch-status --root <channel> --config <watcher.json>`
   reports whether anything is driving the channel, and names the lock holder's pid and cwd.
   Run it before killing any `debate` process: `ps` cannot tell two channels' watchers apart,

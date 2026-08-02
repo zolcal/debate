@@ -259,6 +259,11 @@ def read_status(
     lines = [
         f"channel:  {config.channel_root.resolve()}",
         f"state:    {config.state_path} ({present})",
+        # One channel = one folder = one state file = one timer unit. The unit
+        # name is DERIVED from the state stem rather than remembered, so an
+        # operator can see which unit should be driving this channel instead of
+        # guessing from `ps` — the guess that killed the wrong process once.
+        f"unit:     debate-watch-{config.state_path.stem} (by convention; scheduling is host config)",
         f"signal:   seq {signal.get('seq', 0)} · turn {str(signal.get('turn', '')) or '-'} · "
         f"thread {str(signal.get('thread', '')) or '-'} · updated {signal.get('updated_at', '-')}",
         f"mirrored: last_mirrored_seq {state.get('last_mirrored_seq', 0)}",
