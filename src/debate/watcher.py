@@ -72,10 +72,24 @@ class WatcherConfig:
                 raise ChannelError(f"refused: command for {party!r} has non-string elements: {argv!r}")
 
     def command_for(self, party: str) -> list[str] | None:
+        """Build the argv for a party, expanding placeholders in ONE fixed order.
+
+        ``{channel_root}`` is expanded inside the prompt text FIRST, then that
+        prompt is substituted into argv for ``{prompt}`` — one pass each, and
+        argv is never re-scanned afterwards, so nothing arriving *from* the
+        prompt body can trigger a second expansion. Order pinned at review
+        (MSG-122).
+
+        The point of ``{channel_root}`` is that a pinned prompt saying
+        ``./collab`` resolves against the watcher's cwd, and every project in
+        this fleet names its channel ``collab``. The watcher deliberately does
+        not override the child's cwd, so the prompt has to carry the absolute
+        path itself.
+        """
         argv = self.commands.get(party)
         if not argv:
             return None
-        prompt = self.prompts.get(party, "")
+        prompt = self.prompts.get(party, "").replace("{channel_root}", str(self.channel_root.resolve()))
         return [part.replace("{prompt}", prompt) for part in argv]
 
 
