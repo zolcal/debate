@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from debate import channel
-from debate.watcher import WatcherConfig, run_once, watch
+from debate.watcher import WatcherConfig, read_status, run_once, watch
 
 
 def _nonnegative_int(text: str) -> int:
@@ -43,6 +43,20 @@ def _watcher_config(root: Path, config_path: Path) -> WatcherConfig:
         retry_seconds=int(raw.get("retry_seconds", 1800)),
         timeout_seconds=int(raw.get("timeout_seconds", 1800)),
     )
+
+
+# Verdicts that mean "a human should look now". Exit 4 matches `watch()`'s
+# escalation code, so an alerting scheduler treats both the same way.
+_NEEDS_ATTENTION = ("STALE", "ESCALATED")
+
+
+def _watch_status_report(root: Path, config_path: Path, grace: int) -> int:
+    """Print one channel's liveness. Reads only — creates nothing, locks nothing."""
+    lines, result = read_status(_watcher_config(root, config_path), datetime.now(timezone.utc), grace_seconds=grace)
+    for line in lines:
+        print(line)
+    print(f"\n{result.verdict}: {result.detail}")
+    return 4 if result.verdict in _NEEDS_ATTENTION else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -96,6 +110,17 @@ def main(argv: list[str] | None = None) -> int:
     p_watch = sub.add_parser("watch-once", help="one watcher tick (run from cron / Task Scheduler)")
     p_watch.add_argument("--root", type=Path, default=Path("."))
     p_watch.add_argument("--config", type=Path, required=True, help="watcher config JSON (see README)")
+
+    p_watchstatus = sub.add_parser("watch-status", help="read-only: is anything driving this channel?")
+    p_watchstatus.add_argument("--root", type=Path, default=Path("."))
+    p_watchstatus.add_argument("--config", type=Path, required=True, help="watcher config JSON (see README)")
+    p_watchstatus.add_argument(
+        "--grace",
+        type=_positive_int,
+        default=120,
+        metavar="SECONDS",
+        help="allowance above a party's debounce before an uninvoked seq counts as STALE (default 120: two ticks of a 60s scheduler)",
+    )
 
     p_watchloop = sub.add_parser("watch", help="foreground watcher loop: drive the open thread to completion")
     p_watchloop.add_argument("--root", type=Path, default=Path("."))
@@ -186,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
             config = _watcher_config(args.root, args.config)
             for line in run_once(config):
                 print(line)
+        elif args.command == "watch-status":
+            return _watch_status_report(args.root, args.config, args.grace)
         elif args.command == "watch":
             try:
                 return watch(
