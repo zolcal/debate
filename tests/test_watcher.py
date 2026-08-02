@@ -409,7 +409,10 @@ def test_watch_exits_four_on_persisted_escalation_instead_of_spinning(tmp_path: 
     lines: list[str] = []
     assert watch(cfg, interval_seconds=1, until_close=True, max_ticks=None,
                  emit=lines.append, sleep=_fail_sleep) == 4
-    assert any(line.startswith("STUCK:") for line in lines)
+    # `in`, not `startswith`: Slice 2 prefixes every watch() line with the
+    # channel tag, so severity markers are no longer at column 0 for THIS
+    # emitter. run_once() output is untagged and still anchored (see :292).
+    assert any("STUCK:" in line for line in lines)
 
 
 def test_watch_max_ticks_exits_five(tmp_path: Path) -> None:

@@ -339,24 +339,39 @@ def watch(
     """
     from debate import channel  # local import keeps module load light
 
+    # Every line says WHICH channel it is about. `ps` cannot tell two watchers
+    # apart (same binary, same `--root collab` convention), and two watchers'
+    # lines interleaved in one journal are unreadable without a per-line tag —
+    # the banner alone scrolls away. The tag is the state-file stem, the same
+    # identity the systemd unit name uses, so units, locks, state files and
+    # log lines all carry one name.
+    tag = f"[{config.state_path.stem}]"
+
+    def say(line: str) -> None:
+        emit(f"{tag} {line}")
+
+    # Announced BEFORE the lock is attempted: on a refusal the identity of the
+    # refused watcher is the whole question.
+    say(f"watching {config.channel_root.resolve()} · state {config.state_path}")
+
     lock = WatcherLock(tick_lock_path(config.state_path))
     if not lock.acquire():
-        emit(f"another watcher is driving {tick_lock_path(config.state_path)} - exiting")
+        say(f"another watcher is driving {tick_lock_path(config.state_path)} - exiting")
         return 6
     ticks = 0
     try:
         while True:
             lines = _run_once_locked(config)
             for line in lines:
-                emit(line)
+                say(line)
             if any(line.startswith(("ESCALATE:", "STUCK:")) for line in lines):
                 return 4
             ticks += 1
             if until_close and not str(channel.read_signal(config.channel_root).get("thread", "")):
-                emit(f"thread closed after {ticks} tick(s) - exiting")
+                say(f"thread closed after {ticks} tick(s) - exiting")
                 return 0
             if max_ticks is not None and ticks >= max_ticks:
-                emit(f"max ticks ({max_ticks}) reached - exiting")
+                say(f"max ticks ({max_ticks}) reached - exiting")
                 return 5
             sleep(interval_seconds)
     finally:
