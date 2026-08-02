@@ -156,6 +156,7 @@ class LockState:
     pid: int | None
     stamp: str
     cwd: str | None
+    channel: str | None = None  # from the holder's note; None when a pre-Slice-2 lock
 
 
 @dataclass(frozen=True)
@@ -312,14 +313,14 @@ def probe_lock(path: Path) -> LockState:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     except OSError:
-        pid, stamp = _read_lock_note(handle)
-        return LockState(held=True, pid=pid, stamp=stamp, cwd=_cwd_of(pid))
+        pid, stamp, channel = _read_lock_note(handle)
+        return LockState(held=True, pid=pid, stamp=stamp, cwd=_cwd_of(pid), channel=channel)
     finally:
         handle.close()
     return LockState(held=False, pid=None, stamp="", cwd=None)
 
 
-def _read_lock_note(handle: Any) -> tuple[int | None, str]:
+def _read_lock_note(handle: Any) -> tuple[int | None, str, str | None]:
     """pid + stamp from a held lock file, tolerating a mid-rewrite blank.
 
     ``acquire`` truncates before writing, so a probe can land on an empty or
@@ -330,14 +331,16 @@ def _read_lock_note(handle: Any) -> tuple[int | None, str]:
         handle.seek(0)
         lines = handle.read().splitlines()
     except OSError:
-        return None, ""
+        return None, "", None
     pid: int | None = None
     if lines:
         try:
             pid = int(lines[0].strip())
         except ValueError:
             pid = None
-    return pid, lines[1].strip() if len(lines) > 1 else ""
+    stamp = lines[1].strip() if len(lines) > 1 else ""
+    channel = lines[2].strip() if len(lines) > 2 else ""
+    return pid, stamp, channel or None
 
 
 def _cwd_of(pid: int | None) -> str | None:
@@ -358,7 +361,8 @@ def _holder_note(lock: LockState) -> str:
     if not lock.held:
         return ""
     where = lock.cwd or "cwd unavailable on this platform"
-    return f" [tick lock held by pid {lock.pid} since {lock.stamp}, {where}]"
+    serving = lock.channel or "channel unknown (pre-2026-08 lock)"
+    return f" [tick lock held by pid {lock.pid} since {lock.stamp}, {where}, serving {serving}]"
 
 
 def record_invocation(state: dict[str, Any], seq: int, now: datetime) -> dict[str, Any]:
@@ -402,8 +406,9 @@ class WatcherLock:
     diagnostics only; the file is never unlinked (inert when unlocked).
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, channel_root: Path | None = None) -> None:
         self._path = path
+        self._channel_root = channel_root
         self._handle: Any = None
 
     def acquire(self) -> bool:
@@ -425,7 +430,11 @@ class WatcherLock:
         stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
         handle.seek(0)
         handle.truncate()
-        handle.write(f"{os.getpid()}\n{stamp}\n")
+        # Third line: which channel this holder serves. `ps` cannot tell two
+        # watchers apart and /proc does not exist off Linux, so the holder says
+        # so itself. A pre-Slice-2 note has two lines and reads back as unknown.
+        channel = str(self._channel_root.resolve()) if self._channel_root is not None else ""
+        handle.write(f"{os.getpid()}\n{stamp}\n{channel}\n")
         handle.flush()
         self._handle = handle
         return True
@@ -463,15 +472,16 @@ def _refusal_message(lock_path: Path) -> str:
         )
     pid = holder.pid if holder.pid is not None else "unknown (holder was rewriting its note)"
     where = f", cwd {holder.cwd}" if holder.cwd else ""
+    serving = f", serving channel {holder.channel}" if holder.channel else ", channel unknown (pre-2026-08 lock)"
     return (
-        f"refused: another watcher is driving {lock_path} — pid {pid} since {holder.stamp or 'unknown'}{where}. "
+        f"refused: another watcher is driving {lock_path} — pid {pid} since {holder.stamp or 'unknown'}{where}{serving}. "
         "One driver per channel: a scheduler running `watch-once`, OR a long-lived `debate watch` — "
         "never both. Run `debate watch-status --root <channel> --config <watcher.json>` to see which."
     )
 
 
 def run_once(config: WatcherConfig) -> list[str]:
-    lock = WatcherLock(tick_lock_path(config.state_path))
+    lock = WatcherLock(tick_lock_path(config.state_path), channel_root=config.channel_root)
     if not lock.acquire():
         raise ChannelError(_refusal_message(tick_lock_path(config.state_path)))
     try:
@@ -644,7 +654,7 @@ def watch(
     # refused watcher is the whole question.
     say(f"watching {config.channel_root.resolve()} · state {config.state_path}")
 
-    lock = WatcherLock(tick_lock_path(config.state_path))
+    lock = WatcherLock(tick_lock_path(config.state_path), channel_root=config.channel_root)
     if not lock.acquire():
         say(f"another watcher is driving {tick_lock_path(config.state_path)} - exiting")
         return 6
