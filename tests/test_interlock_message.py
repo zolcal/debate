@@ -24,7 +24,10 @@ HOLDER_CODE = """
 import sys, time, pathlib
 lock_path = pathlib.Path(sys.argv[1]); ready = pathlib.Path(sys.argv[2])
 handle = open(lock_path, "a+")
-import fcntl; fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+if sys.platform == "win32":
+    import msvcrt; handle.seek(1 << 16); msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+else:
+    import fcntl; fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 handle.seek(0); handle.truncate()
 handle.write("777001\\n2026-08-02T09:15:00+00:00\\n"); handle.flush()
 ready.write_text("held")
@@ -43,7 +46,6 @@ def _hold(lock: Path, ready: Path) -> "subprocess.Popen[bytes]":
     return proc
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="holder helper uses fcntl")
 def test_refused_tick_names_the_holder_and_exits_one(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -74,14 +76,16 @@ BLANK_NOTE_HOLDER = """
 import sys, time, pathlib
 lock_path = pathlib.Path(sys.argv[1]); ready = pathlib.Path(sys.argv[2])
 handle = open(lock_path, "a+")
-import fcntl; fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+if sys.platform == "win32":
+    import msvcrt; handle.seek(1 << 16); msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+else:
+    import fcntl; fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 handle.seek(0); handle.truncate(); handle.flush()   # mid-rewrite: lock HELD, note blank
 ready.write_text("held")
 time.sleep(30)
 """
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="holder helper uses fcntl")
 def test_refusal_never_invents_a_pid_when_the_holder_note_is_blank(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

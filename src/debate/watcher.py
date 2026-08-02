@@ -40,6 +40,15 @@ from debate.channel import ChannelError
 # Windows: suppress the console window a scheduled invocation would flash.
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+# Windows locks a byte RANGE and does so MANDATORILY; POSIX flock is advisory
+# and whole-file. Locking byte 0 therefore made the note unreadable on Windows —
+# probe_lock returned held-but-nameless, so watch-status could not say WHO held
+# the lock or for which channel, which is the entire point of the note. The lock
+# is taken on a sentinel byte far past the note instead, so the note stays
+# readable everywhere. Found by CI (windows-latest 3.10) after two Linux
+# reviewers passed it: on POSIX the failure cannot occur.
+_LOCK_BYTE_OFFSET = 1 << 16  # 65536 - orders of magnitude past a 3-line note
+
 
 @dataclass(frozen=True)
 class WatcherConfig:
@@ -309,7 +318,7 @@ def probe_lock(path: Path) -> LockState:
         if sys.platform == "win32":
             import msvcrt
 
-            handle.seek(0)
+            handle.seek(_LOCK_BYTE_OFFSET)
             msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
             msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
         else:
@@ -423,7 +432,7 @@ class WatcherLock:
             if sys.platform == "win32":
                 import msvcrt
 
-                handle.seek(0)
+                handle.seek(_LOCK_BYTE_OFFSET)
                 msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
             else:
                 import fcntl
@@ -451,7 +460,7 @@ class WatcherLock:
             if sys.platform == "win32":
                 import msvcrt
 
-                self._handle.seek(0)
+                self._handle.seek(_LOCK_BYTE_OFFSET)
                 msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
             else:
                 import fcntl
