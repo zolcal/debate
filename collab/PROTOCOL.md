@@ -63,14 +63,31 @@ Types and their meanings:
 
 ## 4. Watchers
 
-- No scheduler drives this channel yet (owner's call). When one is added: `debate
-  watch-once` every 3 minutes, invoking a party's pinned command only when ALL of: the
-  party's turn, an open thread, past the party's debounce, and not already invoked for this
-  `seq` (one timed retry after 30 minutes, then supervisor escalation — never a loop).
+- **A scheduler drives this channel.** The systemd user timer
+  `debate-watch-debate-repo.timer` runs `debate watch-once` every 60 s against
+  `/home/zoltan/Projects/debate/collab`, invoking a party's pinned command only when ALL
+  of: the party's turn, an open thread, past the party's debounce, and not already invoked
+  for this `seq` (one timed retry after 30 minutes, then supervisor escalation — never a
+  loop). Installed 2026-08-01 09:57 after a review request sat uninvoked ~20 minutes.
+  *(This bullet previously read "No scheduler drives this channel yet (owner's call)" — it
+  was left stale after the timer was installed, and was corrected under MSG-119 Slice 3.)*
+- **One driver per channel: the scheduler OR a long-lived `debate watch` — never both.**
+  `watch` holds the tick lock for its whole process lifetime, so every scheduler tick is
+  then refused (**exit 1** — `run_once` raises and the CLI maps it; exit 6 is `watch`'s own
+  code), and the channel silently stops being driven unless somebody reads exit codes. The
+  timer versus its own long agent run is NOT this case: systemd will not start a second
+  instance of a still-activating `Type=oneshot`, so that self-heals. `debate watch` is for
+  driving a single review round interactively; it exits when the thread closes.
+- **Diagnosis before action.** `debate watch-status --root <channel> --config <watcher.json>`
+  reports whether anything is driving the channel, and names the lock holder's pid and cwd.
+  Run it before killing any `debate` process: `ps` cannot tell two channels' watchers apart,
+  and killing the wrong one is how the 2026-07-28 incident happened.
 - Invocation prompts are **pinned in `watcher.json`** — fixed strings, never composed at
   runtime.
 - `kimi` is human-driven and has **no `commands` entry** — the watcher never auto-starts
   it; a live session answers its own doorbell. `glm` is machine-only: debounce 60 s.
+  A turn held by a party with no command is reported `MANUAL` by `watch-status`, never
+  `STALE` — the watcher is by design not driving that seat.
 
 ## 5. Constraints on unattended sessions
 

@@ -108,13 +108,20 @@ starts that agent with a fixed, pre-written prompt from a config file:
 
 ```json
 {
-  "state_path": "/somewhere/outside/the/channel/watcher-state.json",
+  "state_path": "/somewhere/outside/the/channel/watcher-state-myproject.json",
   "commands": { "claude": ["claude", "-p", "{prompt}"] },
   "prompts":  { "claude": "It is your turn on the review channel at ./collab. Read the open thread, act, post via debate, then stop." },
   "debounce_seconds": { "claude": 600 },
   "retry_seconds": 1800
 }
 ```
+
+**Name the state file after the project, not `watcher-state.json`.** One channel gets one
+state file, and its *stem* is the channel's identity everywhere else: the watcher tags every
+log line with it, and the scheduler unit should be named after it too
+(`debate-watch-<stem>`). Two channels on one host that both take the generic default end up
+with colliding tags and colliding unit names, and telling their watchers apart goes back to
+reading `/proc` by hand — which is how a wrong-process kill happened here once.
 
 ```bash
 debate watch-once --root ./collab --config watcher.json   # cron this every ~3 minutes
