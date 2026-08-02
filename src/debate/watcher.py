@@ -466,6 +466,41 @@ def run_once(config: WatcherConfig) -> list[str]:
         lock.release()
 
 
+# The state file records which channel wrote it. This is the whole of the
+# cross-channel guard: one value on disk compared against the config in hand,
+# so a tick on a cold-booted host reaches the same verdict as any other. No
+# registry, no daemon, nothing that lives in a process.
+CHANNEL_STAMP = "channel_root"
+
+
+def _verify_channel_binding(state: dict[str, Any], config: WatcherConfig) -> None:
+    """Refuse a state file that belongs to a different channel.
+
+    Absent stamp -> adopt (trust on first use): every state file written before
+    this existed is unstamped, and a migration step nobody runs is a migration
+    that never happens. Paths are compared RESOLVED, so ``collab``, ``./collab``
+    and a symlink to it are one channel rather than three.
+
+    This cannot be checked at config construction — the tool only knows about
+    channels it has been pointed at. First contact is the earliest moment the
+    information exists anywhere.
+    """
+    stamped = str(state.get(CHANNEL_STAMP, ""))
+    if not stamped:
+        return
+    if Path(stamped).resolve() == config.channel_root.resolve():
+        return
+    raise ChannelError(
+        f"refused: state file {config.state_path} belongs to channel {Path(stamped).resolve()}, "
+        f"but this tick is for {config.channel_root.resolve()}. Two channels sharing one state "
+        f"file silently share last_mirrored_seq and invocations (keyed by bare seq), so one "
+        f"channel's message suppresses the other's invocation. Fix by EDITING the "
+        f"{CHANNEL_STAMP!r} key, or by pointing this channel's config at its own state_path — "
+        f"do NOT delete the state file: that also clears once-per-seq for the current seq and "
+        f"re-invokes a seat that is already working."
+    )
+
+
 def _run_once_locked(config: WatcherConfig) -> list[str]:
     """One watcher tick: mirror new entries, maybe invoke, maybe escalate.
 
@@ -477,6 +512,10 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
 
     output: list[str] = []
     state = _load_state(config.state_path)
+    # BEFORE mirroring, deciding or invoking: a state file that belongs to a
+    # different channel must stop the tick while nothing has been written yet.
+    _verify_channel_binding(state, config)
+    state[CHANNEL_STAMP] = str(config.channel_root.resolve())
 
     # Snapshot + decide + record under the CHANNEL WRITER LOCK: a mid-post
     # writer cannot hold it, so signal and mailbox are consistent here by
