@@ -396,8 +396,19 @@ def record_escalation(state: dict[str, Any], thread: str, seq: int) -> dict[str,
 
 
 def new_entry_lines(entries: list[Any], after_seq: int) -> list[str]:
-    """One-line summaries of entries newer than after_seq — mirror these to
-    wherever the supervisor already looks (chat, log, notification)."""
+    """One-line summaries of entries newer than after_seq - mirror these to
+    wherever the supervisor already looks (chat, log, notification).
+
+    NOT COVERED by the ASCII-output guarantee. Every string this module
+    *authors* is ASCII, so watcher logs decode identically on every platform
+    (Windows print() to a redirected stream uses the locale codepage, not
+    UTF-8). These lines are different: they pass through message text somebody
+    else wrote, and channel entries have carried em-dashes for months. Forcing
+    them ASCII would mean dropping, escaping or transcoding another author's
+    words - a product decision, not a typography swap, so it is deliberately
+    not made here (ruled at MSG-151 F2). A true end-to-end guarantee wants
+    ``sys.stdout.reconfigure(encoding="utf-8")`` at the CLI boundary instead.
+    """
     lines = []
     for entry in entries:
         if entry.seq <= after_seq:
@@ -489,7 +500,7 @@ def _refusal_message(lock_path: Path) -> str:
     serving = f", serving channel {holder.channel}" if holder.channel else ", channel unknown (pre-2026-08 lock)"
     return (
         f"refused: another watcher is driving {lock_path} - pid {pid} since {holder.stamp or 'unknown'}{where}{serving}. "
-        "One driver per channel: a scheduler running `watch-once`, OR a long-lived `debate watch` — "
+        "One driver per channel: a scheduler running `watch-once`, OR a long-lived `debate watch` - "
         "never both. Run `debate watch-status --root <channel> --config <watcher.json>` to see which."
     )
 

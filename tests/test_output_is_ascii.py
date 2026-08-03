@@ -73,11 +73,22 @@ def test_every_status_verdict_detail_is_ascii(tmp_path: Path) -> None:
 
 
 def test_refusal_messages_are_ascii(tmp_path: Path) -> None:
-    """Both refusals are read during an incident, often out of a redirected log."""
-    from debate.watcher import _refusal_message, _verify_channel_binding
-    from debate.channel import ChannelError
+    """BOTH branches of the watch-once refusal, not just the reachable-by-default
+    one. The held branch is the incident-time message an operator reads out of a
+    redirected log — and it kept an em-dash for a whole round because the test
+    only ever exercised the absent-lock branch (MSG-151 F1)."""
+    from unittest.mock import patch
 
-    _assert_ascii(_refusal_message(tmp_path / "absent.lock"), "watch-once refusal")
+    from debate import watcher as watcher_module
+    from debate.channel import ChannelError
+    from debate.watcher import _refusal_message, _verify_channel_binding
+
+    _assert_ascii(_refusal_message(tmp_path / "absent.lock"), "watch-once refusal (lock free)")
+
+    with patch.object(watcher_module, "probe_lock", return_value=HELD):
+        held_message = _refusal_message(tmp_path / "held.lock")
+    _assert_ascii(held_message, "watch-once refusal (lock HELD)")
+    assert "pid 4242" in held_message, "the held branch must actually have been taken"
 
     cfg = WatcherConfig(channel_root=tmp_path / "mine", state_path=tmp_path / "state.json")
     try:
@@ -86,3 +97,35 @@ def test_refusal_messages_are_ascii(tmp_path: Path) -> None:
         _assert_ascii(str(error), "channel-binding refusal")
     else:  # pragma: no cover
         raise AssertionError("expected a refusal")
+
+
+def test_no_string_literal_in_the_watcher_can_carry_non_ascii() -> None:
+    """The class, not the instance. Three separate line-targeted fixes each
+    missed a sibling string; an AST sweep cannot. Docstrings are exempt —
+    Python reads source as UTF-8 regardless of locale, and they never reach a
+    stream."""
+    import ast
+
+    source_file = Path(__file__).resolve().parent.parent / "src" / "debate" / "watcher.py"
+    tree = ast.parse(source_file.read_text(encoding="utf-8"))
+
+    docstrings = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and body:
+            first = body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(
+                first.value.value, str
+            ):
+                docstrings.add(id(first.value))
+
+    offenders = [
+        (node.lineno, node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+        and any(ord(char) > 127 for char in node.value)
+    ]
+
+    assert not offenders, f"non-ASCII string literals reachable by print/emit: {offenders}"
