@@ -24,7 +24,10 @@ LEGACY_HOLDER = """
 import sys, time, pathlib
 lock_path = pathlib.Path(sys.argv[1]); ready = pathlib.Path(sys.argv[2])
 handle = open(lock_path, "a+")
-import fcntl; fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+if sys.platform == "win32":
+    import msvcrt; handle.seek(1 << 16); msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+else:
+    import fcntl; fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 handle.seek(0); handle.truncate()
 handle.write("424242\\n2026-08-02T09:00:00+00:00\\n")   # two lines: pre-Slice-2 format
 handle.flush()
