@@ -93,7 +93,10 @@ def test_watch_output_is_visible_while_the_process_is_still_running(tmp_path: Pa
         try:
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
-                if str(root.resolve()) in log.read_text(encoding="utf-8"):
+                # ASCII-strict on purpose: the watcher writes with the locale
+                # encoding on Windows, so a non-ASCII byte here means output
+                # that no UTF-8 log reader can consume (CI found exactly that).
+                if str(root.resolve()) in log.read_text(encoding="ascii"):
                     break
                 assert proc.poll() is None, "process exited before the banner was readable — that is the bug"
                 time.sleep(0.1)

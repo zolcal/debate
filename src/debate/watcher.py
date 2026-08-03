@@ -224,7 +224,7 @@ def status(
             )
         return WatchStatus(
             "STALE",
-            f"seq {seq} invoked {count}x, {age}s ago — past the {config.retry_seconds}s retry window, "
+            f"seq {seq} invoked {count}x, {age}s ago - past the {config.retry_seconds}s retry window, "
             f"so no tick is running{holder}",
         )
 
@@ -239,7 +239,7 @@ def status(
         return WatchStatus("DRIVING", f"seq {seq} posted {age}s ago, not yet due ({due}s debounce+grace){holder}")
     return WatchStatus(
         "STALE",
-        f"seq {seq} uninvoked for {age}s, past its {due}s debounce+grace — nothing is driving {thread!r}{holder}",
+        f"seq {seq} uninvoked for {age}s, past its {due}s debounce+grace - nothing is driving {thread!r}{holder}",
     )
 
 
@@ -264,7 +264,7 @@ def read_status(
     lock = probe_lock(tick_lock_path(config.state_path))
     result = status(signal, state, config, now, lock, grace_seconds=grace_seconds)
 
-    present = "present" if config.state_path.exists() else "absent — never ticked"
+    present = "present" if config.state_path.exists() else "absent - never ticked"
     lines = [
         f"channel:  {config.channel_root.resolve()}",
         f"state:    {config.state_path} ({present})",
@@ -273,8 +273,8 @@ def read_status(
         # operator can see which unit should be driving this channel instead of
         # guessing from `ps` — the guess that killed the wrong process once.
         f"unit:     debate-watch-{config.state_path.stem} (by convention; scheduling is host config)",
-        f"signal:   seq {signal.get('seq', 0)} · turn {str(signal.get('turn', '')) or '-'} · "
-        f"thread {str(signal.get('thread', '')) or '-'} · updated {signal.get('updated_at', '-')}",
+        f"signal:   seq {signal.get('seq', 0)} | turn {str(signal.get('turn', '')) or '-'} | "
+        f"thread {str(signal.get('thread', '')) or '-'} | updated {signal.get('updated_at', '-')}",
         f"mirrored: last_mirrored_seq {state.get('last_mirrored_seq', 0)}",
     ]
     records = sorted(dict(state.get("invocations", {})).items(), key=lambda kv: int(kv[0]))
@@ -289,7 +289,7 @@ def read_status(
         lines.append(f"  ({len(records) - len(shown)} older invocation records not shown)")
     if lock.held:
         lines.append(
-            f"lock:     HELD by pid {lock.pid} since {lock.stamp} · "
+            f"lock:     HELD by pid {lock.pid} since {lock.stamp} | "
             f"cwd {lock.cwd or 'unavailable on this platform'}"
         )
     else:
@@ -396,8 +396,19 @@ def record_escalation(state: dict[str, Any], thread: str, seq: int) -> dict[str,
 
 
 def new_entry_lines(entries: list[Any], after_seq: int) -> list[str]:
-    """One-line summaries of entries newer than after_seq — mirror these to
-    wherever the supervisor already looks (chat, log, notification)."""
+    """One-line summaries of entries newer than after_seq - mirror these to
+    wherever the supervisor already looks (chat, log, notification).
+
+    NOT COVERED by the ASCII-output guarantee. Every string this module
+    *authors* is ASCII, so watcher logs decode identically on every platform
+    (Windows print() to a redirected stream uses the locale codepage, not
+    UTF-8). These lines are different: they pass through message text somebody
+    else wrote, and channel entries have carried em-dashes for months. Forcing
+    them ASCII would mean dropping, escaping or transcoding another author's
+    words - a product decision, not a typography swap, so it is deliberately
+    not made here (ruled at MSG-151 F2). A true end-to-end guarantee wants
+    ``sys.stdout.reconfigure(encoding="utf-8")`` at the CLI boundary instead.
+    """
     lines = []
     for entry in entries:
         if entry.seq <= after_seq:
@@ -488,8 +499,8 @@ def _refusal_message(lock_path: Path) -> str:
     where = f", cwd {holder.cwd}" if holder.cwd else ""
     serving = f", serving channel {holder.channel}" if holder.channel else ", channel unknown (pre-2026-08 lock)"
     return (
-        f"refused: another watcher is driving {lock_path} — pid {pid} since {holder.stamp or 'unknown'}{where}{serving}. "
-        "One driver per channel: a scheduler running `watch-once`, OR a long-lived `debate watch` — "
+        f"refused: another watcher is driving {lock_path} - pid {pid} since {holder.stamp or 'unknown'}{where}{serving}. "
+        "One driver per channel: a scheduler running `watch-once`, OR a long-lived `debate watch` - "
         "never both. Run `debate watch-status --root <channel> --config <watcher.json>` to see which."
     )
 
@@ -533,7 +544,7 @@ def _verify_channel_binding(state: dict[str, Any], config: WatcherConfig) -> Non
         f"but this tick is for {config.channel_root.resolve()}. Two channels sharing one state "
         f"file silently share last_mirrored_seq and invocations (keyed by bare seq), so one "
         f"channel's message suppresses the other's invocation. Fix by EDITING the "
-        f"{CHANNEL_STAMP!r} key, or by pointing this channel's config at its own state_path — "
+        f"{CHANNEL_STAMP!r} key, or by pointing this channel's config at its own state_path - "
         f"do NOT delete the state file: that also clears once-per-seq for the current seq and "
         f"re-invokes a seat that is already working."
     )
@@ -666,7 +677,7 @@ def watch(
 
     # Announced BEFORE the lock is attempted: on a refusal the identity of the
     # refused watcher is the whole question.
-    say(f"watching {config.channel_root.resolve()} · state {config.state_path}")
+    say(f"watching {config.channel_root.resolve()} | state {config.state_path}")
 
     lock = WatcherLock(tick_lock_path(config.state_path), channel_root=config.channel_root)
     if not lock.acquire():
