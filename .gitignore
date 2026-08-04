@@ -22,3 +22,9 @@ watcher.json
 # Session handovers are internal working notes: host paths, credential logistics,
 # unreleased work. Session 2 reached the public repo by omission, not by choice.
 docs/HANDOVER-SESSION-*.md
+
+# Planning documents are how this project is BUILT, not what it ships. They carry
+# host paths, unreleased research, business strategy and in-flight design argument
+# — development intricacies with no reason to be public. The shipped artifacts are
+# README.md, PROTOCOL.md, examples/ and docs/case-study.md.
+docs/plans/
