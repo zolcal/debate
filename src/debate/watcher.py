@@ -563,7 +563,20 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
     from debate import channel  # local import keeps module load light
 
     output: list[str] = []
-    state = _load_state(config.state_path)
+    # THIRD instance of the same unguarded-read pattern, found by probing for it
+    # after the doorbell (MSG-168) and the mailbox (MSG-170) rather than waiting
+    # to be told: _load_state does json.loads + dict() with no guard, so a
+    # corrupt state file killed the tick four ways (torn JSON, non-dict JSON, a
+    # list, non-UTF-8). Refuse loudly and act on NOTHING - no invocation on
+    # unknown state - and leave the file untouched so a human can inspect it
+    # instead of having the evidence overwritten by a fresh save.
+    try:
+        state = _load_state(config.state_path)
+    except (OSError, ValueError, TypeError) as error:
+        return [
+            f"ESCALATE: unreadable watcher state {config.state_path}: {error}; "
+            "acting on nothing this tick - inspect or delete the file"
+        ]
     # BEFORE mirroring, deciding or invoking: a state file that belongs to a
     # different channel must stop the tick while nothing has been written yet.
     _verify_channel_binding(state, config)
@@ -591,7 +604,21 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
             signal = {}
             doorbell_failure = [channel.Anomaly(channel.ANOMALY, "unreadable-doorbell", str(error))]
 
-        entries = channel.read_entries(config.channel_root)
+        # The mailbox needs the SAME treatment as the doorbell above, for the
+        # same reason: read_entries decodes UTF-8 unguarded, so a corrupted
+        # record raised UnicodeDecodeError out of the tick, out of run_once
+        # (try/finally for the lock only, no catch) and out of `watch-once` -
+        # main() converts ChannelError alone. verify_record ALREADY reports
+        # this as `unreadable-record`, but the tick died two lines before
+        # reaching it, so that finding was dead code on this path. A detection
+        # limit misses tampering; this took the watcher offline for every
+        # thread, healthy ones included. Found at review, MSG-170.
+        mailbox_failure: list[channel.Anomaly] = []
+        entries: list[channel.Entry] = []
+        try:
+            entries = channel.read_entries(config.channel_root)
+        except (OSError, ValueError) as error:
+            mailbox_failure = [channel.Anomaly(channel.ANOMALY, "unreadable-record", str(error))]
         seq = int(str(signal.get("seq", 0)))
         mailbox_seq = max((entry.seq for entry in entries), default=0)
 
@@ -604,7 +631,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         # and cannot establish for itself (the lock is not reentrant).
         # A failed doorbell read IS the finding; re-reading would only rediscover
         # it, and verify_record needs the doorbell to say anything useful anyway.
-        findings = doorbell_failure or channel.verify_record(config.channel_root)
+        findings = doorbell_failure or mailbox_failure or channel.verify_record(config.channel_root)
         anomalies = [f for f in findings if f.level == channel.ANOMALY]
         if anomalies:
             # An anomalous reading has TWO causes and a SINGLE TICK CANNOT TELL

@@ -466,3 +466,114 @@ def test_read_signal_refuses_deterministically(tmp_path: Path) -> None:
     (root / channel.SIGNAL_NAME).write_bytes(b"\xff\xfe not utf8")
     with pytest.raises(channel.ChannelError):
         channel.read_signal(root)
+
+
+# --- the mailbox kills the tick too (MSG-170) ------------------------------
+
+
+CORRUPT_MAILBOXES = [
+    pytest.param(b"\xff\xfe not utf8", id="non-utf8"),
+    pytest.param(b"\x00\x01\x02\xc3\x28", id="invalid-continuation"),
+]
+
+
+@pytest.mark.parametrize("payload", CORRUPT_MAILBOXES)
+def test_watcher_does_not_crash_loop_on_a_corrupt_mailbox(tmp_path: Path, payload: bytes) -> None:
+    """read_entries decodes UTF-8 unguarded and the watcher calls it BEFORE
+    verify_record, so the 'unreadable-record' finding was dead code on this
+    path: the tick died two lines earlier, once every 60s, for every thread."""
+    root = make_channel(tmp_path, posts=1)
+    cfg = watcher_config(root, tmp_path)
+    (root / channel.CHANNEL_NAME).write_bytes(payload)
+
+    lines = watcher.run_once(cfg)  # must not raise
+
+    assert any("unreadable-record" in line for line in lines), lines
+
+
+@pytest.mark.parametrize("payload", CORRUPT_MAILBOXES)
+def test_corrupt_mailbox_escalates_when_it_persists(tmp_path: Path, payload: bytes) -> None:
+    """Corruption is not a transient in-flight state, but it rides the same
+    ladder: defer once, then escalate. It must reach ESCALATE, not defer forever."""
+    root = make_channel(tmp_path, posts=1)
+    cfg = watcher_config(root, tmp_path)
+    (root / channel.CHANNEL_NAME).write_bytes(payload)
+
+    watcher.run_once(cfg)
+    second = watcher.run_once(cfg)
+
+    assert any(line.startswith("ESCALATE: record anomaly") for line in second), second
+
+
+def test_watch_once_cli_survives_a_corrupt_mailbox(tmp_path: Path) -> None:
+    """End to end: `debate watch-once` must not traceback - main() converts
+    ChannelError only, so an unguarded decode error escapes as exit-1 noise."""
+    root = make_channel(tmp_path, posts=1)
+    cfg_path = tmp_path / "watcher.json"
+    cfg_path.write_text(
+        json.dumps({
+            "state_path": str(tmp_path / "state" / "w.json"),
+            "commands": {"bob": [sys.executable, "-c", "pass"]},
+            "prompts": {"bob": "go"},
+            "debounce_seconds": {"bob": 0},
+            "retry_seconds": 1800,
+        }),
+        encoding="utf-8",
+    )
+    (root / channel.CHANNEL_NAME).write_bytes(b"\xff\xfe not utf8")
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "debate", "watch-once", "--root", str(root), "--config", str(cfg_path)],
+        capture_output=True, text=True, timeout=60,
+    )
+
+    assert "Traceback" not in proc.stderr, proc.stderr
+    assert "UnicodeDecodeError" not in proc.stderr, proc.stderr
+
+
+# --- the watcher's own state file (found by probing, not by review) --------
+
+
+CORRUPT_STATES = [
+    pytest.param('{"seq": 1, "tur', id="torn-json"),
+    pytest.param("42", id="non-dict"),
+    pytest.param("[1,2]", id="list"),
+]
+
+
+@pytest.mark.parametrize("payload", CORRUPT_STATES)
+def test_watcher_does_not_crash_loop_on_corrupt_state(tmp_path: Path, payload: str) -> None:
+    root = make_channel(tmp_path, posts=1)
+    cfg = watcher_config(root, tmp_path)
+    cfg.state_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg.state_path.write_text(payload, encoding="utf-8")
+
+    lines = watcher.run_once(cfg)  # must not raise
+
+    assert any(line.startswith("ESCALATE:") for line in lines), lines
+
+
+def test_corrupt_state_is_not_overwritten(tmp_path: Path) -> None:
+    """Refusing must preserve the evidence: a fresh save would destroy the
+    only artifact a human can diagnose from."""
+    root = make_channel(tmp_path, posts=1)
+    cfg = watcher_config(root, tmp_path)
+    cfg.state_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg.state_path.write_text("42", encoding="utf-8")
+    before = cfg.state_path.read_bytes()
+
+    watcher.run_once(cfg)
+
+    assert cfg.state_path.read_bytes() == before, "the corrupt state file must be left alone"
+
+
+def test_corrupt_state_invokes_nobody(tmp_path: Path) -> None:
+    """No agent may be launched on state we could not read."""
+    root = make_channel(tmp_path, posts=1)
+    cfg = watcher_config(root, tmp_path)
+    cfg.state_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg.state_path.write_text("[1,2]", encoding="utf-8")
+
+    lines = watcher.run_once(cfg)
+
+    assert not any(line.startswith("invoked ") for line in lines), lines
