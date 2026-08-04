@@ -18,4 +18,7 @@ collab/.lock
 # Host-specific live config stays local; sanitized examples are committed instead.
 watcher.json
 .claude/settings.local.json
-docs/HANDOVER-SESSION-1.md
+
+# Session handovers are internal working notes: host paths, credential logistics,
+# unreleased work. Session 2 reached the public repo by omission, not by choice.
+docs/HANDOVER-SESSION-*.md
