@@ -13,6 +13,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from debate import channel
 from debate.watcher import WatcherConfig, read_status, run_once, watch
@@ -43,16 +44,92 @@ def _flushing_print(line: str) -> None:
     print(line, flush=True)
 
 
+def _mapping(raw: dict[str, Any], key: str, config_path: Path) -> dict[str, Any]:
+    """A config section must be a JSON object; anything else refuses by name."""
+    section = raw.get(key, {})
+    if not isinstance(section, dict):
+        raise channel.ChannelError(
+            f"refused: {config_path}: {key!r} must be an object mapping party -> value, "
+            f"got {type(section).__name__}"
+        )
+    return section
+
+
+def _seconds(raw: dict[str, Any], key: str, default: int, config_path: Path) -> int:
+    value = raw.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise channel.ChannelError(f"refused: {config_path}: {key!r} must be a number, got {value!r}")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as error:
+        raise channel.ChannelError(
+            f"refused: {config_path}: {key!r} must be a whole number of seconds, got {value!r}"
+        ) from error
+
+
 def _watcher_config(root: Path, config_path: Path) -> WatcherConfig:
-    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    """Load watcher.json, refusing in the CLI's own vocabulary.
+
+    `main` converts `ChannelError` and NOTHING else, so every other exception
+    raised here reaches the operator as a traceback and exit 1. Under the 60s
+    timer that is a crash-loop from a hand-edit typo, and it hits `watch`,
+    `watch-once` and `watch-status` alike. This file is the one an operator is
+    told to copy and edit, so a typo is the EXPECTED input, not an exotic one.
+
+    Same shape as the three unguarded reads fixed in the verify slice
+    (doorbell, mailbox, state file), with one real difference that kept it out
+    of that slice: those files are written by the program and read back, so a
+    torn write corrupts them with no human involved, whereas this one can only
+    be broken by hand. It still has to refuse rather than crash. Found at
+    MSG-172.
+    """
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise channel.ChannelError(f"refused: cannot read watcher config {config_path}: {error}") from error
+    except ValueError as error:  # UnicodeDecodeError
+        raise channel.ChannelError(f"refused: watcher config {config_path} is not valid UTF-8: {error}") from error
+
+    try:
+        raw = json.loads(text)
+    except ValueError as error:
+        raise channel.ChannelError(f"refused: watcher config {config_path} is not valid JSON: {error}") from error
+
+    if not isinstance(raw, dict):
+        raise channel.ChannelError(
+            f"refused: watcher config {config_path} must be a JSON object, got {type(raw).__name__}"
+        )
+    if "state_path" not in raw:
+        raise channel.ChannelError(f"refused: watcher config {config_path} has no 'state_path'")
+
+    commands: dict[str, list[str]] = {}
+    for party, argv in _mapping(raw, "commands", config_path).items():
+        # A bare string is the trap worth naming: list("echo hi") becomes
+        # ['e','c','h','o',...], every element a str, so WatcherConfig's
+        # all-strings check passes and the failure surfaces only at exec time.
+        if isinstance(argv, str) or not isinstance(argv, list):
+            raise channel.ChannelError(
+                f"refused: {config_path}: command for {party!r} must be a list of arguments "
+                f'(e.g. ["/path/to/agent", "{{prompt}}"]), got {type(argv).__name__}'
+            )
+        if not argv:
+            raise channel.ChannelError(
+                f"refused: {config_path}: command for {party!r} is empty; omit the party instead "
+                "of configuring one that can never be invoked"
+            )
+        commands[party] = list(argv)
+
     return WatcherConfig(
         channel_root=root,
-        state_path=Path(raw["state_path"]).expanduser(),
-        commands={k: list(v) for k, v in raw.get("commands", {}).items()},
-        prompts={k: str(v) for k, v in raw.get("prompts", {}).items()},
-        debounce_seconds={k: int(v) for k, v in raw.get("debounce_seconds", {}).items()},
-        retry_seconds=int(raw.get("retry_seconds", 1800)),
-        timeout_seconds=int(raw.get("timeout_seconds", 1800)),
+        state_path=Path(str(raw["state_path"])).expanduser(),
+        commands=commands,
+        prompts={k: str(v) for k, v in _mapping(raw, "prompts", config_path).items()},
+        debounce_seconds={
+            k: _seconds({k: v}, k, 0, config_path)
+            for k, v in _mapping(raw, "debounce_seconds", config_path).items()
+        },
+        retry_seconds=_seconds(raw, "retry_seconds", 1800, config_path),
+        timeout_seconds=_seconds(raw, "timeout_seconds", 1800, config_path),
     )
 
 
