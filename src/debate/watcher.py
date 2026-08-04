@@ -520,6 +520,9 @@ def run_once(config: WatcherConfig) -> list[str]:
 # so a tick on a cold-booted host reaches the same verdict as any other. No
 # registry, no daemon, nothing that lives in a process.
 CHANNEL_STAMP = "channel_root"
+# Last anomalous reading, so a transient in-flight post can be told from a
+# permanently wedged or forged record: identical across two ticks == wedged.
+ANOMALY_FINGERPRINT = "last_anomaly"
 
 
 def _verify_channel_binding(state: dict[str, Any], config: WatcherConfig) -> None:
@@ -560,7 +563,20 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
     from debate import channel  # local import keeps module load light
 
     output: list[str] = []
-    state = _load_state(config.state_path)
+    # THIRD instance of the same unguarded-read pattern, found by probing for it
+    # after the doorbell (MSG-168) and the mailbox (MSG-170) rather than waiting
+    # to be told: _load_state does json.loads + dict() with no guard, so a
+    # corrupt state file killed the tick four ways (torn JSON, non-dict JSON, a
+    # list, non-UTF-8). Refuse loudly and act on NOTHING - no invocation on
+    # unknown state - and leave the file untouched so a human can inspect it
+    # instead of having the evidence overwritten by a fresh save.
+    try:
+        state = _load_state(config.state_path)
+    except (OSError, ValueError, TypeError) as error:
+        return [
+            f"ESCALATE: unreadable watcher state {config.state_path}: {error}; "
+            "acting on nothing this tick - inspect or delete the file"
+        ]
     # BEFORE mirroring, deciding or invoking: a state file that belongs to a
     # different channel must stop the tick while nothing has been written yet.
     _verify_channel_binding(state, config)
@@ -573,8 +589,36 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
     # AFTER release: an agent posting its reply via the CLI must not deadlock
     # against its own watcher.
     with channel.exclusive(config.channel_root):
-        signal = channel.read_signal(config.channel_root)
-        entries = channel.read_entries(config.channel_root)
+        # The doorbell is a plain, gitignored, editable file - the same "anyone
+        # who can edit it" vector as the mailbox. read_signal REFUSES on a torn,
+        # non-UTF-8 or non-object file, and an uncaught refusal HERE is a
+        # crash-loop under the 60s timer: precisely the failure this slice
+        # exists to remove, arriving through the door we were not watching.
+        # Treat it as an anomaly like any other and let the defer/escalate
+        # ladder below handle it. (Found at review, MSG-168: broadening
+        # read_signal's guard alone was not enough - the tick still died here.)
+        doorbell_failure: list[channel.Anomaly] = []
+        try:
+            signal = channel.read_signal(config.channel_root)
+        except channel.ChannelError as error:
+            signal = {}
+            doorbell_failure = [channel.Anomaly(channel.ANOMALY, "unreadable-doorbell", str(error))]
+
+        # The mailbox needs the SAME treatment as the doorbell above, for the
+        # same reason: read_entries decodes UTF-8 unguarded, so a corrupted
+        # record raised UnicodeDecodeError out of the tick, out of run_once
+        # (try/finally for the lock only, no catch) and out of `watch-once` -
+        # main() converts ChannelError alone. verify_record ALREADY reports
+        # this as `unreadable-record`, but the tick died two lines before
+        # reaching it, so that finding was dead code on this path. A detection
+        # limit misses tampering; this took the watcher offline for every
+        # thread, healthy ones included. Found at review, MSG-170.
+        mailbox_failure: list[channel.Anomaly] = []
+        entries: list[channel.Entry] = []
+        try:
+            entries = channel.read_entries(config.channel_root)
+        except (OSError, ValueError) as error:
+            mailbox_failure = [channel.Anomaly(channel.ANOMALY, "unreadable-record", str(error))]
         seq = int(str(signal.get("seq", 0)))
         mailbox_seq = max((entry.seq for entry in entries), default=0)
 
@@ -582,14 +626,53 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         output.extend(new_entry_lines(entries, last_mirrored))
         state["last_mirrored_seq"] = max([last_mirrored, *[e.seq for e in entries]])
 
-        if mailbox_seq > seq:
-            # A non-CLI writer violated append-then-signal mid-flight; the
-            # consistent-snapshot invariant failed - act on nothing this tick.
-            output.append(
-                f"mailbox ahead of signal (entries at {mailbox_seq}, signal at {seq}); deferring to next tick"
+        # We are inside the writer lock, so this snapshot is consistent by
+        # construction - which is exactly the precondition verify_record needs
+        # and cannot establish for itself (the lock is not reentrant).
+        # A failed doorbell read IS the finding; re-reading would only rediscover
+        # it, and verify_record needs the doorbell to say anything useful anyway.
+        findings = doorbell_failure or mailbox_failure or channel.verify_record(config.channel_root)
+        anomalies = [f for f in findings if f.level == channel.ANOMALY]
+        if anomalies:
+            # An anomalous reading has TWO causes and a SINGLE TICK CANNOT TELL
+            # THEM APART:
+            #   - a post genuinely IN FLIGHT (the mailbox append landed, the
+            #     doorbell bump has not) - transient, resolves next tick;
+            #   - a crashed or forged writer - permanent.
+            # Escalating the first would cry wolf on healthy traffic, which is
+            # exactly why this branch used to defer. But deferring the second
+            # is the silent wedge: one line a minute, nobody invoked, nobody
+            # told - the 2026-08-01 silent-channel failure in a different hat.
+            # So defer ONCE, remember the exact reading, and escalate only when
+            # the SAME reading survives a tick. That difference IS the
+            # difference between in-flight and wedged.
+            fingerprint = "|".join(
+                [str(mailbox_seq), str(seq), *sorted(f"{a.code}" for a in anomalies)]
             )
+            if state.get(ANOMALY_FINGERPRINT) == fingerprint:
+                for anomaly in anomalies:
+                    output.append(f"ESCALATE: record anomaly - {anomaly.code}: {anomaly.detail}")
+                # Keyed distinctly from the turn-stuck thread:seq escalation
+                # below, so neither can mask the other.
+                state = record_escalation(state, "record-anomaly", mailbox_seq)
+            else:
+                state[ANOMALY_FINGERPRINT] = fingerprint
+                if mailbox_seq > seq:
+                    output.append(
+                        f"mailbox ahead of signal (entries at {mailbox_seq}, signal at {seq}); "
+                        "deferring to next tick"
+                    )
+                else:
+                    output.append(
+                        f"record anomaly ({', '.join(sorted(a.code for a in anomalies))}); "
+                        "deferring to next tick"
+                    )
             _save_state(config.state_path, state)
             return output
+
+        # Healthy again: forget any prior reading so a resolved in-flight post
+        # cannot combine with a LATER unrelated one to look persistent.
+        state.pop(ANOMALY_FINGERPRINT, None)
 
         decision = decide(signal, state, config, datetime.now(timezone.utc))
         if decision.escalate:
