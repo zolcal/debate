@@ -113,6 +113,9 @@ def main(argv: list[str] | None = None) -> int:
     p_read.add_argument("--thread", default=None, help="a thread slug (archives are searched too)")
     p_read.add_argument("--since", type=int, default=None, metavar="SEQ", help="only entries with seq > SEQ")
 
+    p_verify = sub.add_parser("verify", help="check the record against itself (tampering, inconsistency)")
+    p_verify.add_argument("--root", type=Path, default=Path("."))
+
     p_compact = sub.add_parser("compact", help="relocate old closed threads to archive/ (supervisor housekeeping)")
     p_compact.add_argument("--root", type=Path, default=Path("."))
     p_compact.add_argument("--keep-days", type=float, default=14.0, help="keep threads closed more recently than this")
@@ -194,6 +197,23 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  MSG-{entry.seq} {entry.sender} {entry.entry_type}")
             if args.stale_after is not None and thread and stuck:
                 return 3
+        elif args.command == "verify":
+            # The lock is taken HERE, not inside verify_record: the mailbox-ahead
+            # check is only valid on a consistent snapshot, and an unlocked read
+            # races an ordinary post. verify_record must stay lock-free so the
+            # watcher can call it from inside its own locked block without
+            # deadlocking against the non-reentrant O_EXCL lock.
+            with channel.exclusive(args.root):
+                findings = channel.verify_record(args.root)
+            for finding in findings:
+                print(str(finding))
+            if not any(f.level == channel.ANOMALY for f in findings):
+                print("record verifies clean")
+                return 0
+            # Exit 4, not 5: 4 is this project's shared "a human should look now"
+            # code (watch escalation, watch-status), while 5 already means
+            # max-ticks. A scheduler alerting on 4 must not miss an anomaly.
+            return 4
         elif args.command == "read":
             _, entries = channel.read_raw(args.root / channel.CHANNEL_NAME)
             if args.thread is not None:

@@ -520,6 +520,9 @@ def run_once(config: WatcherConfig) -> list[str]:
 # so a tick on a cold-booted host reaches the same verdict as any other. No
 # registry, no daemon, nothing that lives in a process.
 CHANNEL_STAMP = "channel_root"
+# Last anomalous reading, so a transient in-flight post can be told from a
+# permanently wedged or forged record: identical across two ticks == wedged.
+ANOMALY_FINGERPRINT = "last_anomaly"
 
 
 def _verify_channel_binding(state: dict[str, Any], config: WatcherConfig) -> None:
@@ -582,14 +585,51 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         output.extend(new_entry_lines(entries, last_mirrored))
         state["last_mirrored_seq"] = max([last_mirrored, *[e.seq for e in entries]])
 
-        if mailbox_seq > seq:
-            # A non-CLI writer violated append-then-signal mid-flight; the
-            # consistent-snapshot invariant failed - act on nothing this tick.
-            output.append(
-                f"mailbox ahead of signal (entries at {mailbox_seq}, signal at {seq}); deferring to next tick"
+        # We are inside the writer lock, so this snapshot is consistent by
+        # construction - which is exactly the precondition verify_record needs
+        # and cannot establish for itself (the lock is not reentrant).
+        findings = channel.verify_record(config.channel_root)
+        anomalies = [f for f in findings if f.level == channel.ANOMALY]
+        if anomalies:
+            # An anomalous reading has TWO causes and a SINGLE TICK CANNOT TELL
+            # THEM APART:
+            #   - a post genuinely IN FLIGHT (the mailbox append landed, the
+            #     doorbell bump has not) - transient, resolves next tick;
+            #   - a crashed or forged writer - permanent.
+            # Escalating the first would cry wolf on healthy traffic, which is
+            # exactly why this branch used to defer. But deferring the second
+            # is the silent wedge: one line a minute, nobody invoked, nobody
+            # told - the 2026-08-01 silent-channel failure in a different hat.
+            # So defer ONCE, remember the exact reading, and escalate only when
+            # the SAME reading survives a tick. That difference IS the
+            # difference between in-flight and wedged.
+            fingerprint = "|".join(
+                [str(mailbox_seq), str(seq), *sorted(f"{a.code}" for a in anomalies)]
             )
+            if state.get(ANOMALY_FINGERPRINT) == fingerprint:
+                for anomaly in anomalies:
+                    output.append(f"ESCALATE: record anomaly - {anomaly.code}: {anomaly.detail}")
+                # Keyed distinctly from the turn-stuck thread:seq escalation
+                # below, so neither can mask the other.
+                state = record_escalation(state, "record-anomaly", mailbox_seq)
+            else:
+                state[ANOMALY_FINGERPRINT] = fingerprint
+                if mailbox_seq > seq:
+                    output.append(
+                        f"mailbox ahead of signal (entries at {mailbox_seq}, signal at {seq}); "
+                        "deferring to next tick"
+                    )
+                else:
+                    output.append(
+                        f"record anomaly ({', '.join(sorted(a.code for a in anomalies))}); "
+                        "deferring to next tick"
+                    )
             _save_state(config.state_path, state)
             return output
+
+        # Healthy again: forget any prior reading so a resolved in-flight post
+        # cannot combine with a LATER unrelated one to look persistent.
+        state.pop(ANOMALY_FINGERPRINT, None)
 
         decision = decide(signal, state, config, datetime.now(timezone.utc))
         if decision.escalate:

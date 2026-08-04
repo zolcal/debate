@@ -422,6 +422,135 @@ def read_raw(path: Path) -> tuple[str, list[RawEntry]]:
     return "".join(preamble), entries
 
 
+ANOMALY = "ANOMALY"
+INFO = "INFO"
+
+
+@dataclass(frozen=True)
+class Anomaly:
+    """One finding from :func:`verify_record`.
+
+    ``ANOMALY`` means the record disagrees with itself and a human should look.
+    ``INFO`` is a legitimate-but-notable shape (a compaction gap, a missing
+    doorbell) that must NEVER be reported as failure — refusing those was the
+    first draft of this slice and it would have rejected healthy records.
+    """
+
+    level: str
+    code: str
+    detail: str
+
+    def __str__(self) -> str:
+        return f"{self.level}: {self.code} - {self.detail}"
+
+
+def _record_files(root: Path) -> list[Path]:
+    """The mailbox plus every archive file, in reading order."""
+    files = [root / CHANNEL_NAME]
+    archive = root / ARCHIVE_DIR
+    if archive.is_dir():
+        files.extend(sorted(archive.glob("CHANNEL-*.md")))
+    return [path for path in files if path.exists()]
+
+
+def verify_record(root: Path) -> list[Anomaly]:
+    """Check the record against itself. Pure: reads only, and NEVER raises.
+
+    The caller owns the lock. This deliberately does not take one:
+    :func:`exclusive` is ``O_CREAT | O_EXCL`` and therefore not reentrant, so a
+    self-locking version called from inside the watcher's own locked block
+    would deadlock against itself.
+
+    What is and is not an anomaly was settled by review (MSG-156/158/160), and
+    the negative results matter more than the positive ones:
+
+    - A GAP is legitimate. ``compact`` relocates BY THREAD SLUG, so archiving
+      one of two force-interleaved threads leaves a hole in a healthy mailbox.
+    - A DUPLICATE seq is reported, because ``post`` appends to the mailbox
+      before bumping the doorbell and a crash in that window repeats a number —
+      that is worth a human's attention even though it is not forgery.
+    - MAILBOX MAX > DOORBELL is the load-bearing check: compaction only ever
+      removes LOW seqs and never writes the doorbell, and ``force`` always sets
+      the doorbell to the new seq, so under every legitimate HISTORY the
+      mailbox maximum cannot exceed it. It is valid only on a consistent
+      snapshot, which is why the caller must hold the lock — reading the two
+      files unlocked races an ordinary ``post`` and false-positives on healthy
+      data.
+    - An ABSENT doorbell is INFO, not failure: ``read_signal`` returns a fresh
+      ``seq 0`` when the file is merely missing, and ``signal.json`` is
+      gitignored, so a fresh clone would otherwise look tampered.
+    """
+    findings: list[Anomaly] = []
+    mailbox_max = 0
+
+    for path in _record_files(root):
+        try:
+            _, entries = read_raw(path)
+        except (OSError, ValueError) as error:
+            # ValueError covers UnicodeDecodeError: read_raw decodes as UTF-8,
+            # and a record corrupted to non-UTF-8 bytes is exactly the sort of
+            # damage this function exists to REPORT rather than die on. Caught
+            # by this file's own never-raises test.
+            findings.append(Anomaly(ANOMALY, "unreadable-record", f"{path.name}: {error}"))
+            continue
+        seqs = [entry.seq for entry in entries]
+        if path.name == CHANNEL_NAME:
+            mailbox_max = max(seqs, default=0)
+
+        seen: set[int] = set()
+        for seq in seqs:
+            if seq in seen:
+                findings.append(
+                    Anomaly(ANOMALY, "duplicate-seq", f"{path.name}: MSG-{seq} appears more than once")
+                )
+            seen.add(seq)
+
+        ordered = sorted(seen)
+        gaps = [
+            (low, high)
+            for low, high in zip(ordered, ordered[1:])
+            if high != low + 1
+        ]
+        for low, high in gaps:
+            findings.append(
+                Anomaly(INFO, "gap", f"{path.name}: MSG-{low} -> MSG-{high} (legitimate after a by-thread compaction)")
+            )
+
+    signal_path = root / SIGNAL_NAME
+    if not signal_path.exists():
+        findings.append(
+            Anomaly(INFO, "no-doorbell", f"{SIGNAL_NAME} is absent; the mailbox-ahead check needs it and was skipped")
+        )
+        return findings
+    try:
+        signal = read_signal(root)
+        doorbell = _as_int(signal.get("seq", 0))
+    except (ChannelError, OSError, ValueError) as error:
+        # read_signal has a THIRD state beyond absent and parseable: a torn
+        # write RAISES ChannelError (execution note carried from MSG-160).
+        #
+        # OSError/ValueError are here because read_signal's own guard catches
+        # (JSONDecodeError, OSError) and therefore does NOT convert a
+        # UnicodeDecodeError - a non-UTF-8 doorbell escapes it as a raw
+        # ValueError, defeating its documented "refuse deterministically"
+        # contract. Found while probing this slice; verify_record must not
+        # inherit that hole, since it promises never to raise. The underlying
+        # read_signal gap is reported separately - it is not this slice's fix.
+        findings.append(Anomaly(ANOMALY, "unreadable-doorbell", f"{SIGNAL_NAME}: {error}"))
+        return findings
+
+    if mailbox_max > doorbell:
+        findings.append(
+            Anomaly(
+                ANOMALY,
+                "mailbox-ahead-of-doorbell",
+                f"mailbox holds MSG-{mailbox_max} but the doorbell is at seq {doorbell}; "
+                "an entry was written without going through post()",
+            )
+        )
+    return findings
+
+
 def compact(
     root: Path,
     keep_days: float = 14.0,
