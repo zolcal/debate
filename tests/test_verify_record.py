@@ -416,3 +416,53 @@ def test_watcher_forgets_the_reading_once_healthy(tmp_path: Path) -> None:
     forge_by_hand(root)
     lines = watcher.run_once(cfg)  # a NEW anomaly must get its own grace tick
     assert not any(line.startswith("ESCALATE:") for line in lines), lines
+
+
+# --- the doorbell is editable too (MSG-168) --------------------------------
+
+
+NON_DICT_SIGNALS = ["42", "true", "null", "[1,2,3]", '"a string"']
+
+
+@pytest.mark.parametrize("payload", NON_DICT_SIGNALS)
+def test_non_dict_doorbell_is_reported_not_raised(tmp_path: Path, payload: str) -> None:
+    """Valid JSON that is not an object made dict() raise TypeError.
+
+    read_signal's guard listed (JSONDecodeError, OSError) and caught neither
+    that nor UnicodeDecodeError, so both escaped its documented "refuse
+    deterministically" contract. signal.json is a plain gitignored editable
+    file - the same vector this slice addresses for the mailbox.
+    """
+    root = make_channel(tmp_path, posts=1)
+    (root / channel.SIGNAL_NAME).write_text(payload, encoding="utf-8")
+
+    findings = channel.verify_record(root)  # must not raise
+
+    assert "unreadable-doorbell" in codes(findings)
+    assert channel.ANOMALY in levels(findings)
+
+
+@pytest.mark.parametrize("payload", NON_DICT_SIGNALS)
+def test_watcher_does_not_crash_loop_on_a_corrupt_doorbell(tmp_path: Path, payload: str) -> None:
+    """The watcher reads the signal ITSELF before any verification runs.
+
+    So catching this inside verify_record alone would have been insufficient -
+    the tick still died at the earlier read, once every 60s, forever.
+    """
+    root = make_channel(tmp_path, posts=1)
+    cfg = watcher_config(root, tmp_path)
+    (root / channel.SIGNAL_NAME).write_text(payload, encoding="utf-8")
+
+    watcher.run_once(cfg)  # must not raise
+
+
+def test_read_signal_refuses_deterministically(tmp_path: Path) -> None:
+    """The contract itself, pinned at the source rather than at its callers."""
+    root = make_channel(tmp_path, posts=1)
+    for payload in [*NON_DICT_SIGNALS, '{"seq": 1, "tur']:
+        (root / channel.SIGNAL_NAME).write_text(payload, encoding="utf-8")
+        with pytest.raises(channel.ChannelError):
+            channel.read_signal(root)
+    (root / channel.SIGNAL_NAME).write_bytes(b"\xff\xfe not utf8")
+    with pytest.raises(channel.ChannelError):
+        channel.read_signal(root)

@@ -149,10 +149,23 @@ def read_signal(root: Path) -> dict[str, object]:
         return _fresh_signal()
     try:
         return dict(json.loads(path.read_text(encoding="utf-8")))
-    except (json.JSONDecodeError, OSError) as error:
+    except (json.JSONDecodeError, OSError, TypeError, ValueError) as error:
         # A torn/truncated write or a file that vanished mid-read must refuse
         # deterministically - callers only guard for ChannelError, and a raw
-        # JSONDecodeError/OSError would otherwise surface as a traceback.
+        # error would otherwise surface as a traceback.
+        #
+        # The tuple originally listed (JSONDecodeError, OSError) and therefore
+        # did NOT cover what the line above can actually throw:
+        #   - valid non-dict JSON (42, true, null, [1,2]) -> dict() raises
+        #     TypeError;
+        #   - non-UTF-8 bytes -> read_text raises UnicodeDecodeError (a
+        #     ValueError, and NOT a JSONDecodeError).
+        # Both escaped the contract. This is not cosmetic: the watcher reads
+        # the signal itself before it reaches any verification, so either input
+        # crash-looped the tick under the 60s timer - the exact silent/loud
+        # failure the verify slice exists to remove. signal.json is a plain
+        # gitignored editable file, i.e. the same "anyone who can edit it"
+        # vector as the mailbox. Found at review, MSG-168.
         raise ChannelError(f"refused: unreadable signal file {path}: {error}") from error
 
 

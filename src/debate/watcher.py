@@ -576,7 +576,21 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
     # AFTER release: an agent posting its reply via the CLI must not deadlock
     # against its own watcher.
     with channel.exclusive(config.channel_root):
-        signal = channel.read_signal(config.channel_root)
+        # The doorbell is a plain, gitignored, editable file - the same "anyone
+        # who can edit it" vector as the mailbox. read_signal REFUSES on a torn,
+        # non-UTF-8 or non-object file, and an uncaught refusal HERE is a
+        # crash-loop under the 60s timer: precisely the failure this slice
+        # exists to remove, arriving through the door we were not watching.
+        # Treat it as an anomaly like any other and let the defer/escalate
+        # ladder below handle it. (Found at review, MSG-168: broadening
+        # read_signal's guard alone was not enough - the tick still died here.)
+        doorbell_failure: list[channel.Anomaly] = []
+        try:
+            signal = channel.read_signal(config.channel_root)
+        except channel.ChannelError as error:
+            signal = {}
+            doorbell_failure = [channel.Anomaly(channel.ANOMALY, "unreadable-doorbell", str(error))]
+
         entries = channel.read_entries(config.channel_root)
         seq = int(str(signal.get("seq", 0)))
         mailbox_seq = max((entry.seq for entry in entries), default=0)
@@ -588,7 +602,9 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         # We are inside the writer lock, so this snapshot is consistent by
         # construction - which is exactly the precondition verify_record needs
         # and cannot establish for itself (the lock is not reentrant).
-        findings = channel.verify_record(config.channel_root)
+        # A failed doorbell read IS the finding; re-reading would only rediscover
+        # it, and verify_record needs the doorbell to say anything useful anyway.
+        findings = doorbell_failure or channel.verify_record(config.channel_root)
         anomalies = [f for f in findings if f.level == channel.ANOMALY]
         if anomalies:
             # An anomalous reading has TWO causes and a SINGLE TICK CANNOT TELL
