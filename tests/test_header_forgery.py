@@ -262,6 +262,81 @@ def test_refs_newline_is_refused_even_without_a_header(tmp_path: Path) -> None:
     assert snapshot(root) == before
 
 
+# str.splitlines() breaks on all of these; `read_entries` re-splits the record
+# with exactly that call, so each one splits a header line at READ time. The
+# first version of the refs guard listed \n and \r only and every one of these
+# still forged an entry (found at review, MSG-163).
+SPLITLINES_SEPARATORS = [
+    pytest.param("\n", id="LF"),
+    pytest.param("\r", id="CR"),
+    pytest.param("\v", id="VT"),
+    pytest.param("\f", id="FF"),
+    pytest.param("\x1c", id="FS"),
+    pytest.param("\x1d", id="GS"),
+    pytest.param("\x1e", id="RS"),
+    pytest.param("\x85", id="NEL"),
+    pytest.param(" ", id="LS"),
+    pytest.param(" ", id="PS"),
+]
+
+
+@pytest.mark.parametrize("separator", SPLITLINES_SEPARATORS)
+def test_refs_cannot_forge_via_any_splitlines_separator(tmp_path: Path, separator: str) -> None:
+    """The regression pin for MSG-163: hand-listing \\n and \\r was not enough."""
+    root = make_channel(tmp_path)
+    before = snapshot(root)
+
+    with pytest.raises(channel.ChannelError):
+        channel.post(
+            root, sender="bob", entry_type="info", thread="t1", body="ok",
+            refs=f"-{separator}{FORGED_HEADER}",
+        )
+
+    assert snapshot(root) == before
+    assert not any(e.seq == 999 for e in channel.read_entries(root))
+
+
+@pytest.mark.parametrize("separator", SPLITLINES_SEPARATORS)
+def test_body_cannot_forge_via_any_splitlines_separator(tmp_path: Path, separator: str) -> None:
+    """The body vector already reused splitlines; pin that it stays that way."""
+    root = make_channel(tmp_path)
+    before = snapshot(root)
+
+    with pytest.raises(channel.ChannelError):
+        channel.post(root, sender="bob", entry_type="info", thread="t1", body=f"intro{separator}{FORGED_HEADER}")
+
+    assert snapshot(root) == before
+
+
+def test_refs_guard_matches_the_parser_exactly(tmp_path: Path) -> None:
+    """The refs counterpart of the body guard's parser-exactness test.
+
+    Whatever `read_entries` would see as a new line, `post` must refuse in refs.
+    """
+    root = make_channel(tmp_path)
+    for separator in ("\v", "\f", "\x85", " ", " "):
+        assert len(f"a{separator}b".splitlines()) == 2, "precondition: the parser splits here"
+        with pytest.raises(channel.ChannelError):
+            channel.post(root, sender="bob", entry_type="info", thread="t1", body="ok", refs=f"a{separator}b")
+
+
+def test_ordinary_refs_still_accepted(tmp_path: Path) -> None:
+    """Over-refusal guard: real citations must keep working."""
+    root = make_channel(tmp_path)
+    entry_id = channel.post(
+        root, sender="bob", entry_type="info", thread="t1", body="ok",
+        refs="slice1-header-forgery@c252bd0",
+    )
+    assert entry_id == "MSG-2"
+    assert channel.read_entries(root)[1].refs == "slice1-header-forgery@c252bd0"
+
+
+def test_empty_refs_still_accepted(tmp_path: Path) -> None:
+    root = make_channel(tmp_path)
+    channel.post(root, sender="bob", entry_type="info", thread="t1", body="ok", refs="")
+    assert channel.read_entries(root)[1].refs == "-"
+
+
 def test_module_has_no_second_header_pattern() -> None:
     """The guard must reuse `_HEADER_RE`; a copy would drift and reopen the hole."""
     source = Path(channel.__file__).read_text(encoding="utf-8")

@@ -272,11 +272,22 @@ def post(
                 "or inside a code fence. Indenting the FIRST line does not work - the body "
                 "is stripped before it is written."
             )
-    # refs is interpolated into the header LINE, so a newline in it splits that
-    # line and everything after the break is re-parsed as record structure.
-    if "\n" in refs or "\r" in refs:
+    # refs is interpolated into the header LINE, so a line break in it splits
+    # that line and everything after the break is re-parsed as record structure.
+    #
+    # Do NOT hand-list separators here. `read_entries` re-splits the file with
+    # str.splitlines(), which breaks on a SUPERSET of \n and \r: \v \f \x1c
+    # \x1d \x1e \x85 (NEL)   (LS)   (PS). The first version of this
+    # guard listed \n and \r only, and all five exotic separators still forged
+    # an entry through refs (found at review, MSG-163) - the same "a second
+    # hand-maintained pattern drifts and reopens the hole" failure the body
+    # guard above is written to avoid, one field over. So ask the parser's own
+    # mechanism whether this value survives a split unchanged.
+    lines = refs.splitlines()
+    if lines and (len(lines) > 1 or lines[0] != refs):
         raise ChannelError(
-            f"refused: refs may not contain a line break (it is written into the header line): {refs!r}"
+            "refused: refs must be a single line - it is written into the entry header, "
+            f"and a line break there forges an entry when the record is re-parsed: {refs!r}"
         )
     if force and sender != config.supervisor:
         raise ChannelError(
