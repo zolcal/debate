@@ -255,6 +255,40 @@ def post(
         raise ChannelError(f"refused: unknown sender {sender!r} (parties {config.parties}, supervisor {config.supervisor!r})")
     if not _SLUG_RE.fullmatch(thread):
         raise ChannelError(f"refused: invalid thread slug {thread!r} (lowercase alphanumerics and dashes)")
+    # The mailbox is re-parsed line-anchored by _HEADER_RE, so a BODY line in
+    # that grammar becomes a real entry - a forged one, attributable to anyone,
+    # and indistinguishable from a genuine entry in `git diff`. Quoting a prior
+    # message is the accidental path into this, which is why the refusal below
+    # says how to quote safely instead of just saying no. Checked against the
+    # SAME pattern the parser uses: a second hand-maintained pattern would drift
+    # and reopen the hole silently. Runs on the STRIPPED body and before the
+    # lock, so a refusal costs no lock and reflects exactly what would be
+    # written.
+    for offset, line in enumerate(body.splitlines(), start=1):
+        if _HEADER_RE.match(line):
+            raise ChannelError(
+                f"refused: body line {offset} would parse as an entry header and forge an "
+                f"entry into the record: {line!r}. Quote it as a blockquote ('> ## MSG-...') "
+                "or inside a code fence. Indenting the FIRST line does not work - the body "
+                "is stripped before it is written."
+            )
+    # refs is interpolated into the header LINE, so a line break in it splits
+    # that line and everything after the break is re-parsed as record structure.
+    #
+    # Do NOT hand-list separators here. `read_entries` re-splits the file with
+    # str.splitlines(), which breaks on a SUPERSET of \n and \r: \v \f \x1c
+    # \x1d \x1e \x85 (NEL)   (LS)   (PS). The first version of this
+    # guard listed \n and \r only, and all five exotic separators still forged
+    # an entry through refs (found at review, MSG-163) - the same "a second
+    # hand-maintained pattern drifts and reopens the hole" failure the body
+    # guard above is written to avoid, one field over. So ask the parser's own
+    # mechanism whether this value survives a split unchanged.
+    lines = refs.splitlines()
+    if lines and (len(lines) > 1 or lines[0] != refs):
+        raise ChannelError(
+            "refused: refs must be a single line - it is written into the entry header, "
+            f"and a line break there forges an entry when the record is re-parsed: {refs!r}"
+        )
     if force and sender != config.supervisor:
         raise ChannelError(
             f"refused: force is supervisor-only (supervisor {config.supervisor!r}); "
