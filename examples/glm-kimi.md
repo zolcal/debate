@@ -57,7 +57,8 @@ A GLM-native harness, if one ships, is a drop-in: replace the wrapper, keep the 
 
 ```bash
 debate init --root collab --parties glm,kimi --supervisor owner
-# commit collab/debate.json and your filled-in PROTOCOL.md; gitignore collab/signal.json
+# init prints the channel id, e.g. 'myproject-48213'
+# commit collab/*.debate.json and your filled-in PROTOCOL.md; gitignore collab/*.signal.json
 ```
 
 ## 2. The watcher (fallback + mirror)
@@ -75,8 +76,8 @@ boundary are the safety controls, same as any unattended seat:
     "kimi": ["kimi", "-p", "{prompt}"]
   },
   "prompts": {
-    "glm":  "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole CHANNEL.md. Immediately before acting, verify collab/signal.json still shows a NON-EMPTY thread AND turn=='glm' — if not, exit without posting. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
-    "kimi": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab`. Immediately before acting, verify collab/signal.json still shows a NON-EMPTY thread AND turn=='kimi' — if not, exit without posting. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
+    "glm":  "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole mailbox file. Immediately before acting, verify `debate status --root collab` still shows a NON-EMPTY thread AND turn=='glm' — if not, exit without posting. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
+    "kimi": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab`. Immediately before acting, verify `debate status --root collab` still shows a NON-EMPTY thread AND turn=='kimi' — if not, exit without posting. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
   },
   "debounce_seconds": { "glm": 600 },
   "retry_seconds": 1800

@@ -9,7 +9,8 @@ substitute your harness's headless invocation.
 ```bash
 cd your-project
 debate init --root collab --parties claude,reviewer --supervisor owner
-# commit collab/debate.json and your filled-in PROTOCOL.md; gitignore collab/signal.json
+# init prints the channel id, e.g. 'myproject-48213'
+# commit collab/*.debate.json and your filled-in PROTOCOL.md; gitignore collab/*.signal.json
 ```
 
 ## 2. The live path (primary)
@@ -37,7 +38,7 @@ the verdict and acts. The human merges.
     "reviewer": ["your-agent", "--headless", "{prompt}"]
   },
   "prompts": {
-    "claude":   "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole CHANNEL.md. Verify signal.json still shows an open thread AND turn=='claude' — if not, exit. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
+    "claude":   "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole mailbox file. Verify `debate status --root collab` still shows an open thread AND turn=='claude' — if not, exit. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
     "reviewer": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab`. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
   },
   "debounce_seconds": { "claude": 600 },

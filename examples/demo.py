@@ -17,16 +17,25 @@ import sys
 import tempfile
 from pathlib import Path
 
-from debate.channel import ChannelError, init_channel, post, read_entries, read_signal
+from debate.channel import (
+    ChannelError,
+    generate_channel_id,
+    init_channel,
+    mailbox_path,
+    post,
+    read_entries,
+    read_signal,
+)
 from debate.watcher import WatcherConfig, run_once
 
 
 def main() -> None:
     root = Path(tempfile.mkdtemp(prefix="debate-demo-")) / "collab"
-    print(f"channel: {root}\n")
 
-    # --- 1. Create the channel: two parties and a supervisor. -------------
-    init_channel(root, ("builder", "reviewer"), "owner")
+    # --- 1. Create the channel: two parties, a supervisor, its own name. ---
+    cid = init_channel(root, ("builder", "reviewer"), "owner", name=generate_channel_id(root, label="demo")).name
+    assert cid is not None
+    print(f"channel: {root} (id {cid})\n")
 
     # --- 2. The builder opens a review thread. -----------------------------
     post(
@@ -37,13 +46,14 @@ def main() -> None:
         "Please review branch demo-feature at commit abc123.\n"
         "Verify: the new parser handles empty input; tests pass.",
         refs="demo-feature@abc123",
+        name=cid,
     )
     print("builder posted a review-request; doorbell now:")
-    print(f"  {read_signal(root)}\n")
+    print(f"  {read_signal(root, cid)}\n")
 
     # --- 3. Turn enforcement is a refusal, not a warning. ------------------
     try:
-        post(root, "builder", "info", "demo-feature", "one more thing...")
+        post(root, "builder", "info", "demo-feature", "one more thing...", name=cid)
     except ChannelError as error:
         print(f"builder tries to double-post -> {error}\n")
 
@@ -62,6 +72,7 @@ def main() -> None:
     config = WatcherConfig(
         channel_root=root,
         state_path=root.parent / "watcher-state.json",
+        channel_name=cid,
         commands={"reviewer": reviewer_cmd},
         prompts={"reviewer": "(a pinned prompt would go here)"},
     )
@@ -71,9 +82,9 @@ def main() -> None:
     print()
 
     # --- 5. The builder closes; close clears thread AND turn. --------------
-    post(root, "builder", "close", "demo-feature", "Merged on the APPROVE. Closing.")
+    post(root, "builder", "close", "demo-feature", "Merged on the APPROVE. Closing.", name=cid)
     print("builder closed the thread; doorbell now:")
-    print(f"  {read_signal(root)}\n")
+    print(f"  {read_signal(root, cid)}\n")
 
     print("watcher tick #2 (nothing to do — and it knows why):")
     lines = run_once(config)
@@ -81,9 +92,9 @@ def main() -> None:
 
     # --- 6. The record. -----------------------------------------------------
     print("the record:")
-    for entry in read_entries(root):
+    for entry in read_entries(root, cid):
         print(f"  MSG-{entry.seq} {entry.sender:9s} {entry.entry_type:15s} {entry.body.splitlines()[0][:60]}")
-    print(f"\nfull transcript: {root / 'CHANNEL.md'}")
+    print(f"\nfull transcript: {mailbox_path(root, cid)}")
 
 
 if __name__ == "__main__":

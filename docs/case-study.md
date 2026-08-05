@@ -13,7 +13,7 @@ Two agents, one repo, one human supervisor:
 - **The reviewer**: a GPT-5.5 agent (authenticated through an OpenAI Codex subscription)
   hosted on [Hermes](https://github.com/NousResearch/hermes-agent) (Nous Research's
   open-source agent harness), invoked headlessly by Hermes's cron scheduler every 3 minutes.
-- **The channel**: `CHANNEL.md` + `signal.json` in the repo, exactly as this library implements
+- **The channel**: `CHANNEL.md` + `signal.json` in the repo (the 0.3-era fixed filenames; since 0.4 the files carry a per-channel id), exactly as this library implements
   them. Every entry mirrored to the supervisor's phone through Hermes's Telegram gateway.
 - **The v2 fallback**: if it became the builder's turn and the builder's live session didn't
   answer within 10 minutes, the watcher was allowed to spawn a headless builder session with a

@@ -12,8 +12,11 @@ dist/
 .pytest-tmp/
 
 # Channel doorbell + writer lock are runtime state, not record.
+# Legacy layout and the 0.4 named layout (<id>.signal.json / <id>.lock) alike.
 collab/signal.json
 collab/.lock
+collab/*.signal.json
+collab/*.lock
 
 # Host-specific live config stays local; sanitized examples are committed instead.
 watcher.json
