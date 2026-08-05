@@ -220,6 +220,15 @@ def main(argv: list[str] | None = None) -> int:
     p_compact.add_argument("--keep-days", type=float, default=14.0, help="keep threads closed more recently than this")
     p_compact.add_argument("--dry-run", action="store_true")
 
+    p_migrate = sub.add_parser("migrate", help="rename a legacy channel in place to the named layout")
+    p_migrate.add_argument("--root", type=Path, default=Path("."))
+    p_migrate.add_argument(
+        "--label",
+        default=None,
+        help="human-readable half of the generated channel id <label>-<NNNNN> "
+        "(default: the enclosing repo's directory name)",
+    )
+
     p_watch = sub.add_parser("watch-once", help="one watcher tick (run from cron / Task Scheduler)")
     p_watch.add_argument("--root", type=Path, default=Path("."))
     add_channel_flag(p_watch)
@@ -252,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         # None means the legacy layout; init is the one command that CREATES
         # a channel and therefore never discovers one.
         name: str | None = None
-        if args.command != "init":
+        if args.command not in ("init", "migrate"):
             name = channel.discover_channel(args.root, getattr(args, "channel", None))
 
         if args.command == "init":
@@ -348,6 +357,19 @@ def main(argv: list[str] | None = None) -> int:
                 blocks = [e for e in blocks if e.seq > args.since]
             for raw_entry in blocks:
                 print(raw_entry.raw.strip("\n") + "\n")
+        elif args.command == "migrate":
+            channel_id = channel.migrate_channel(args.root, label=args.label)
+            root_shown = args.root.resolve()
+            print(f"migrated legacy channel at {root_shown} -> {channel_id!r}")
+            print("")
+            print("The operator owes two edits before the next watcher tick:")
+            print(f"  1. watcher config: rename the state_path file stem to {channel_id!r}")
+            print(f"     (e.g. state_path: .../{channel_id}.json) so the watcher's memory")
+            print("     follows the channel's identity, and keep any prompt paths pointing")
+            print(f"     at {root_shown}")
+            print(f"  2. scheduler unit: rename it debate-watch-{channel_id}")
+            print("")
+            print(f"Then confirm one clean tick: debate watch-status --root {root_shown} --config <watcher.json>")
         elif args.command == "compact":
             for line in channel.compact(args.root, keep_days=args.keep_days, dry_run=args.dry_run, name=name):
                 print(line)
