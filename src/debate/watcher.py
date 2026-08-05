@@ -67,6 +67,7 @@ class WatcherConfig:
     debounce_seconds: dict[str, int] = field(default_factory=dict)
     retry_seconds: int = 30 * 60
     timeout_seconds: int = 30 * 60
+    channel_name: str | None = None  # instance id; None = legacy layout
 
     def __post_init__(self) -> None:
         state = self.state_path.resolve()
@@ -259,7 +260,7 @@ def read_status(
     """
     from debate import channel  # local import keeps module load light
 
-    signal = channel.read_signal(config.channel_root)
+    signal = channel.read_signal(config.channel_root, config.channel_name)
     state = _load_state(config.state_path) if config.state_path.exists() else {}
     lock = probe_lock(tick_lock_path(config.state_path))
     result = status(signal, state, config, now, lock, grace_seconds=grace_seconds)
@@ -588,7 +589,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
     # writer lock - never the reverse, so no cycle. The child launch happens
     # AFTER release: an agent posting its reply via the CLI must not deadlock
     # against its own watcher.
-    with channel.exclusive(config.channel_root):
+    with channel.exclusive(config.channel_root, config.channel_name):
         # The doorbell is a plain, gitignored, editable file - the same "anyone
         # who can edit it" vector as the mailbox. read_signal REFUSES on a torn,
         # non-UTF-8 or non-object file, and an uncaught refusal HERE is a
@@ -599,7 +600,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         # read_signal's guard alone was not enough - the tick still died here.)
         doorbell_failure: list[channel.Anomaly] = []
         try:
-            signal = channel.read_signal(config.channel_root)
+            signal = channel.read_signal(config.channel_root, config.channel_name)
         except channel.ChannelError as error:
             signal = {}
             doorbell_failure = [channel.Anomaly(channel.ANOMALY, "unreadable-doorbell", str(error))]
@@ -616,7 +617,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         mailbox_failure: list[channel.Anomaly] = []
         entries: list[channel.Entry] = []
         try:
-            entries = channel.read_entries(config.channel_root)
+            entries = channel.read_entries(config.channel_root, config.channel_name)
         except (OSError, ValueError) as error:
             mailbox_failure = [channel.Anomaly(channel.ANOMALY, "unreadable-record", str(error))]
         seq = int(str(signal.get("seq", 0)))
@@ -631,7 +632,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         # and cannot establish for itself (the lock is not reentrant).
         # A failed doorbell read IS the finding; re-reading would only rediscover
         # it, and verify_record needs the doorbell to say anything useful anyway.
-        findings = doorbell_failure or mailbox_failure or channel.verify_record(config.channel_root)
+        findings = doorbell_failure or mailbox_failure or channel.verify_record(config.channel_root, config.channel_name)
         anomalies = [f for f in findings if f.level == channel.ANOMALY]
         if anomalies:
             # An anomalous reading has TWO causes and a SINGLE TICK CANNOT TELL
@@ -719,7 +720,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         else:
             status = "ok" if proc.returncode == 0 else f"exit {proc.returncode}"
             output.append(f"invoked {decision.invoke} for seq {seq}: {status}")
-        refreshed = channel.read_entries(config.channel_root)
+        refreshed = channel.read_entries(config.channel_root, config.channel_name)
         output.extend(new_entry_lines(refreshed, int(state.get("last_mirrored_seq", 0))))
         state["last_mirrored_seq"] = max(
             [int(state.get("last_mirrored_seq", 0)), *[e.seq for e in refreshed]]
@@ -775,7 +776,7 @@ def watch(
             if any(line.startswith(("ESCALATE:", "STUCK:")) for line in lines):
                 return 4
             ticks += 1
-            if until_close and not str(channel.read_signal(config.channel_root).get("thread", "")):
+            if until_close and not str(channel.read_signal(config.channel_root, config.channel_name).get("thread", "")):
                 say(f"thread closed after {ticks} tick(s) - exiting")
                 return 0
             if max_ticks is not None and ticks >= max_ticks:

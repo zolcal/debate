@@ -67,7 +67,7 @@ def _seconds(raw: dict[str, Any], key: str, default: int, config_path: Path) -> 
         ) from error
 
 
-def _watcher_config(root: Path, config_path: Path) -> WatcherConfig:
+def _watcher_config(root: Path, config_path: Path, channel_name: str | None = None) -> WatcherConfig:
     """Load watcher.json, refusing in the CLI's own vocabulary.
 
     `main` converts `ChannelError` and NOTHING else, so every other exception
@@ -121,6 +121,7 @@ def _watcher_config(root: Path, config_path: Path) -> WatcherConfig:
 
     return WatcherConfig(
         channel_root=root,
+        channel_name=channel_name,
         state_path=Path(str(raw["state_path"])).expanduser(),
         commands=commands,
         prompts={k: str(v) for k, v in _mapping(raw, "prompts", config_path).items()},
@@ -138,9 +139,11 @@ def _watcher_config(root: Path, config_path: Path) -> WatcherConfig:
 _NEEDS_ATTENTION = ("STALE", "ESCALATED")
 
 
-def _watch_status_report(root: Path, config_path: Path, grace: int) -> int:
+def _watch_status_report(root: Path, config_path: Path, grace: int, channel_name: str | None = None) -> int:
     """Print one channel's liveness. Reads only — creates nothing, locks nothing."""
-    lines, result = read_status(_watcher_config(root, config_path), datetime.now(timezone.utc), grace_seconds=grace)
+    lines, result = read_status(
+        _watcher_config(root, config_path, channel_name), datetime.now(timezone.utc), grace_seconds=grace
+    )
     for line in lines:
         print(line)
     print(f"\n{result.verdict}: {result.detail}")
@@ -151,14 +154,29 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="debate", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def add_channel_flag(sub_parser: argparse.ArgumentParser) -> None:
+        sub_parser.add_argument(
+            "--channel",
+            default=None,
+            metavar="ID",
+            help="channel instance id; needed only when the root folder holds more than one channel",
+        )
+
     p_init = sub.add_parser("init", help="create a channel directory")
     p_init.add_argument("--root", type=Path, default=Path("."))
     p_init.add_argument("--parties", required=True, help="two comma-separated party names, e.g. claude,glm")
     p_init.add_argument("--supervisor", default="owner")
     p_init.add_argument("--thread-cap", type=int, default=8)
+    p_init.add_argument(
+        "--label",
+        default=None,
+        help="human-readable half of the generated channel id <label>-<NNNNN> "
+        "(default: the enclosing repo's directory name)",
+    )
 
     p_post = sub.add_parser("post", help="append an entry and bump the doorbell")
     p_post.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_post)
     p_post.add_argument("--from", dest="sender", required=True)
     p_post.add_argument("--type", dest="entry_type", required=True, choices=channel.ENTRY_TYPES)
     p_post.add_argument("--thread", required=True)
@@ -177,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_status = sub.add_parser("status", help="print the doorbell and open-thread tail")
     p_status.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_status)
     p_status.add_argument(
         "--stale-after",
         type=_nonnegative_int,
@@ -187,23 +206,28 @@ def main(argv: list[str] | None = None) -> int:
 
     p_read = sub.add_parser("read", help="print entries: the open thread by default")
     p_read.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_read)
     p_read.add_argument("--thread", default=None, help="a thread slug (archives are searched too)")
     p_read.add_argument("--since", type=int, default=None, metavar="SEQ", help="only entries with seq > SEQ")
 
     p_verify = sub.add_parser("verify", help="check the record against itself (tampering, inconsistency)")
     p_verify.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_verify)
 
     p_compact = sub.add_parser("compact", help="relocate old closed threads to archive/ (supervisor housekeeping)")
     p_compact.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_compact)
     p_compact.add_argument("--keep-days", type=float, default=14.0, help="keep threads closed more recently than this")
     p_compact.add_argument("--dry-run", action="store_true")
 
     p_watch = sub.add_parser("watch-once", help="one watcher tick (run from cron / Task Scheduler)")
     p_watch.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_watch)
     p_watch.add_argument("--config", type=Path, required=True, help="watcher config JSON (see README)")
 
     p_watchstatus = sub.add_parser("watch-status", help="read-only: is anything driving this channel?")
     p_watchstatus.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_watchstatus)
     p_watchstatus.add_argument("--config", type=Path, required=True, help="watcher config JSON (see README)")
     p_watchstatus.add_argument(
         "--grace",
@@ -215,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_watchloop = sub.add_parser("watch", help="foreground watcher loop: drive the open thread to completion")
     p_watchloop.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_watchloop)
     p_watchloop.add_argument("--config", type=Path, required=True, help="watcher config JSON (see README)")
     p_watchloop.add_argument("--interval", type=_positive_int, default=180, metavar="SECONDS")
     p_watchloop.add_argument("--until-close", action="store_true", help="exit 0 when no thread is open")
@@ -223,12 +248,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        # One resolution, up front: which channel in --root is being addressed?
+        # None means the legacy layout; init is the one command that CREATES
+        # a channel and therefore never discovers one.
+        name: str | None = None
+        if args.command != "init":
+            name = channel.discover_channel(args.root, getattr(args, "channel", None))
+
         if args.command == "init":
             parties = tuple(part.strip() for part in args.parties.split(",") if part.strip())
             if len(parties) != 2:
                 raise channel.ChannelError(f"--parties needs exactly two names, got {parties}")
-            channel.init_channel(args.root, (parties[0], parties[1]), args.supervisor, args.thread_cap)
-            print(f"initialized channel at {args.root} (parties {parties[0]!r}/{parties[1]!r}, supervisor {args.supervisor!r})")
+            channel_id = channel.generate_channel_id(args.root, label=args.label)
+            channel.init_channel(args.root, (parties[0], parties[1]), args.supervisor, args.thread_cap, name=channel_id)
+            print(
+                f"initialized channel {channel_id!r} at {args.root} "
+                f"(parties {parties[0]!r}/{parties[1]!r}, supervisor {args.supervisor!r})"
+            )
         elif args.command == "post":
             text = args.body if args.body is not None else args.body_file.read_text(encoding="utf-8")
             if args.verify_refs is not None:
@@ -241,13 +277,14 @@ def main(argv: list[str] | None = None) -> int:
                 body=text,
                 refs=args.refs,
                 force=args.force,
+                name=name,
             )
-            signal = channel.read_signal(args.root)
+            signal = channel.read_signal(args.root, name)
             turn = signal["turn"] or "-"
             print(f"posted {entry_id} (turn -> {turn})")
         elif args.command == "status":
-            signal = channel.read_signal(args.root)
-            parked = channel.turn_parked_since(args.root, datetime.now(timezone.utc))
+            signal = channel.read_signal(args.root, name)
+            parked = channel.turn_parked_since(args.root, datetime.now(timezone.utc), name)
             shown = dict(signal)
             if parked is not None and parked[0] is not None:
                 shown["turn_age_seconds"] = parked[0]
@@ -270,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
                         hours, rem = divmod(age, 3600)
                         print(f"turn '{signal.get('turn')}' parked {hours}h{rem // 60:02d}m on '{thread}' (seq {assigning_seq})")
                         stuck = args.stale_after is not None and age >= args.stale_after
-                for entry in channel.thread_entries(args.root, thread):
+                for entry in channel.thread_entries(args.root, thread, name):
                     print(f"  MSG-{entry.seq} {entry.sender} {entry.entry_type}")
             if args.stale_after is not None and thread and stuck:
                 return 3
@@ -280,8 +317,8 @@ def main(argv: list[str] | None = None) -> int:
             # races an ordinary post. verify_record must stay lock-free so the
             # watcher can call it from inside its own locked block without
             # deadlocking against the non-reentrant O_EXCL lock.
-            with channel.exclusive(args.root):
-                findings = channel.verify_record(args.root)
+            with channel.exclusive(args.root, name):
+                findings = channel.verify_record(args.root, name)
             for finding in findings:
                 print(str(finding))
             if not any(f.level == channel.ANOMALY for f in findings):
@@ -292,16 +329,15 @@ def main(argv: list[str] | None = None) -> int:
             # max-ticks. A scheduler alerting on 4 must not miss an anomaly.
             return 4
         elif args.command == "read":
-            _, entries = channel.read_raw(args.root / channel.CHANNEL_NAME)
+            _, entries = channel.read_raw(channel.mailbox_path(args.root, name))
             if args.thread is not None:
                 blocks = [e for e in entries if e.thread == args.thread]
                 if not blocks:  # closed threads may have moved house
-                    archive = args.root / channel.ARCHIVE_DIR
-                    for path in sorted(archive.glob("CHANNEL-*.md")) if archive.is_dir() else []:
+                    for path in channel.archive_month_files(args.root, name):
                         _, archived = channel.read_raw(path)
                         blocks.extend(e for e in archived if e.thread == args.thread)
             elif args.since is None:
-                open_thread = str(channel.read_signal(args.root).get("thread", ""))
+                open_thread = str(channel.read_signal(args.root, name).get("thread", ""))
                 if not open_thread:
                     print("no open thread", file=sys.stderr)
                     return 0
@@ -313,18 +349,18 @@ def main(argv: list[str] | None = None) -> int:
             for raw_entry in blocks:
                 print(raw_entry.raw.strip("\n") + "\n")
         elif args.command == "compact":
-            for line in channel.compact(args.root, keep_days=args.keep_days, dry_run=args.dry_run):
+            for line in channel.compact(args.root, keep_days=args.keep_days, dry_run=args.dry_run, name=name):
                 print(line)
         elif args.command == "watch-once":
-            config = _watcher_config(args.root, args.config)
+            config = _watcher_config(args.root, args.config, name)
             for line in run_once(config):
                 print(line)
         elif args.command == "watch-status":
-            return _watch_status_report(args.root, args.config, args.grace)
+            return _watch_status_report(args.root, args.config, args.grace, name)
         elif args.command == "watch":
             try:
                 return watch(
-                    _watcher_config(args.root, args.config),
+                    _watcher_config(args.root, args.config, name),
                     interval_seconds=args.interval,
                     until_close=args.until_close,
                     max_ticks=args.max_ticks,

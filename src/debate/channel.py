@@ -74,13 +74,39 @@ class ChannelError(Exception):
     """A refused operation. The message says why; nothing was written."""
 
 
+# A channel is either LEGACY (the 0.3.1 module-constant filenames above) or
+# NAMED: files carry the instance id generated at init, so several channels
+# can share one folder without clobbering each other. ``name=None`` means
+# legacy throughout this module — the pre-0.4 call signature keeps its exact
+# pre-0.4 behavior.
+def _config_path(root: Path, name: str | None) -> Path:
+    return root / (CONFIG_NAME if name is None else f"{name}.debate.json")
+
+
+def mailbox_path(root: Path, name: str | None = None) -> Path:
+    return root / (CHANNEL_NAME if name is None else f"{name}.channel.md")
+
+
+def _signal_path(root: Path, name: str | None) -> Path:
+    return root / (SIGNAL_NAME if name is None else f"{name}.signal.json")
+
+
+def _lock_path(root: Path, name: str | None) -> Path:
+    return root / (LOCK_NAME if name is None else f"{name}.lock")
+
+
 @dataclass(frozen=True)
 class ChannelConfig:
-    """Two named parties plus a supervisor, fixed at channel init."""
+    """Two named parties plus a supervisor, fixed at channel init.
+
+    ``name`` is the channel's instance id (``<label>-<NNNNN>``), generated
+    once at init and stored — or ``None`` for a legacy-layout channel.
+    """
 
     parties: tuple[str, str]
     supervisor: str
     thread_cap: int = 8
+    name: str | None = None
 
     def __post_init__(self) -> None:
         names = (*self.parties, self.supervisor)
@@ -112,39 +138,153 @@ class Entry:
     body: str
 
 
-def init_channel(root: Path, parties: tuple[str, str], supervisor: str, thread_cap: int = 8) -> ChannelConfig:
-    """Create a channel directory: config + empty mailbox + fresh doorbell."""
-    config = ChannelConfig(parties=parties, supervisor=supervisor, thread_cap=thread_cap)
-    root.mkdir(parents=True, exist_ok=True)
-    config_path = root / CONFIG_NAME
-    if config_path.exists():
-        raise ChannelError(f"channel already initialized at {root}")
-    _atomic_write(
-        config_path,
-        json.dumps(
-            {"parties": list(config.parties), "supervisor": config.supervisor, "thread_cap": config.thread_cap},
-            indent=2,
-        ),
+def discover_channel(root: Path, channel: str | None = None) -> str | None:
+    """Resolve which channel in ``root`` a command addresses.
+
+    Returns the instance id, or ``None`` for the legacy layout. An explicit
+    ``channel`` must exist; without one, exactly one channel in the folder is
+    used — two or more is a refusal naming each, because guessing between
+    channels is how a message lands in the wrong project's record. An empty
+    folder resolves to legacy: 0.3.1 read a fresh doorbell there, and
+    discovery must not turn that into a refusal.
+    """
+    named = sorted(path.name[: -len(".debate.json")] for path in root.glob("*.debate.json"))
+    if channel is not None:
+        if channel in named:
+            return channel
+        available = ", ".join(named) if named else "none"
+        raise ChannelError(
+            f"refused: no channel named {channel!r} in {root} (named channels here: {available})"
+        )
+    has_legacy = (root / CONFIG_NAME).exists()
+    candidates: list[str | None] = ([None] if has_legacy else []) + list(named)
+    if len(candidates) > 1:
+        shown = ", ".join("legacy (debate.json)" if c is None else c for c in candidates)
+        raise ChannelError(
+            f"refused: {root} holds more than one channel ({shown}); pass --channel <id>"
+        )
+    return candidates[0] if candidates else None
+
+
+def _random_digits() -> str:
+    import secrets  # local import keeps module load light
+
+    return f"{secrets.randbelow(100000):05d}"
+
+
+def _derived_label(root: Path) -> str:
+    """Default label: the enclosing repo's directory name.
+
+    Pinned at plan review (fold N4, MSG-2): basename of
+    ``git rev-parse --show-toplevel`` for the channel folder; outside any git
+    repo, the channel folder's PARENT directory basename. Derived names are
+    sanitized to the slug grammar — a directory name is nobody's recorded
+    words, and the operator can always override with an explicit label.
+    """
+    import subprocess  # local import keeps module load light
+
+    raw = ""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            raw = Path(result.stdout.strip()).name
+    except (OSError, subprocess.SubprocessError):
+        raw = ""
+    if not raw:
+        raw = root.resolve().parent.name
+    slug = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]", "-", raw.lower())).strip("-")
+    if not slug or not _SLUG_RE.fullmatch(slug):
+        raise ChannelError(
+            f"refused: cannot derive a channel label from {raw!r}; pass --label explicitly"
+        )
+    return slug
+
+
+def generate_channel_id(root: Path, label: str | None = None) -> str:
+    """Generate the channel's instance id: ``<label>-<NNNNN>``.
+
+    The id is generated ONCE, here, and stored in the config — never
+    re-derived — so it stays stable when the folder or project is renamed.
+    An EXPLICIT label is the operator's words and is refused when invalid,
+    never sanitized. Collisions with files already in ``root`` regenerate;
+    exhausting the retries refuses rather than reusing an id.
+    """
+    if label is not None:
+        if not _SLUG_RE.fullmatch(label):
+            raise ChannelError(f"invalid label {label!r} (lowercase alphanumerics and dashes)")
+    else:
+        label = _derived_label(root)
+    for _ in range(100):
+        candidate = f"{label}-{_random_digits()}"
+        if not any(root.glob(f"{candidate}.*")):
+            return candidate
+    raise ChannelError(
+        f"refused: could not find a free channel id for label {label!r} in {root} after 100 tries"
     )
-    (root / CHANNEL_NAME).touch()
-    _atomic_write(root / SIGNAL_NAME, json.dumps(_fresh_signal(), indent=2))
+
+
+def init_channel(
+    root: Path,
+    parties: tuple[str, str],
+    supervisor: str,
+    thread_cap: int = 8,
+    name: str | None = None,
+) -> ChannelConfig:
+    """Create a channel: config + empty mailbox + fresh doorbell.
+
+    With ``name`` the files carry the id prefix (``<name>.debate.json``,
+    ``<name>.channel.md``, ``<name>.signal.json``), so several channels can
+    coexist in one folder. Without it, the legacy 0.3.1 layout is written
+    unchanged — existing library callers keep their exact behavior.
+    """
+    if name is not None and not _SLUG_RE.fullmatch(name):
+        raise ChannelError(f"invalid channel name {name!r} (lowercase alphanumerics and dashes)")
+    config = ChannelConfig(parties=parties, supervisor=supervisor, thread_cap=thread_cap, name=name)
+    root.mkdir(parents=True, exist_ok=True)
+    config_path = _config_path(root, name)
+    if config_path.exists():
+        what = f"channel {name!r}" if name is not None else "channel"
+        raise ChannelError(f"{what} already initialized at {root}")
+    payload: dict[str, object] = {
+        "parties": list(config.parties),
+        "supervisor": config.supervisor,
+        "thread_cap": config.thread_cap,
+    }
+    if name is not None:
+        payload["name"] = name
+    _atomic_write(config_path, json.dumps(payload, indent=2))
+    mailbox_path(root, name).touch()
+    _atomic_write(_signal_path(root, name), json.dumps(_fresh_signal(), indent=2))
     return config
 
 
-def load_config(root: Path) -> ChannelConfig:
-    raw = json.loads((root / CONFIG_NAME).read_text(encoding="utf-8"))
+def load_config(root: Path, name: str | None = None) -> ChannelConfig:
+    raw = json.loads(_config_path(root, name).read_text(encoding="utf-8"))
     parties = raw["parties"]
     if not isinstance(parties, list) or len(parties) != 2:
         raise ChannelError(f"config parties must be a two-item list, got {parties!r}")
+    if name is not None and raw.get("name") != name:
+        # Identity lives in the file stem AND the recorded id; when they
+        # disagree, which one is the channel? Refuse rather than guess.
+        raise ChannelError(
+            f"refused: {_config_path(root, name).name} records name {raw.get('name')!r}, "
+            f"which disagrees with its filename; fix the config before using this channel"
+        )
     return ChannelConfig(
         parties=(str(parties[0]), str(parties[1])),
         supervisor=str(raw["supervisor"]),
         thread_cap=int(raw.get("thread_cap", 8)),
+        name=name,
     )
 
 
-def read_signal(root: Path) -> dict[str, object]:
-    path = root / SIGNAL_NAME
+def read_signal(root: Path, name: str | None = None) -> dict[str, object]:
+    path = _signal_path(root, name)
     if not path.exists():
         return _fresh_signal()
     try:
@@ -169,9 +309,9 @@ def read_signal(root: Path) -> dict[str, object]:
         raise ChannelError(f"refused: unreadable signal file {path}: {error}") from error
 
 
-def read_entries(root: Path) -> list[Entry]:
+def read_entries(root: Path, name: str | None = None) -> list[Entry]:
     """Parse the mailbox. Malformed lines between headers ride along as body."""
-    path = root / CHANNEL_NAME
+    path = mailbox_path(root, name)
     if not path.exists():
         return []
     entries: list[Entry] = []
@@ -204,11 +344,11 @@ def read_entries(root: Path) -> list[Entry]:
     return entries
 
 
-def thread_entries(root: Path, thread: str) -> list[Entry]:
-    return [entry for entry in read_entries(root) if entry.thread == thread]
+def thread_entries(root: Path, thread: str, name: str | None = None) -> list[Entry]:
+    return [entry for entry in read_entries(root, name) if entry.thread == thread]
 
 
-def turn_parked_since(root: Path, now: datetime) -> tuple[int | None, int] | None:
+def turn_parked_since(root: Path, now: datetime, name: str | None = None) -> tuple[int | None, int] | None:
     """(age_seconds, assigning_seq) for the parked turn of the open thread.
 
     The turn is assigned by the last PARTY-authored entry of the OPEN thread:
@@ -222,17 +362,17 @@ def turn_parked_since(root: Path, now: datetime) -> tuple[int | None, int] | Non
     when ``signal.json`` itself is unreadable (torn write, vanished file); that
     is a refused-channel condition, not something to paper over as "unknown".
     """
-    signal = read_signal(root)
+    signal = read_signal(root, name)
     open_thread = str(signal.get("thread", ""))
     if not open_thread or not str(signal.get("turn", "")):
         return None
-    config = load_config(root)
+    config = load_config(root, name)
     stamp_text = ""
     try:
         seq = _as_int(signal.get("seq", 0))
     except (ChannelError, ValueError, TypeError):
         seq = 0  # corrupt/missing seq: never raise, just report unknown
-    for entry in reversed(read_entries(root)):
+    for entry in reversed(read_entries(root, name)):
         if entry.thread == open_thread and entry.sender in config.parties:
             stamp_text, seq = entry.timestamp, entry.seq
             break
@@ -252,13 +392,14 @@ def post(
     body: str,
     refs: str = "",
     force: bool = False,
+    name: str | None = None,
 ) -> str:
     """Validate against the protocol, append the entry, bump the doorbell.
 
     Returns the assigned entry id; raises :class:`ChannelError` when the post
     is refused — in that case nothing was written.
     """
-    config = load_config(root)
+    config = load_config(root, name)
     body = body.strip()
     if not body:
         raise ChannelError("refused: empty body")
@@ -308,8 +449,8 @@ def post(
             "a party cannot bypass one-thread-at-a-time"
         )
 
-    with exclusive(root):
-        signal = read_signal(root)
+    with exclusive(root, name):
+        signal = read_signal(root, name)
         open_thread = str(signal.get("thread", ""))
         if sender != config.supervisor and not open_thread and entry_type not in OPENER_TYPES:
             raise ChannelError(
@@ -323,7 +464,7 @@ def post(
         if open_thread and thread != open_thread and not force:
             raise ChannelError(f"refused: thread '{open_thread}' is open; one thread at a time (force to override)")
         if open_thread and thread == open_thread and entry_type != "close":
-            count = len(thread_entries(root, thread))
+            count = len(thread_entries(root, thread, name))
             if count >= config.thread_cap:
                 raise ChannelError(
                     f"refused: thread '{thread}' is at its {config.thread_cap}-entry cap; "
@@ -334,7 +475,7 @@ def post(
         entry_id = f"MSG-{seq}"
         stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
         header = f"## {entry_id} | {stamp} | from: {sender} | type: {entry_type} | thread: {thread} | refs: {refs or '-'}"
-        with (root / CHANNEL_NAME).open("a", encoding="utf-8", newline="\n") as handle:
+        with mailbox_path(root, name).open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(f"\n{header}\n\n{body}\n")
 
         # A turn is only meaningful WITHIN an open thread. On close, clear it
@@ -356,7 +497,7 @@ def post(
         else:
             new_thread = thread
         _atomic_write(
-            root / SIGNAL_NAME,
+            _signal_path(root, name),
             json.dumps(
                 {
                     "seq": seq,
@@ -373,11 +514,33 @@ def post(
 
 ARCHIVE_DIR = "archive"
 ARCHIVE_INDEX = "INDEX.md"
-_ARCHIVE_BANNER = (
-    "> Older closed threads relocate verbatim to archive/ (see archive/INDEX.md). "
-    "Entries are never edited - `debate compact` only moves them."
-)
 _SHA_RE = re.compile(r"@([0-9a-fA-F]{7,40})\b")
+
+
+def _archive_index_name(name: str | None) -> str:
+    return ARCHIVE_INDEX if name is None else f"{name}-INDEX.md"
+
+
+def _archive_month_name(name: str | None, month: str) -> str:
+    return f"CHANNEL-{month}.md" if name is None else f"{name}-{month}.md"
+
+
+def archive_month_files(root: Path, name: str | None = None) -> list[Path]:
+    """This channel's archive month files, sorted. The month pattern
+    (????-??) cannot match the -INDEX file, so no filtering is needed."""
+    archive = root / ARCHIVE_DIR
+    if not archive.is_dir():
+        return []
+    pattern = "CHANNEL-*.md" if name is None else f"{name}-????-??.md"
+    return sorted(archive.glob(pattern))
+
+
+def _archive_banner(name: str | None) -> str:
+    index = _archive_index_name(name)
+    return (
+        f"> Older closed threads relocate verbatim to archive/ (see archive/{index}). "
+        "Entries are never edited - `debate compact` only moves them."
+    )
 
 
 @dataclass(frozen=True)
@@ -457,16 +620,13 @@ class Anomaly:
         return f"{self.level}: {self.code} - {self.detail}"
 
 
-def _record_files(root: Path) -> list[Path]:
-    """The mailbox plus every archive file, in reading order."""
-    files = [root / CHANNEL_NAME]
-    archive = root / ARCHIVE_DIR
-    if archive.is_dir():
-        files.extend(sorted(archive.glob("CHANNEL-*.md")))
+def _record_files(root: Path, name: str | None = None) -> list[Path]:
+    """The channel's mailbox plus every one of ITS archive files, in reading order."""
+    files = [mailbox_path(root, name), *archive_month_files(root, name)]
     return [path for path in files if path.exists()]
 
 
-def verify_record(root: Path) -> list[Anomaly]:
+def verify_record(root: Path, name: str | None = None) -> list[Anomaly]:
     """Check the record against itself. Pure: reads only, and NEVER raises.
 
     The caller owns the lock. This deliberately does not take one:
@@ -495,8 +655,9 @@ def verify_record(root: Path) -> list[Anomaly]:
     """
     findings: list[Anomaly] = []
     mailbox_max = 0
+    mailbox_name = mailbox_path(root, name).name
 
-    for path in _record_files(root):
+    for path in _record_files(root, name):
         try:
             _, entries = read_raw(path)
         except (OSError, ValueError) as error:
@@ -507,7 +668,7 @@ def verify_record(root: Path) -> list[Anomaly]:
             findings.append(Anomaly(ANOMALY, "unreadable-record", f"{path.name}: {error}"))
             continue
         seqs = [entry.seq for entry in entries]
-        if path.name == CHANNEL_NAME:
+        if path.name == mailbox_name:
             mailbox_max = max(seqs, default=0)
 
         seen: set[int] = set()
@@ -529,14 +690,14 @@ def verify_record(root: Path) -> list[Anomaly]:
                 Anomaly(INFO, "gap", f"{path.name}: MSG-{low} -> MSG-{high} (legitimate after a by-thread compaction)")
             )
 
-    signal_path = root / SIGNAL_NAME
+    signal_path = _signal_path(root, name)
     if not signal_path.exists():
         findings.append(
-            Anomaly(INFO, "no-doorbell", f"{SIGNAL_NAME} is absent; the mailbox-ahead check needs it and was skipped")
+            Anomaly(INFO, "no-doorbell", f"{signal_path.name} is absent; the mailbox-ahead check needs it and was skipped")
         )
         return findings
     try:
-        signal = read_signal(root)
+        signal = read_signal(root, name)
         doorbell = _as_int(signal.get("seq", 0))
     except (ChannelError, OSError, ValueError) as error:
         # read_signal has a THIRD state beyond absent and parseable: a torn
@@ -549,7 +710,7 @@ def verify_record(root: Path) -> list[Anomaly]:
         # contract. Found while probing this slice; verify_record must not
         # inherit that hole, since it promises never to raise. The underlying
         # read_signal gap is reported separately - it is not this slice's fix.
-        findings.append(Anomaly(ANOMALY, "unreadable-doorbell", f"{SIGNAL_NAME}: {error}"))
+        findings.append(Anomaly(ANOMALY, "unreadable-doorbell", f"{signal_path.name}: {error}"))
         return findings
 
     if mailbox_max > doorbell:
@@ -569,6 +730,7 @@ def compact(
     keep_days: float = 14.0,
     now: datetime | None = None,
     dry_run: bool = False,
+    name: str | None = None,
 ) -> list[str]:
     """Relocate old CLOSED threads to ``archive/`` — the mailbox stays small,
     the record stays complete.
@@ -589,12 +751,12 @@ def compact(
     bypass the lock, the rewrite is refused if the doorbell seq changed
     since planning.
     """
-    signal = read_signal(root)
+    signal = read_signal(root, name)
     seq_before = _as_int(signal["seq"])
     open_thread = str(signal.get("thread", ""))
     stamp_now = now or datetime.now(timezone.utc)
 
-    preamble, entries = read_raw(root / CHANNEL_NAME)
+    preamble, entries = read_raw(mailbox_path(root, name))
     by_thread: dict[str, list[RawEntry]] = {}
     order: list[str] = []
     for entry in entries:
@@ -628,45 +790,46 @@ def compact(
         last = max(blocks, key=lambda e: e.seq)
         last_at = _parse_ts(last.timestamp)
         assert last_at is not None  # eligibility filtered unparseable stamps
-        name = f"CHANNEL-{last_at:%Y-%m}.md"
-        moves.setdefault(name, []).extend(e.raw for e in blocks)
+        month_file = _archive_month_name(name, f"{last_at:%Y-%m}")
+        moves.setdefault(month_file, []).extend(e.raw for e in blocks)
         seqs = sorted(e.seq for e in blocks)
         index_lines.append(
-            f"- {thread}: MSG-{seqs[0]}..MSG-{seqs[-1]} ({len(seqs)} entries, closed {last.timestamp}) -> {name}"
+            f"- {thread}: MSG-{seqs[0]}..MSG-{seqs[-1]} ({len(seqs)} entries, closed {last.timestamp}) -> {month_file}"
         )
-        report.append(f"archived {thread}: MSG-{seqs[0]}..MSG-{seqs[-1]} ({len(seqs)} entries) -> {name}")
+        report.append(f"archived {thread}: MSG-{seqs[0]}..MSG-{seqs[-1]} ({len(seqs)} entries) -> {month_file}")
 
     if dry_run:
         return ["dry-run, nothing written", *report]
 
     archived_seqs = {e.seq for thread in moving for e in by_thread[thread]}
 
-    with exclusive(root):
+    with exclusive(root, name):
         # Defense-in-depth: planning happened outside the lock; a writer that
         # bypasses the lock (hand edits, an old client) shows up as a moved seq.
-        if _as_int(read_signal(root)["seq"]) != seq_before:
+        if _as_int(read_signal(root, name)["seq"]) != seq_before:
             raise ChannelError("refused: the channel changed while compacting; run again")
 
         # Re-read FRESH inside the lock and keep by seq, not by planning
         # snapshot: entries archived are closed and immutable, so anything
         # else — whatever its thread slug — is kept exactly as found.
-        preamble, entries = read_raw(root / CHANNEL_NAME)
+        preamble, entries = read_raw(mailbox_path(root, name))
         kept_raw = "".join(e.raw for e in entries if e.seq not in archived_seqs)
-        if _ARCHIVE_BANNER not in preamble:
-            preamble = f"{_ARCHIVE_BANNER}\n{preamble}" if preamble.strip() else f"{_ARCHIVE_BANNER}\n"
+        banner = _archive_banner(name)
+        if banner not in preamble:
+            preamble = f"{banner}\n{preamble}" if preamble.strip() else f"{banner}\n"
 
         archive_root = root / ARCHIVE_DIR
         archive_root.mkdir(exist_ok=True)
-        for name, raws in moves.items():
-            with (archive_root / name).open("a", encoding="utf-8", newline="") as handle:
+        for month_file, raws in moves.items():
+            with (archive_root / month_file).open("a", encoding="utf-8", newline="") as handle:
                 for raw in raws:
                     if not raw.startswith("\n"):
                         handle.write("\n")
                     handle.write(raw)
-        with (archive_root / ARCHIVE_INDEX).open("a", encoding="utf-8", newline="") as handle:
+        with (archive_root / _archive_index_name(name)).open("a", encoding="utf-8", newline="") as handle:
             for line in index_lines:
                 handle.write(line + "\n")
-        _atomic_write(root / CHANNEL_NAME, preamble + kept_raw)
+        _atomic_write(mailbox_path(root, name), preamble + kept_raw)
     return report
 
 
@@ -716,8 +879,9 @@ def _as_int(value: object) -> int:
 
 
 @contextmanager
-def exclusive(root: Path) -> Iterator[None]:
-    """Hold the channel's writer lock: O_EXCL-create ``root/.lock``.
+def exclusive(root: Path, name: str | None = None) -> Iterator[None]:
+    """Hold the channel's writer lock: O_EXCL-create ``root/.lock``
+    (``root/<name>.lock`` for a named channel — each channel has its own).
 
     Advisory but honoured by every shipped writer (``post``, ``compact``),
     which makes each one's check-then-write atomic with respect to the
@@ -727,7 +891,7 @@ def exclusive(root: Path) -> Iterator[None]:
     """
     import time  # local import keeps module load light
 
-    lock = root / LOCK_NAME
+    lock = _lock_path(root, name)
     deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
     while True:
         try:
