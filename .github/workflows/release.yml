@@ -11,14 +11,23 @@ on:
     tags: ["v*"]
 
 jobs:
+  # The SAME matrix as ci.yml, deliberately. This gate ran ubuntu-only until
+  # v0.4, which meant a tag could publish a package that CI rejected: a Windows
+  # regex bug sat red on main for three pushes while a release would have gated
+  # green and shipped it. A release gate weaker than the everyday gate is not a
+  # gate. If ci.yml's matrix changes, change it here too.
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
           cache: pip
       - run: pip install -e ".[dev]"
       - run: ruff check .

@@ -84,7 +84,7 @@ def test_post_refuses_a_citation_from_a_foreign_repo(tmp_path: Path) -> None:
     root = ours / "collab"
     channel.init_channel(root, ("alice", "bob"), "owner", name="alpha-11111")
 
-    with pytest.raises(ChannelError, match=r"(?s)" + foreign_sha + r".*" + str(ours.resolve()).replace("/", ".")):
+    with pytest.raises(ChannelError) as excinfo:
         channel.post(
             root,
             "alice",
@@ -94,6 +94,17 @@ def test_post_refuses_a_citation_from_a_foreign_repo(tmp_path: Path) -> None:
             refs=f"main@{foreign_sha}",
             name="alpha-11111",
         )
+
+    # Substring assertions rather than `pytest.raises(match=...)`, because the
+    # message embeds a filesystem path and a path is not a safe regex. This was
+    # written as match=... + str(path).replace("/", "."), which only sanitises
+    # POSIX separators: on Windows the path arrives with backslashes, `\o` in
+    # `...\ours` is an invalid escape, and every Windows CI job failed with
+    # "bad escape \o" while Linux stayed green. The contract is that the refusal
+    # names both sides - the offending sha and the project it does not belong to.
+    message = str(excinfo.value)
+    assert foreign_sha in message, message
+    assert str(ours.resolve()) in message, message
 
     assert channel.read_entries(root, name="alpha-11111") == []  # nothing was written
 
