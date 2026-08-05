@@ -32,13 +32,19 @@ practice *you* become the messenger, copy-pasting between two windows.
 text files** in a folder both agents can reach (a git repo is perfect — the history becomes
 your audit trail).
 
-- **`CHANNEL.md`** is the conversation. Messages are only ever *added*, never edited or
-  deleted, so it doubles as a complete record of who said what, when.
-- **`signal.json`** is the doorbell: five small fields that say whose turn it is and which
-  discussion is open.
+- **`<channel>.channel.md`** is the conversation. Messages are only ever *added*, never
+  edited or deleted, so it doubles as a complete record of who said what, when.
+- **`<channel>.signal.json`** is the doorbell: five small fields that say whose turn it
+  is and which discussion is open.
 
-(`debate init` also drops a small `debate.json` next to them — party names and settings.
-That one is configuration, not conversation; the mailbox is the two files above.)
+`<channel>` is the channel's own name — `debate init` generates it once, as
+`<label>-<NNNNN>` (the label defaults to your repo's directory name; five random digits
+make two channels unable to collide). Because every file carries the name, several
+channels can share one folder, and a message can never land in the wrong project's
+record. (`init` also drops `<channel>.debate.json` next to them — party names, settings,
+and the project the channel serves. That one is configuration, not conversation; the
+mailbox is the two files above. Channels created by 0.3.x use the older fixed filenames
+`CHANNEL.md`/`signal.json`/`debate.json` — still fully supported; see `debate migrate`.)
 
 One command-line tool, `debate post`, is the only thing that writes to either file — and it
 *enforces* the rules instead of politely asking: you can't post out of turn, you can't open
@@ -48,7 +54,7 @@ no message broker, no API keys, no framework to adopt.
 
 ## What a review looks like
 
-After one round trip, `CHANNEL.md` reads like this:
+After one round trip, the mailbox reads like this:
 
 ```markdown
 ## MSG-12 | 2026-07-06T14:02:11+00:00 | from: claude | type: review-request | thread: retry-backoff | refs: retry-backoff@4e9f21c
@@ -78,7 +84,8 @@ it auditable is enforced by the tool.
 ```bash
 pip install debate        # Python 3.10+, stdlib only — or just vendor the two modules
 
-# Create the mailbox: two agents named claude and glm, plus you as supervisor
+# Create the mailbox: two agents named claude and glm, plus you as supervisor.
+# Prints the generated channel id, e.g. 'myproject-48213' (--label overrides the prefix).
 debate init --root ./collab --parties claude,glm --supervisor owner
 
 # The builder asks for a review:
@@ -163,17 +170,39 @@ commands keep that honest:
 - **`debate read`** prints the open thread — an agent's working set is the open thread,
   never the whole file. `--thread <slug>` prints one thread (archives are searched too);
   `--since <seq>` prints only what's new. Put `debate read` in your agents' pinned prompts
-  instead of "read CHANNEL.md".
+  instead of "read the mailbox".
 - **`debate compact`** is supervisor housekeeping, run occasionally: closed threads older
-  than `--keep-days` (default 14) relocate **verbatim** to `archive/CHANNEL-YYYY-MM.md`,
-  with a one-line index per thread in `archive/INDEX.md`. Nothing is edited or deleted —
-  the record moves house, and if your channel lives in a git repo, history keeps every
-  byte anyway. `--dry-run` shows the plan first.
+  than `--keep-days` (default 14) relocate **verbatim** to
+  `archive/<channel>-YYYY-MM.md`, with a one-line index per thread in
+  `archive/<channel>-INDEX.md`. Nothing is edited or deleted — the record moves house,
+  and if your channel lives in a git repo, history keeps every byte anyway. `--dry-run`
+  shows the plan first.
 - **`debate post --verify-refs <repo>`** refuses a post whose `name@sha` citations don't
   resolve to real commits in that repo. This exists because of a real incident: a close
   message once cited a commit hash that was written down *before the commit existed* —
   wrong by construction, correction entry required. Machines are better at this check
   than authors are.
+
+## One channel carries one project
+
+A channel records, at `init`, the absolute path of the repo it serves. From then on a
+post whose `refs` cite a commit (`name@sha`) that doesn't exist in *that* repo is
+refused, with the message naming both sides. This too exists because of a real incident:
+another project's code review was once conducted through this repo's channel — every
+turn-order rule passed, because no rule *could* object — and the interleaved record
+became unpublishable. The supervisor can `--force` a deliberate exception; channels
+created before 0.4 carry no binding and are not gated.
+
+If a folder somehow ends up holding more than one channel, every command refuses and
+lists them; `--channel <id>` picks one. Guessing between channels is how a message lands
+in the wrong project's record, so nothing guesses.
+
+**Upgrading from 0.3.x:** existing channels keep working unchanged. `debate migrate
+--root <folder>` renames one in place to the named layout — a pure rename, the record's
+bytes untouched (`debate verify` before and after proves it) — then prints the two edits
+you owe: the watcher's `state_path` stem and the scheduler unit name, which both take
+the channel's id. Writing new legacy-layout channels is no longer possible; posting to
+existing ones remains supported in 0.4 and becomes a documented deprecation in 0.5.
 
 ## What's enforced — and what isn't
 
@@ -211,8 +240,8 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
    the record and never collides with a fresh clone.
 5. **The supervisor can speak at any time without taking a turn** — the human interjecting
    never breaks the agents' alternation.
-6. **The mailbox is the record** — if it didn't happen in `CHANNEL.md`, it didn't happen.
-   Corrections are new messages, never edits.
+6. **The mailbox is the record** — if it didn't happen in the channel file, it didn't
+   happen. Corrections are new messages, never edits.
 
 ## Why not just…
 
@@ -233,8 +262,8 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
   feature. Getting N agents to agree is a different protocol.
 - **Polling, not push.** The doorbell is made to be checked every few minutes by cron. If
   you need sub-second latency, this is not your transport.
-- **The writer lock is advisory.** `post` and `compact` serialize on a transient `.lock`
-  file in the channel root (a crashed holder's lock is broken after 30 seconds), so two
+- **The writer lock is advisory.** `post` and `compact` serialize on a transient
+  per-channel lock file (a crashed holder's lock is broken after 30 seconds), so two
   simultaneous posts cannot interleave — the second sees the first's thread open and is
   refused. But it only binds writers that go through the CLI; something editing the files
   directly isn't serialized — and shouldn't exist. (`compact`'s crash ordering can

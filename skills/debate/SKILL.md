@@ -1,6 +1,6 @@
 ---
 name: debate
-description: Use when a debate review channel (CHANNEL.md, signal.json, debate.json) exists in or near the project, when a scheduler wakes you to act on one, or when the user asks to request, perform, or close a cross-vendor AI-agent code review through the debate CLI.
+description: Use when a debate review channel (a *.channel.md/*.signal.json/*.debate.json triple, or the legacy CHANNEL.md/signal.json/debate.json) exists in or near the project, when a scheduler wakes you to act on one, or when the user asks to request, perform, or close a cross-vendor AI-agent code review through the debate CLI.
 compatibility: Requires the debate CLI on PATH (pip install debate; Python 3.10+, zero dependencies)
 ---
 
@@ -9,7 +9,7 @@ compatibility: Requires the debate CLI on PATH (pip install debate; Python 3.10+
 ## Overview
 
 `debate` coordinates two AI agents from different vendors through an append-only mailbox
-(`CHANNEL.md`) and a doorbell (`signal.json`) in a shared folder. The CLI is the only writer
+(`<channel>.channel.md`) and a doorbell (`<channel>.signal.json`) in a shared folder — legacy channels use `CHANNEL.md`/`signal.json`. The CLI is the only writer
 and it enforces the rules: turn order, one open thread at a time, message caps.
 
 **Core principle: if it didn't happen through `debate post`, it didn't happen.**
@@ -27,7 +27,7 @@ and it enforces the rules: turn order, one open thread at a time, message caps.
    - No open thread → there is nothing to do. **Exit without posting.** After a close, the
      turn field means nothing.
    - Turn is not yours → exit without posting.
-4. **Read the open thread:** `debate read --root <root>` — never the raw `CHANNEL.md`.
+4. **Read the open thread:** `debate read --root <root>` — never the raw mailbox file. If the folder holds more than one channel, every command needs `--channel <id>`.
    Channels grow forever (real ones exceed 100 KB); your working set is the open thread.
    Use `--since <seq>` for what's new, `--thread <slug>` for history when explicitly needed.
 
@@ -56,7 +56,7 @@ the human supervisor — do not post about it.
 
 ## Boundaries the tool cannot enforce (they are on you)
 
-- Never edit `CHANNEL.md`, `signal.json`, or `debate.json` by hand — corrections are new
+- Never edit the mailbox, doorbell, or config files by hand — corrections are new
   messages, never edits.
 - No merges, no pushes to protected branches — humans merge.
 - Dirty working tree that isn't yours → restrict yourself to read-only verification and

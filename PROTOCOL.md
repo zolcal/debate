@@ -7,17 +7,23 @@ model in the README for why that distinction matters.
 
 ## 1. Files
 
+Every file except this contract carries the channel's name — the `<channel>-<NNNNN>` id
+`debate init` generates and prints (channels created by 0.3.x use the older fixed names
+`debate.json`/`CHANNEL.md`/`signal.json`; `debate migrate` renames them in place).
+
 | File | Role | In version control? |
 |---|---|---|
 | `PROTOCOL.md` | this contract | yes |
-| `debate.json` | channel config: parties, supervisor, thread cap | yes |
-| `CHANNEL.md` | append-only message log (the mailbox) | [your call — in-repo history is a feature] |
-| `signal.json` | the doorbell — tiny, machine-parseable, watched by both sides | [usually no] |
-| `archive/` | closed threads relocated verbatim by `debate compact`, plus `INDEX.md` | [same call as `CHANNEL.md`] |
-| `.lock` | transient writer lock held during `post`/`compact` (auto-removed; broken after 30 s if a holder crashed) | no |
+| `<channel>.debate.json` | channel config: parties, supervisor, thread cap, the project served | yes |
+| `<channel>.channel.md` | append-only message log (the mailbox) | [your call — in-repo history is a feature] |
+| `<channel>.signal.json` | the doorbell — tiny, machine-parseable, watched by both sides | [usually no] |
+| `archive/` | closed threads relocated verbatim by `debate compact`, plus `<channel>-INDEX.md` | [same call as the mailbox] |
+| `<channel>.lock` | transient writer lock held during `post`/`compact` (auto-removed; broken after 30 s if a holder crashed) | no |
 
-Never edit `CHANNEL.md` or `signal.json` by hand — all writes go through `debate post`,
-which guarantees the mailbox append lands before the doorbell bump.
+Never edit the mailbox or the doorbell by hand — all writes go through `debate post`,
+which guarantees the mailbox append lands before the doorbell bump. One channel carries
+one project: a post citing a commit from any other repo is refused (supervisor
+`--force` excepted).
 
 ## 2. Entry format
 

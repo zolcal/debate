@@ -38,6 +38,15 @@ def test_cli_init_generates_and_prints_the_channel_id(
     assert raw["name"] == cid
 
 
+def test_cli_init_creates_a_missing_root_folder(tmp_path: Path) -> None:
+    """`debate init --root ./collab` on a not-yet-existing folder is the
+    README's documented first command; id generation must not choke on it."""
+    root = tmp_path / "not" / "yet" / "collab"
+
+    assert main(["init", "--root", str(root), "--parties", "alice,bob", "--label", "demo"]) == 0
+    assert len(list(root.glob("demo-*.debate.json"))) == 1
+
+
 def test_cli_init_twice_yields_two_channels_and_no_overwrite(tmp_path: Path) -> None:
     first = _init(tmp_path, "alpha")
     before = (tmp_path / f"{first}.debate.json").read_bytes()
