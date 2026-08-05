@@ -21,8 +21,11 @@ Zero dependencies. Two files. One rule: nobody posts out of turn.
 You have Claude Code in one terminal. You have a second AI agent somewhere else — a
 different vendor, a different tool, maybe a different machine. You'd like one of them to
 *write* code and the other to *review* it, the way two developers review each other's pull
-requests. An AI reviewer from the same vendor tends to share the builder's blind spots; a
-second opinion is only a second opinion if it comes from somewhere else.
+requests. The bet this tool is built on is that an AI reviewer from the same vendor shares
+too much of the builder's training to be a real second opinion — that a second opinion is
+only a second opinion if it comes from somewhere else. That is a hypothesis, not a measured
+result. It is being tested in a pre-registered study, which is underway and has no results
+yet; when it has, this README will report them either way.
 
 Problem: those two agents can't talk to each other. There is no shared API between vendors,
 and the AI subscriptions you already pay for only work inside each vendor's own app. So in
@@ -45,6 +48,13 @@ record. (`init` also drops `<channel>.debate.json` next to them — party names,
 and the project the channel serves. That one is configuration, not conversation; the
 mailbox is the two files above. Channels created by 0.3.x use the older fixed filenames
 `CHANNEL.md`/`signal.json`/`debate.json` — still fully supported; see `debate migrate`.)
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-dark.svg">
+    <img alt="The channel is two files in a shared directory: an append-only record that acts as the hansard, and a doorbell holding sequence number, whose turn it is, and which thread is open. A builder agent and a reviewer agent — deliberately from different vendors — each post and read through one writer that enforces turns, one open thread at a time, and message caps. A dumb cron watcher polls the doorbell every few minutes, prints new entries, and wakes whichever agent's turn it is with a pinned, debounced prompt. The human supervisor sees every entry and owns the merges, never acting as courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="820">
+  </picture>
+</p>
 
 One command-line tool, `debate post`, is the only thing that writes to either file — and it
 *enforces* the rules instead of politely asking: you can't post out of turn, you can't open
@@ -81,6 +91,11 @@ it auditable is enforced by the tool.
 
 ## Try it
 
+> **Note on versions.** The released package on PyPI is `0.3.1`. `main` is ahead of it, and
+> three commands documented below — `debate migrate`, `debate verify` and
+> `debate watch-status` — exist only on `main` until the next release. Install from source
+> if you want them.
+
 ```bash
 pip install debate        # Python 3.10+, stdlib only — or just vendor the two modules
 
@@ -109,9 +124,10 @@ protocol.
 ## Running it unattended
 
 `debate watch-once` is one tick of a deliberately simple watcher. Put it on a schedule
-(cron, every few minutes): it checks the doorbell, mirrors any new messages to wherever you
-already look (a Telegram chat, a log), and — if it's an agent's turn on an open thread —
-starts that agent with a fixed, pre-written prompt from a config file:
+(cron, every few minutes): it checks the doorbell, prints any new messages to stdout —
+route that wherever you already look, a log file or a chat gateway — and, if it's an
+agent's turn on an open thread, starts that agent with a fixed, pre-written prompt from a
+config file:
 
 ```json
 {
@@ -123,10 +139,13 @@ starts that agent with a fixed, pre-written prompt from a config file:
 }
 ```
 
-**Name the state file after the project, not `watcher-state.json`.** One channel gets one
+**Name the state file after the channel, not `watcher-state.json`.** One channel gets one
 state file, and its *stem* is the channel's identity everywhere else: the watcher tags every
 log line with it, and the scheduler unit should be named after it too
-(`debate-watch-<stem>`). Two channels on one host that both take the generic default end up
+(`debate-watch-<stem>`). Since 0.4 the stem to use is the channel's own generated id — that
+is the first of the two edits `debate migrate` prints, and it makes units, state files,
+locks and journals all carry one identity. Two channels on one host that both take the
+generic default end up
 with colliding tags and colliding unit names, and telling their watchers apart goes back to
 reading `/proc` by hand — which is how a wrong-process kill happened here once.
 
@@ -160,6 +179,24 @@ beside the watcher state file keeps a foreground `watch` and a cron `watch-once`
 double-driving the same channel. `debate status --stale-after 3600` exits 3 when a turn
 has been parked longer than an hour — put it wherever you already alert from.
 
+> **One driver per channel: the scheduler OR a foreground `watch`, never both.** `watch`
+> holds that lock for its whole process lifetime, so while it runs, every scheduler tick is
+> refused with **exit 1** — and unless something reads exit codes, the channel just quietly
+> stops being driven. Stop the scheduler while you drive a round by hand, or don't run
+> `watch` at all. This is a real failure mode, not a hypothetical: a silent channel is
+> indistinguishable from a quiet one until someone looks.
+
+### Is anything actually driving this channel?
+
+```bash
+debate watch-status --root ./collab --config watcher.json
+```
+
+Reports whether a watcher holds the lock — naming the holder's pid and working directory —
+when the channel was last ticked, and what it is waiting for. Exits **4** when a human
+should look. Run it *before* killing any `debate` process: `ps` cannot tell two channels'
+watchers apart, and killing the wrong one is a mistake that has been made here.
+
 ## Housekeeping: the mailbox grows, agents shouldn't read all of it
 
 The conversation file grows forever by design. Real numbers from the production channel
@@ -182,6 +219,10 @@ commands keep that honest:
   message once cited a commit hash that was written down *before the commit existed* —
   wrong by construction, correction entry required. Machines are better at this check
   than authors are.
+- **`debate verify`** reads the record back and reports whether it still agrees with itself:
+  a repeated message number, or a mailbox holding entries the doorbell never rang for.
+  Exits 0 when clean and 4 when something needs a human. A gap in the numbering is reported
+  as information, not a fault — compaction relocates whole threads, so gaps are normal.
 
 ## One channel carries one project
 
@@ -265,11 +306,19 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
 - **The writer lock is advisory.** `post` and `compact` serialize on a transient
   per-channel lock file (a crashed holder's lock is broken after 30 seconds), so two
   simultaneous posts cannot interleave — the second sees the first's thread open and is
-  refused. But it only binds writers that go through the CLI; something editing the files
-  directly isn't serialized — and shouldn't exist. (`compact`'s crash ordering can
-  duplicate an entry across mailbox and archive; it can never lose one.)
+  refused. But it only binds writers that go through the CLI. (`compact`'s crash ordering
+  can duplicate an entry across mailbox and archive; it can never lose one.)
+- **The record is tamper-evident, not tamper-proof.** `post` refuses a message whose body or
+  `refs` would forge an entry header — that is a real hazard, because quoting an earlier
+  message is exactly how it happens by accident, not by malice. `debate verify` catches
+  careless or automated tampering after the fact. But the mailbox is a plain text file:
+  anyone who can write to it, and who uses the next message number correctly, produces a
+  record that verifies clean. Detecting *that* needs per-entry signatures, which this tool
+  does not have. Treat the record as an honest log among cooperating parties plus a guard
+  against accidents — not as evidence against a determined forger with write access.
 - **Young.** Extracted from a working production setup, generalized, and tested — but
-  read the code before trusting it; it's ~950 lines including the CLI.
+  read the code before trusting it; it's about 2,300 lines including the CLI, with 320
+  tests as of this writing.
 
 ## Where this comes from
 
@@ -295,17 +344,23 @@ top-tier model doesn't just answer reviews — it writes the specs and test cont
 the Hermes-side agent executes them inside its own 24/7 infrastructure, then the roles
 flip for review. In the best run of that shape, the stronger model authored a
 spec-and-tests contract, the Hermes agent implemented it, and the result — one round trip,
-about ten minutes — was a 137× speedup on the function under contract. `debate` is the
-baton between the two conductors, and the score everyone can read afterwards.
+about ten minutes — was a 137× speedup on the function under contract. That figure is one
+anecdote from one function, measured on that project's own workload; it is offered as a
+description of the shape, not as a benchmark of anything. `debate` is the baton between the
+two conductors, and the score everyone can read afterwards.
 
 The same shape fits whatever pair of ecosystems you already run. The origin above is one
-example, not the design — and the pairing has rotated since: **this repo's own channel
-now runs Kimi (builder) ↔ GLM 5.2 (reviewer)**, with the full record — including a
-pre-registered benchmark pilot reviewed and approved through the channel itself —
-committed under [`collab/`](collab/). A GLM + Kimi pairing works the same way anywhere
-(see [`examples/glm-kimi.md`](examples/glm-kimi.md) — both seats verified live), and a
-local open-weight model can hold either seat, beholden to no vendor. If it can read
-files and run a shell command, it can hold up its end of a review.
+example, not the design — and the pairing has rotated since: **this repo's own channel now
+runs Claude Opus 5 (builder) ↔ GLM (reviewer)**, and its live record is committed under
+[`collab/`](collab/). What is there is the review trail of this project's own 0.4 work: a
+plan reviewed against the source before a line of it was executed, then four code branches
+gated one at a time, each verdict citing the reviewer's own checkout and its own test run.
+It is the protocol used in anger on the repo you are reading.
+
+A GLM + Kimi pairing works the same way anywhere (see
+[`examples/glm-kimi.md`](examples/glm-kimi.md) — both seats verified live), and a local
+open-weight model can hold either seat, beholden to no vendor. If it can read files and run
+a shell command, it can hold up its end of a review.
 
 ## The name
 
