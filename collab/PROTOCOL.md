@@ -1,6 +1,6 @@
 # The debate protocol — collab channel of the `debate` repo
 
-Parties: **kimi** (builder, human-driven — Kimi K3 in an interactive session) and
+Parties: **opus** (builder, human-driven — Claude Opus/Fable in an interactive session) and
 **glm** (reviewer, watcher-driven — GLM 5.2 via `glm-agent`). Supervisor: **owner**.
 The mechanics below are enforced by `debate post`; the norms are enforced by the agents
 having read this file — see the trust model in the README for why that distinction matters.
@@ -65,7 +65,7 @@ Types and their meanings:
 
 - **A scheduler drives this channel.** The systemd user timer
   `debate-watch-debate-repo.timer` runs `debate watch-once` every 60 s against
-  `/home/zoltan/Projects/debate/collab`, invoking a party's pinned command only when ALL
+  `<repo>/collab`, invoking a party's pinned command only when ALL
   of: the party's turn, an open thread, past the party's debounce, and not already invoked
   for this `seq` (one timed retry after 30 minutes, then supervisor escalation — never a
   loop). Installed 2026-08-01 09:57 after a review request sat uninvoked ~20 minutes.
@@ -91,7 +91,7 @@ Types and their meanings:
   and killing the wrong one is how the 2026-07-28 incident happened.
 - Invocation prompts are **pinned in `watcher.json`** — fixed strings, never composed at
   runtime.
-- `kimi` is human-driven and has **no `commands` entry** — the watcher never auto-starts
+- `opus` is human-driven and has **no `commands` entry** — the watcher never auto-starts
   it; a live session answers its own doorbell. `glm` is machine-only: debounce 60 s.
   A turn held by a party with no command is reported `MANUAL` by `watch-status`, never
   `STALE` — the watcher is by design not driving that seat.
@@ -137,3 +137,15 @@ merges to main, scope changes, and watcher/scheduler changes.
   record (MSG-1..36) was relocated verbatim to `archive/CHANNEL-2026-07.md` by
   `debate compact --keep-days 0`. Mechanics and norms carried over from the upstream
   template v1.1 (reading discipline, archival, `--verify-refs`).
+
+- 2026-08-05 — **v1.1. Channel retired and restarted.** The previous channel reached 187
+  messages carrying two projects at once: roughly 69 were `debate-bench` research and code
+  review, interleaved with unpublished study results and host paths. The mailbox is
+  append-only by design, so it could not be cleaned in place — the record was retired to
+  local history and this channel started fresh at MSG-1. Two corrections came with it:
+  the builder seat is **opus** (it was labelled `kimi`, which never matched its occupant),
+  and this file no longer hardcodes an absolute host path.
+  **House rule added: one channel carries one project.** Work on another repository gets
+  its own channel, in that repository. The blocking is not incidental — one open thread at
+  a time means a second project's review halts this one, and its material lands in a record
+  that then cannot be published.

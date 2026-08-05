@@ -28,3 +28,8 @@ docs/HANDOVER-SESSION-*.md
 # — development intricacies with no reason to be public. The shipped artifacts are
 # README.md, PROTOCOL.md, examples/ and docs/case-study.md.
 docs/plans/
+
+# The retired channel: 187 messages mixing this project with debate-bench research,
+# unpublished benchmark results and host paths. Kept as local history, never published.
+# It is append-only by design and so could not be cleaned in place.
+collab-retired-*/
