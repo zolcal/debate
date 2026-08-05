@@ -59,7 +59,7 @@ def test_status_unknown_age_line_and_exit(
     root = tmp_path / "chan"
     channel.init_channel(root, ("alpha", "beta"), "owner")
     channel.post(root, "beta", "review-request", "t-one", "x")
-    monkeypatch.setattr(channel, "turn_parked_since", lambda r, now: (None, 1))
+    monkeypatch.setattr(channel, "turn_parked_since", lambda r, now, name=None: (None, 1))
     assert main(["status", "--root", str(root), "--stale-after", "999999"]) == 3
     out = capsys.readouterr().out
     assert "(age unknown; malformed stamps)" in out

@@ -247,7 +247,7 @@ def test_turn_parked_since_open_thread_filter_skips_foreign_entries(
     entries = channel.read_entries(root)
     foreign = dataclasses.replace(entries[-1], seq=99, thread="t-foreign",
                                   timestamp="2026-07-15T23:00:00+00:00")
-    monkeypatch.setattr(channel, "read_entries", lambda r: [*entries, foreign])
+    monkeypatch.setattr(channel, "read_entries", lambda r, name=None: [*entries, foreign])
     now = datetime(2026, 7, 16, 0, 0, 0, tzinfo=timezone.utc)
     result = channel.turn_parked_since(root, now)
     assert result is not None
@@ -259,7 +259,7 @@ def test_turn_parked_since_naive_stamp_counts_as_utc(tmp_path: Path, monkeypatch
     root = _open_channel(tmp_path)
     entries = channel.read_entries(root)
     naive = [dataclasses.replace(e, timestamp="2026-07-15T00:00:00") for e in entries]  # no tzinfo
-    monkeypatch.setattr(channel, "read_entries", lambda r: naive)
+    monkeypatch.setattr(channel, "read_entries", lambda r, name=None: naive)
     now = datetime(2026, 7, 15, 2, 0, 0, tzinfo=timezone.utc)
     result = channel.turn_parked_since(root, now)
     assert result is not None
@@ -273,7 +273,7 @@ def test_turn_parked_since_malformed_party_stamp_falls_back_to_updated_at(
     root = _open_channel(tmp_path)
     entries = channel.read_entries(root)
     broken = [dataclasses.replace(e, timestamp="not-a-stamp") for e in entries]
-    monkeypatch.setattr(channel, "read_entries", lambda r: broken)
+    monkeypatch.setattr(channel, "read_entries", lambda r, name=None: broken)
     updated_at = datetime.fromisoformat(str(channel.read_signal(root)["updated_at"]))
     now = updated_at + timedelta(hours=2)  # make the fallback value distinctly nonzero
     result = channel.turn_parked_since(root, now)
@@ -288,10 +288,10 @@ def test_turn_parked_since_both_stamps_malformed_reports_unknown(
     root = _open_channel(tmp_path)
     entries = channel.read_entries(root)
     broken = [dataclasses.replace(e, timestamp="not-a-stamp") for e in entries]
-    monkeypatch.setattr(channel, "read_entries", lambda r: broken)
+    monkeypatch.setattr(channel, "read_entries", lambda r, name=None: broken)
     signal = dict(channel.read_signal(root))
     signal["updated_at"] = "also-garbage"
-    monkeypatch.setattr(channel, "read_signal", lambda r: signal)
+    monkeypatch.setattr(channel, "read_signal", lambda r, name=None: signal)
     result = channel.turn_parked_since(root, datetime.now(timezone.utc))
     assert result is not None
     age, seq = result
@@ -305,7 +305,7 @@ def test_turn_parked_since_never_raises_on_corrupted_signal(
     the docstring promises turn_parked_since never does, but signal["seq"] direct-indexing
     used to raise KeyError on exactly this shape."""
     root = _open_channel(tmp_path)
-    monkeypatch.setattr(channel, "read_signal", lambda r: {"thread": "t-one", "turn": "alpha"})
+    monkeypatch.setattr(channel, "read_signal", lambda r, name=None: {"thread": "t-one", "turn": "alpha"})
     result = channel.turn_parked_since(root, datetime.now(timezone.utc))
     # The whole point is that this doesn't raise; the shape is secondary
     # (e.g. (None, 0) if nothing else can be recovered).

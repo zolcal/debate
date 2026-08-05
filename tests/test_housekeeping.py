@@ -100,7 +100,7 @@ def test_compact_aborts_when_the_channel_changes_mid_run(root: Path, monkeypatch
     real = channel_module.read_signal
     calls = {"n": 0}
 
-    def racing(path: Path) -> dict[str, object]:
+    def racing(path: Path, name: str | None = None) -> dict[str, object]:
         calls["n"] += 1
         signal = real(path)
         if calls["n"] > 1:  # a concurrent post lands after planning
