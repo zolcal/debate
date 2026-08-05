@@ -1,0 +1,10 @@
+{
+  "parties": [
+    "opus",
+    "glm"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 8,
+  "name": "debate-06451",
+  "project": "/home/zoltan/Projects/debate"
+}
