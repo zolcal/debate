@@ -22,13 +22,15 @@ import pytest
 
 from debate import channel
 
-# Shapes drawn from the body headings the live record actually carried. The
-# committed record holds NONE of them (the mailbox on origin stops at MSG-45,
-# before this project started writing structured review bodies), so a test that
-# harvested "the real corpus" from the checkout would find an EMPTY list and
-# pass vacuously in CI - the exact failure this suite refuses elsewhere. These
-# are authored from the real shapes instead, and the corpus is asserted
-# non-empty below so it can never silently become one.
+# Shapes drawn from the body headings the live record actually carried. These
+# are AUTHORED rather than harvested from the checkout, because what the
+# committed record happens to hold is not a stable input: it once carried no
+# body headings at all (the old mailbox stopped at MSG-45, before this project
+# wrote structured review bodies), and that record has since been retired and
+# the channel restarted. A corpus that is "whatever the record holds today"
+# goes vacuous the day the record changes - the exact failure this suite
+# refuses elsewhere. The corpus is asserted non-empty below so it can never
+# silently become one.
 BODY_HEADINGS = [
     "## Review - 2026-08-04 - glm",
     "## Findings",
@@ -207,17 +209,29 @@ def test_multiline_body_reports_the_offending_line_number(tmp_path: Path) -> Non
 def test_real_record_body_headings_are_still_postable(tmp_path: Path) -> None:
     """Opportunistic: if the checkout's record HAS body headings, none may be refused.
 
-    The committed record carries none, so in CI this SKIPS - loudly, by design.
-    The first version silently passed on an empty corpus, which is the vacuity
-    this suite refuses elsewhere; and when it finally met a real corpus (101
-    headings in the working record) it turned out to be BROKEN rather than
-    merely weak: it posted two entries per heading into one thread and died on
-    the 4th with "thread 't1' is at its 8-entry cap". It had never run.
+    This check has gone vacuous twice, in two different ways, and both times it
+    still reported success:
+
+    1. It posted TWO entries per heading into one thread and ignored the
+       8-entry cap, dying on the 4th heading. It had never actually run - the
+       committed record then carried no body headings, so the loop body was
+       skipped and it passed silently (fixed at MSG-178).
+    2. It then resolved the record as a HARDCODED ``CHANNEL.md``. When the live
+       channel migrated to the 0.4 named layout that file stopped existing, so
+       it skipped on every checkout - visibly, but permanently, and the
+       coverage restored by (1) was gone again.
+
+    Hence resolving through the library's own ``discover_channel``: the corpus
+    follows whatever layout the channel is in, instead of pinning one era of
+    it. If discovery breaks, this test notices rather than quietly skipping.
 
     So: skip visibly when there is nothing to check, raise the cap when there
     is, and alternate senders so each heading is one post rather than two.
     """
-    record = Path(__file__).resolve().parent.parent / "collab" / channel.CHANNEL_NAME
+    collab = Path(__file__).resolve().parent.parent / "collab"
+    if not collab.is_dir():
+        pytest.skip("no collab folder in this checkout")
+    record = channel.mailbox_path(collab, channel.discover_channel(collab))
     if not record.exists():
         pytest.skip("no collab record in this checkout")
 
