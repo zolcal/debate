@@ -166,6 +166,57 @@ def discover_channel(root: Path, channel: str | None = None) -> str | None:
     return candidates[0] if candidates else None
 
 
+def migrate_channel(root: Path, label: str | None = None) -> str:
+    """Rename a legacy channel in place to the named layout; return its new id.
+
+    A pure rename: the mailbox and every archive file move byte-untouched —
+    ``verify``/``read`` before and after is the acceptance test, archive
+    included. The config is the ONE file whose content changes: it gains the
+    generated ``name``, because identity is recorded there. Runs under the
+    legacy writer lock so a concurrent ``post`` can never land between two
+    renames and strand a half-migrated channel.
+    """
+    if not (root / CONFIG_NAME).exists():
+        raise ChannelError(
+            f"refused: no legacy channel at {root} (nothing named {CONFIG_NAME}); "
+            "named channels never need migrating"
+        )
+    with exclusive(root):
+        raw = json.loads((root / CONFIG_NAME).read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ChannelError(f"refused: {root / CONFIG_NAME} is not a JSON object; fix it before migrating")
+        # Crash-safe ordering: the id is committed into the LEGACY config
+        # before any file moves. A migration interrupted at any later point
+        # leaves a channel still discoverable as legacy, carrying the id it
+        # was moving to - a re-run reads it back and finishes the same
+        # migration instead of generating a second id and stranding the
+        # already-renamed files.
+        recorded = raw.get("name")
+        if isinstance(recorded, str) and _SLUG_RE.fullmatch(recorded):
+            name = recorded  # resuming an interrupted migration
+        else:
+            name = generate_channel_id(root, label=label)
+            raw["name"] = name
+            _atomic_write(root / CONFIG_NAME, json.dumps(raw, indent=2))
+        # Mailbox, doorbell and archive RENAME - bytes never pass through
+        # this process. Missing files are skipped: the doorbell is gitignored
+        # and legitimately absent, and a resumed run finds some already moved.
+        if (root / CHANNEL_NAME).exists():
+            (root / CHANNEL_NAME).rename(mailbox_path(root, name))
+        if (root / SIGNAL_NAME).exists():
+            (root / SIGNAL_NAME).rename(_signal_path(root, name))
+        archive = root / ARCHIVE_DIR
+        if archive.is_dir():
+            for path in sorted(archive.glob("CHANNEL-*.md")):
+                month = path.name[len("CHANNEL-") : -len(".md")]
+                path.rename(archive / _archive_month_name(name, month))
+            if (archive / ARCHIVE_INDEX).exists():
+                (archive / ARCHIVE_INDEX).rename(archive / _archive_index_name(name))
+        _atomic_write(_config_path(root, name), json.dumps(raw, indent=2))
+        (root / CONFIG_NAME).unlink()
+    return name
+
+
 def _random_digits() -> str:
     import secrets  # local import keeps module load light
 
