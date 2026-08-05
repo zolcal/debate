@@ -101,12 +101,15 @@ class ChannelConfig:
 
     ``name`` is the channel's instance id (``<label>-<NNNNN>``), generated
     once at init and stored — or ``None`` for a legacy-layout channel.
+    ``project`` is the absolute path of the repo this channel serves; when
+    set, ``post`` refuses citations that resolve to any other repo.
     """
 
     parties: tuple[str, str]
     supervisor: str
     thread_cap: int = 8
     name: str | None = None
+    project: str | None = None
 
     def __post_init__(self) -> None:
         names = (*self.parties, self.supervisor)
@@ -197,6 +200,9 @@ def migrate_channel(root: Path, label: str | None = None) -> str:
         else:
             name = generate_channel_id(root, label=label)
             raw["name"] = name
+            # A migrated channel gains the project binding a named init would
+            # have recorded - otherwise a legacy channel could never be bound.
+            raw.setdefault("project", _derived_project(root))
             _atomic_write(root / CONFIG_NAME, json.dumps(raw, indent=2))
         # Mailbox, doorbell and archive RENAME - bytes never pass through
         # this process. Missing files are skipped: the doorbell is gitignored
@@ -221,6 +227,28 @@ def _random_digits() -> str:
     import secrets  # local import keeps module load light
 
     return f"{secrets.randbelow(100000):05d}"
+
+
+def _derived_project(root: Path) -> str:
+    """The absolute path of the repo this channel serves.
+
+    The enclosing git repo's toplevel; outside any repo, the channel
+    folder's parent — the same two-tier rule as the label, kept in path form.
+    """
+    import subprocess  # local import keeps module load light
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return str(Path(result.stdout.strip()).resolve())
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return str(root.resolve().parent)
 
 
 def _derived_label(root: Path) -> str:
@@ -295,7 +323,10 @@ def init_channel(
     """
     if name is not None and not _SLUG_RE.fullmatch(name):
         raise ChannelError(f"invalid channel name {name!r} (lowercase alphanumerics and dashes)")
-    config = ChannelConfig(parties=parties, supervisor=supervisor, thread_cap=thread_cap, name=name)
+    project = _derived_project(root) if name is not None else None
+    config = ChannelConfig(
+        parties=parties, supervisor=supervisor, thread_cap=thread_cap, name=name, project=project
+    )
     root.mkdir(parents=True, exist_ok=True)
     config_path = _config_path(root, name)
     if config_path.exists():
@@ -307,7 +338,10 @@ def init_channel(
         "thread_cap": config.thread_cap,
     }
     if name is not None:
+        # A named channel records the project it serves; the legacy library
+        # path stays byte-identical to 0.3.1 and records nothing new.
         payload["name"] = name
+        payload["project"] = project
     _atomic_write(config_path, json.dumps(payload, indent=2))
     mailbox_path(root, name).touch()
     _atomic_write(_signal_path(root, name), json.dumps(_fresh_signal(), indent=2))
@@ -326,11 +360,13 @@ def load_config(root: Path, name: str | None = None) -> ChannelConfig:
             f"refused: {_config_path(root, name).name} records name {raw.get('name')!r}, "
             f"which disagrees with its filename; fix the config before using this channel"
         )
+    project = raw.get("project")
     return ChannelConfig(
         parties=(str(parties[0]), str(parties[1])),
         supervisor=str(raw["supervisor"]),
         thread_cap=int(raw.get("thread_cap", 8)),
         name=name,
+        project=str(project) if project is not None else None,
     )
 
 
@@ -499,6 +535,15 @@ def post(
             f"refused: force is supervisor-only (supervisor {config.supervisor!r}); "
             "a party cannot bypass one-thread-at-a-time"
         )
+    # One channel carries one project. A bound channel refuses citations that
+    # resolve anywhere but its own repo - this is the rule that would have
+    # stopped the MSG-180 cross-post (a debate-bench review conducted through
+    # this repo's channel) at the moment it happened, not a week later.
+    # force is already supervisor-only by the check above, so the escape
+    # hatch stays where every other escape hatch lives. Runs before the lock:
+    # a refusal costs no lock, and nothing was written.
+    if config.project is not None and not force:
+        _refuse_foreign_refs(refs, Path(config.project))
 
     with exclusive(root, name):
         signal = read_signal(root, name)
@@ -882,6 +927,37 @@ def compact(
                 handle.write(line + "\n")
         _atomic_write(mailbox_path(root, name), preamble + kept_raw)
     return report
+
+
+def _refuse_foreign_refs(refs: str, project: Path) -> None:
+    """Refuse ``name@sha`` citations that do not resolve in the channel's project.
+
+    Refs WITHOUT a sha citation pass untouched — a plan-doc path is not a
+    commit and carries no repo identity. This deliberately reuses the record's
+    own citation grammar (``_SHA_RE``): a second hand-maintained pattern here
+    would drift from ``verify_refs`` and reopen the cross-post hole one field
+    over, the MSG-163 failure shape.
+    """
+    import subprocess  # local import keeps module load light
+
+    for sha in _SHA_RE.findall(refs):
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(project), "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except FileNotFoundError as error:
+            raise ChannelError(
+                "refused: this channel is bound to a project and checking a citation needs git on PATH"
+            ) from error
+        if result.returncode != 0:
+            raise ChannelError(
+                f"refused: refs cite {sha!r}, which is not a commit in this channel's project "
+                f"{project}. One channel carries one project - post this review to the channel "
+                "of the repo it cites, or the supervisor may force a deliberate exception."
+            )
 
 
 def verify_refs(refs: str, repo: Path) -> None:
