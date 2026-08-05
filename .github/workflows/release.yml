@@ -66,7 +66,11 @@ jobs:
               f"tag {tag!r} != pyproject {version!r} != package {debate.__version__!r}"
           )
           text = open("CHANGELOG.md", encoding="utf-8").read()
-          match = re.search(r"^## " + re.escape(ref) + r"\b[^\n]*\n(.*?)(?=\n## |\Z)", text, re.S | re.M)
+          # (?=[ \t]|$) not \b: \b would let a search for v0.4.0 match a
+          # "## v0.4.0-rc1" heading and publish the pre-release's notes as the
+          # final's. Requiring whitespace or end-of-line after the tag rejects
+          # dashed pre-releases while still matching "## v0.4.0 - date".
+          match = re.search(r"^## " + re.escape(ref) + r"(?=[ \t]|$)[^\n]*\n(.*?)(?=\n## |\Z)", text, re.S | re.M)
           if match is None or not match.group(1).strip():
               sys.exit(f"CHANGELOG.md has no usable section for {ref} - add one before tagging")
           EOF
@@ -97,7 +101,9 @@ jobs:
           # From this version's heading to the next one. A missing section is a
           # hard failure: a release whose notes nobody wrote is the drift this
           # job exists to prevent.
-          match = re.search(r"^## " + re.escape(tag) + r"\b[^\n]*\n(.*?)(?=\n## |\Z)", text, re.S | re.M)
+          # Same anchor as the publish pre-flight, and for the same reason:
+          # \b would match "## v0.4.0-rc1" when asked for v0.4.0.
+          match = re.search(r"^## " + re.escape(tag) + r"(?=[ \t]|$)[^\n]*\n(.*?)(?=\n## |\Z)", text, re.S | re.M)
           if match is None:
               sys.exit(f"CHANGELOG.md has no section for {tag} - add one before tagging")
           body = match.group(1).strip()
