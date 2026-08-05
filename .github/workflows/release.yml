@@ -49,12 +49,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify tag matches package version
+      # Everything that can refuse this release must refuse it BEFORE the upload.
+      # A PyPI upload cannot be undone, only yanked, so checking the release
+      # notes exist after publishing would be checking too late.
+      - name: Verify tag matches package version, and that notes exist
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          python - "$TAG" <<'EOF'
+          python - "$TAG" "$GITHUB_REF_NAME" <<'EOF'
           import re, sys
-          tag = sys.argv[1]
+          tag, ref = sys.argv[1], sys.argv[2]
           pyproject = open("pyproject.toml", encoding="utf-8").read()
           version = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE).group(1)
           sys.path.insert(0, "src")
@@ -62,7 +65,53 @@ jobs:
           assert tag == version == debate.__version__, (
               f"tag {tag!r} != pyproject {version!r} != package {debate.__version__!r}"
           )
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          # (?=[ \t]|$) not \b: \b would let a search for v0.4.0 match a
+          # "## v0.4.0-rc1" heading and publish the pre-release's notes as the
+          # final's. Requiring whitespace or end-of-line after the tag rejects
+          # dashed pre-releases while still matching "## v0.4.0 - date".
+          match = re.search(r"^## " + re.escape(ref) + r"(?=[ \t]|$)[^\n]*\n(.*?)(?=\n## |\Z)", text, re.S | re.M)
+          if match is None or not match.group(1).strip():
+              sys.exit(f"CHANGELOG.md has no usable section for {ref} - add one before tagging")
           EOF
       - run: pip install build
       - run: python -m build
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  # Publishing to PyPI used to be the whole release, which is how the repo's
+  # Releases page ended up advertising v0.2.0 as "Latest" while PyPI served
+  # 0.3.1: v0.3.1 was tagged and shipped but never given a Release. Creating it
+  # from the tag closes that drift for good, and sourcing the body from
+  # CHANGELOG.md means the notes are reviewed in-repo like any other published
+  # text rather than typed into a web form at the last minute.
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write  # create the Release object
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract this version's CHANGELOG section
+        run: |
+          python - "$GITHUB_REF_NAME" <<'EOF' > release-notes.md
+          import re, sys
+          tag = sys.argv[1]
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          # From this version's heading to the next one. A missing section is a
+          # hard failure: a release whose notes nobody wrote is the drift this
+          # job exists to prevent.
+          # Same anchor as the publish pre-flight, and for the same reason:
+          # \b would match "## v0.4.0-rc1" when asked for v0.4.0.
+          match = re.search(r"^## " + re.escape(tag) + r"(?=[ \t]|$)[^\n]*\n(.*?)(?=\n## |\Z)", text, re.S | re.M)
+          if match is None:
+              sys.exit(f"CHANGELOG.md has no section for {tag} - add one before tagging")
+          body = match.group(1).strip()
+          if not body:
+              sys.exit(f"CHANGELOG.md section for {tag} is empty")
+          sys.stdout.write(body + "\n")
+          EOF
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "debate $GITHUB_REF_NAME" --notes-file release-notes.md
