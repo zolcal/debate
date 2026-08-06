@@ -1,7 +1,7 @@
 """The watcher: a dumb poller that wakes the expensive brains.
 
-Runs from any scheduler (cron, Task Scheduler, a while-loop) every few
-minutes. Reads the doorbell, decides — via pure functions, so every decision
+Runs from any scheduler (cron, Task Scheduler, a while-loop) every 60s.
+Reads the doorbell, decides — via pure functions, so every decision
 is unit-testable — whether a party's agent should be invoked, and shells out
 to the command configured for that party. No LLM runs when nothing changed.
 
