@@ -9,6 +9,7 @@ in this fleet has no `/proc` to reason about.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -114,7 +115,12 @@ def test_acquire_rewrites_a_legacy_note_rather_than_appending(tmp_path: Path) ->
         lock.release()
 
     assert len(lines) == 3
-    assert "999" not in lines[0]
+    # Compare the pid as a VALUE, not a substring. This asserted
+    # `"999" not in lines[0]`, which fails whenever the live pid merely CONTAINS
+    # the planted stale one: a Windows CI job drew pid 9992, '999' is a substring
+    # of it, and a docs-only commit went red. Asserting the note now carries THIS
+    # process's pid is both flake-free and a stronger statement of the contract.
+    assert lines[0] == str(os.getpid()), lines
 
 
 def test_a_released_lock_still_parses(tmp_path: Path) -> None:
