@@ -49,7 +49,7 @@
   <!-- ===== watcher (bottom center) ===== -->
   <rect x="330" y="270" width="220" height="70" rx="10" fill="#1c1830" stroke="#a371f7" stroke-width="1.5"/>
   <text x="440" y="298" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">watcher</text>
-  <text x="440" y="318" text-anchor="middle" font-size="12" fill="#8b949e">dumb cron, every ~3 min</text>
+  <text x="440" y="318" text-anchor="middle" font-size="12" fill="#8b949e">dumb cron, every ~60s</text>
 
   <!-- watcher polls doorbell -->
   <line x1="440" y1="270" x2="440" y2="253" stroke="#a371f7" stroke-width="1.5" marker-end="url(#arrowAccent)"/>
@@ -69,7 +69,7 @@
     <tspan font-weight="600">human supervisor</tspan> — sees every entry, merges are theirs, never the courier
   </text>
 
-  <!-- watcher mirrors to supervisor -->
+  <!-- watcher prints new entries for the supervisor -->
   <line x1="440" y1="340" x2="440" y2="373" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arrow)"/>
   <text x="486" y="362" text-anchor="middle" font-size="11.5" fill="#3fb950">prints new entries</text>
 </svg>

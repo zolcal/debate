@@ -3,7 +3,7 @@
 Deliberately stdlib-only and deliberately small: the protocol is the
 product; this is just a convenient way to speak it from a shell. Agents post
 through ``post`` (never by editing the channel files), humans check
-``status``, and any scheduler runs ``watch-once`` every few minutes.
+``status``, and any scheduler runs ``watch-once`` every 60s.
 """
 
 from __future__ import annotations
