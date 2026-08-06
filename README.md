@@ -52,7 +52,7 @@ mailbox is the two files above. Channels created by 0.3.x use the older fixed fi
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-dark.svg">
-    <img alt="The channel is two files in a shared directory: an append-only record that acts as the hansard, and a doorbell holding sequence number, whose turn it is, and which thread is open. A builder agent and a reviewer agent — deliberately from different vendors — each post and read through one writer that enforces turns, one open thread at a time, and message caps. A dumb cron watcher polls the doorbell every few minutes, prints new entries, and wakes whichever agent's turn it is with a pinned, debounced prompt. The human supervisor sees every entry and owns the merges, never acting as courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="820">
+    <img alt="The channel is two files in a shared directory: an append-only record that acts as the hansard, and a doorbell holding sequence number, whose turn it is, and which thread is open. A builder agent and a reviewer agent — deliberately from different vendors — each post and read through one writer that enforces turns, one open thread at a time, and message caps. A dumb cron watcher polls the doorbell every minute, prints new entries, and wakes whichever agent's turn it is with a pinned, debounced prompt. The human supervisor sees every entry and owns the merges, never acting as courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="820">
   </picture>
 </p>
 
@@ -124,7 +124,7 @@ protocol.
 ## Running it unattended
 
 `debate watch-once` is one tick of a deliberately simple watcher. Put it on a schedule
-(cron, every few minutes): it checks the doorbell, prints any new messages to stdout —
+(cron, every minute): it checks the doorbell, prints any new messages to stdout —
 route that wherever you already look, a log file or a chat gateway — and, if it's an
 agent's turn on an open thread, starts that agent with a fixed, pre-written prompt from a
 config file:
@@ -150,7 +150,7 @@ with colliding tags and colliding unit names, and telling their watchers apart g
 reading `/proc` by hand — which is how a wrong-process kill happened here once.
 
 ```bash
-debate watch-once --root ./collab --config watcher.json   # cron this every ~3 minutes
+debate watch-once --root ./collab --config watcher.json   # cron this every 60s
 ```
 
 Agents run in the watcher's own working directory — `cd` to your project root before
@@ -301,7 +301,7 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
 - **Two parties by design.** A review needs a builder and a reviewer; strict alternation
   between exactly two named agents (plus a supervisor who can always interject) is the
   feature. Getting N agents to agree is a different protocol.
-- **Polling, not push.** The doorbell is made to be checked every few minutes by cron. If
+- **Polling, not push.** The doorbell is made to be checked once a minute by cron. If
   you need sub-second latency, this is not your transport.
 - **The writer lock is advisory.** `post` and `compact` serialize on a transient
   per-channel lock file (a crashed holder's lock is broken after 30 seconds), so two
