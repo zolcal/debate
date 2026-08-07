@@ -368,8 +368,20 @@ def init_channel(
 
 
 def load_config(root: Path, name: str | None = None) -> ChannelConfig:
-    raw = json.loads(_config_path(root, name).read_text(encoding="utf-8"))
-    parties = raw["parties"]
+    path = _config_path(root, name)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ChannelError(f"refused: unreadable channel config {path}: {error}") from error
+    if not isinstance(raw, dict):
+        raise ChannelError(
+            f"refused: channel config {path} must be a JSON object, got {type(raw).__name__}"
+        )
+    try:
+        parties = raw["parties"]
+        supervisor = raw["supervisor"]
+    except KeyError as error:
+        raise ChannelError(f"refused: channel config {path} is missing required key {error.args[0]!r}") from error
     if not isinstance(parties, list) or len(parties) != 2:
         raise ChannelError(f"config parties must be a two-item list, got {parties!r}")
     if name is not None and raw.get("name") != name:
@@ -388,14 +400,17 @@ def load_config(root: Path, name: str | None = None) -> ChannelConfig:
             f"refused: {_config_path(root, name).name} records invalid "
             f"managed_version {managed_version!r}"
         )
-    return ChannelConfig(
-        parties=(str(parties[0]), str(parties[1])),
-        supervisor=str(raw["supervisor"]),
-        thread_cap=int(raw.get("thread_cap", 12)),
-        name=name,
-        project=str(project) if project is not None else None,
-        managed_version=managed_version,
-    )
+    try:
+        return ChannelConfig(
+            parties=(str(parties[0]), str(parties[1])),
+            supervisor=str(supervisor),
+            thread_cap=int(raw.get("thread_cap", 12)),
+            name=name,
+            project=str(project) if project is not None else None,
+            managed_version=managed_version,
+        )
+    except (TypeError, ValueError) as error:
+        raise ChannelError(f"refused: invalid channel config {path}: {error}") from error
 
 
 def read_signal(root: Path, name: str | None = None) -> dict[str, object]:

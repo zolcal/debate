@@ -75,13 +75,16 @@ class WatcherConfig:
     def __post_init__(self) -> None:
         # Library callers must not be able to accidentally treat a named
         # managed channel as legacy merely by omitting the duplicated watcher
-        # fields. Bind from the channel record whenever it exists; an absent
-        # record is still allowed for pure decision tests and pre-init config.
+        # fields. Bind from the channel record whenever it exists. An absent
+        # legacy record remains allowed for pure decision tests and pre-init
+        # config, but an explicitly named channel must bind its record rather
+        # than silently falling back to legacy/manual behavior.
         if self.managed_version is None or self.parties is None:
             try:
                 channel_config = load_config(self.channel_root, self.channel_name)
-            except FileNotFoundError:
-                pass
+            except ChannelError:
+                if self.channel_name is not None or (self.channel_root / "debate.json").exists():
+                    raise
             else:
                 if self.managed_version is None:
                     object.__setattr__(self, "managed_version", channel_config.managed_version)
