@@ -62,6 +62,8 @@ _LOCK_TIMEOUT_SECONDS = 5.0
 _LOCK_STALE_SECONDS = 30.0
 
 ENTRY_TYPES = ("review-request", "verdict", "fix-report", "question", "info", "close")
+MANAGED_PHASES = ("docket", "sealed", "reveal", "deliberation", "terminal")
+TERMINAL_RESULTS = ("PASS", "NO_PASS", "ERROR")
 
 # Types that may START a discussion. verdict/fix-report are replies by nature;
 # close stays an opener for the documented one-shot close-correction idiom.
@@ -149,6 +151,16 @@ class Entry:
     thread: str
     refs: str
     body: str
+
+
+@dataclass(frozen=True)
+class RevealSubmission:
+    """One controller-bound initial position for an atomic paired reveal."""
+
+    sender: str
+    entry_type: str
+    body: str
+    refs: str = ""
 
 
 def discover_channel(root: Path, channel: str | None = None) -> str | None:
@@ -517,6 +529,28 @@ def turn_parked_since(root: Path, now: datetime, name: str | None = None) -> tup
     return (max(0, int((now - stamp).total_seconds())), seq)
 
 
+def _validate_entry_text(body: str, refs: str) -> str:
+    """Validate fields interpolated into the append-only record; return stripped body."""
+    stripped = body.strip()
+    if not stripped:
+        raise ChannelError("refused: empty body")
+    for offset, line in enumerate(stripped.splitlines(), start=1):
+        if _HEADER_RE.match(line):
+            raise ChannelError(
+                f"refused: body line {offset} would parse as an entry header and forge an "
+                f"entry into the record: {line!r}. Quote it as a blockquote ('> ## MSG-...') "
+                "or inside a code fence. Indenting the FIRST line does not work - the body "
+                "is stripped before it is written."
+            )
+    lines = refs.splitlines()
+    if lines and (len(lines) > 1 or lines[0] != refs):
+        raise ChannelError(
+            "refused: refs must be a single line - it is written into the entry header, "
+            f"and a line break there forges an entry when the record is re-parsed: {refs!r}"
+        )
+    return stripped
+
+
 def post(
     root: Path,
     sender: str,
@@ -528,6 +562,8 @@ def post(
     name: str | None = None,
     _brokered: bool = False,
     _initial_turn: str | None = None,
+    _managed_phase: str | None = None,
+    _case_deadline: str | None = None,
 ) -> str:
     """Validate against the protocol, append the entry, bump the doorbell.
 
@@ -535,9 +571,7 @@ def post(
     is refused — in that case nothing was written.
     """
     config = load_config(root, name)
-    body = body.strip()
-    if not body:
-        raise ChannelError("refused: empty body")
+    body = _validate_entry_text(body, refs)
     if entry_type not in ENTRY_TYPES:
         raise ChannelError(f"refused: unknown entry type {entry_type!r} (one of {ENTRY_TYPES})")
     if sender != config.supervisor and sender not in config.parties:
@@ -558,42 +592,15 @@ def post(
                 "refused: an initial party turn is controller-only, supervisor-authored, "
                 "and valid only for a brokered review-request"
             )
+    if _managed_phase is not None:
+        if config.managed_version != BROKERED_MANAGED_VERSION or sender != config.supervisor:
+            raise ChannelError("refused: managed phase initialization is broker-controller-only")
+        if _managed_phase not in MANAGED_PHASES:
+            raise ChannelError(f"refused: unknown managed phase {_managed_phase!r}")
+        if _case_deadline is None or _parse_ts(_case_deadline) is None:
+            raise ChannelError("refused: managed phase initialization requires an absolute case deadline")
     if not _SLUG_RE.fullmatch(thread):
         raise ChannelError(f"refused: invalid thread slug {thread!r} (lowercase alphanumerics and dashes)")
-    # The mailbox is re-parsed line-anchored by _HEADER_RE, so a BODY line in
-    # that grammar becomes a real entry - a forged one, attributable to anyone,
-    # and indistinguishable from a genuine entry in `git diff`. Quoting a prior
-    # message is the accidental path into this, which is why the refusal below
-    # says how to quote safely instead of just saying no. Checked against the
-    # SAME pattern the parser uses: a second hand-maintained pattern would drift
-    # and reopen the hole silently. Runs on the STRIPPED body and before the
-    # lock, so a refusal costs no lock and reflects exactly what would be
-    # written.
-    for offset, line in enumerate(body.splitlines(), start=1):
-        if _HEADER_RE.match(line):
-            raise ChannelError(
-                f"refused: body line {offset} would parse as an entry header and forge an "
-                f"entry into the record: {line!r}. Quote it as a blockquote ('> ## MSG-...') "
-                "or inside a code fence. Indenting the FIRST line does not work - the body "
-                "is stripped before it is written."
-            )
-    # refs is interpolated into the header LINE, so a line break in it splits
-    # that line and everything after the break is re-parsed as record structure.
-    #
-    # Do NOT hand-list separators here. `read_entries` re-splits the file with
-    # str.splitlines(), which breaks on a SUPERSET of \n and \r: \v \f \x1c
-    # \x1d \x1e \x85 (NEL)   (LS)   (PS). The first version of this
-    # guard listed \n and \r only, and all five exotic separators still forged
-    # an entry through refs (found at review, MSG-163) - the same "a second
-    # hand-maintained pattern drifts and reopens the hole" failure the body
-    # guard above is written to avoid, one field over. So ask the parser's own
-    # mechanism whether this value survives a split unchanged.
-    lines = refs.splitlines()
-    if lines and (len(lines) > 1 or lines[0] != refs):
-        raise ChannelError(
-            "refused: refs must be a single line - it is written into the entry header, "
-            f"and a line break there forges an entry when the record is re-parsed: {refs!r}"
-        )
     if force and sender != config.supervisor:
         raise ChannelError(
             f"refused: force is supervisor-only (supervisor {config.supervisor!r}); "
@@ -660,20 +667,288 @@ def post(
             new_thread = open_thread
         else:
             new_thread = thread
+        next_signal: dict[str, object] = {
+            key: signal[key]
+            for key in ("phase", "deadline", "terminal_result", "close_reason", "case_thread")
+            if key in signal
+        }
+        next_signal.update(
+            {
+                "seq": seq,
+                "turn": new_turn,
+                "thread": new_thread,
+                "last_entry": entry_id,
+                "updated_at": stamp,
+            }
+        )
+        if _managed_phase is not None:
+            next_signal.pop("terminal_result", None)
+            next_signal.pop("close_reason", None)
+            next_signal.update(
+                {
+                    "phase": _managed_phase,
+                    "deadline": _case_deadline,
+                    "case_thread": thread,
+                }
+            )
+        _atomic_write(
+            _signal_path(root, name),
+            json.dumps(next_signal, indent=2),
+        )
+        return entry_id
+
+
+def update_managed_phase(
+    root: Path,
+    *,
+    thread: str,
+    phase: str,
+    turn: str,
+    deadline: str,
+    name: str,
+) -> None:
+    """Advance broker-owned doorbell state without publishing a mailbox entry."""
+    config = load_config(root, name)
+    if config.managed_version != BROKERED_MANAGED_VERSION:
+        raise ChannelError("refused: managed phases require a brokered channel")
+    if phase not in MANAGED_PHASES or phase == "terminal":
+        raise ChannelError(f"refused: invalid non-terminal managed phase {phase!r}")
+    if turn not in config.parties:
+        raise ChannelError(f"refused: managed phase turn {turn!r} is not a channel party")
+    if _parse_ts(deadline) is None:
+        raise ChannelError("refused: managed phase requires an absolute deadline")
+    with exclusive(root, name):
+        signal = read_signal(root, name)
+        if str(signal.get("thread", "")) != thread:
+            raise ChannelError(
+                f"refused: cannot advance managed phase for {thread!r}; "
+                f"the open thread is {signal.get('thread')!r}"
+            )
+        signal.update(
+            {
+                "phase": phase,
+                "turn": turn,
+                "deadline": deadline,
+                "case_thread": thread,
+                "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+        )
+        _atomic_write(_signal_path(root, name), json.dumps(signal, indent=2))
+
+
+def _render_entry_block(
+    *, seq: int, stamp: str, sender: str, entry_type: str, thread: str, refs: str, body: str
+) -> str:
+    header = (
+        f"## MSG-{seq} | {stamp} | from: {sender} | type: {entry_type} | "
+        f"thread: {thread} | refs: {refs or '-'}"
+    )
+    return f"\n{header}\n\n{body}\n"
+
+
+def commit_reveal_pair(
+    root: Path,
+    *,
+    thread: str,
+    submissions: tuple[RevealSubmission, RevealSubmission],
+    reveal_id: str,
+    next_turn: str,
+    deadline: str,
+    name: str,
+) -> tuple[str, str]:
+    """Atomically publish both initial positions, or repair only a lagging signal.
+
+    The mailbox is replaced once with both rendered blocks. If the process dies
+    after that replacement but before the doorbell replacement, a repeat call
+    recognizes the controller reveal id and advances the doorbell without
+    appending either position again.
+    """
+    config = load_config(root, name)
+    if config.managed_version != BROKERED_MANAGED_VERSION:
+        raise ChannelError("refused: paired reveal requires a brokered channel")
+    if {item.sender for item in submissions} != set(config.parties):
+        raise ChannelError("refused: paired reveal requires exactly one submission from each channel party")
+    if next_turn not in config.parties:
+        raise ChannelError(f"refused: reveal next_turn {next_turn!r} is not a channel party")
+    if not reveal_id or any(character.isspace() for character in reveal_id):
+        raise ChannelError("refused: reveal_id must be a non-empty token")
+    if _parse_ts(deadline) is None:
+        raise ChannelError("refused: paired reveal requires an absolute deadline")
+    marker = f"reveal-id: {reveal_id}"
+    prepared: list[RevealSubmission] = []
+    for item in submissions:
+        if item.entry_type != "verdict":
+            raise ChannelError("refused: sealed positions must be typed verdict entries")
+        if item.body.count(marker) != 1:
+            raise ChannelError(
+                f"refused: each paired submission must contain exactly one controller reveal marker {marker!r}"
+            )
+        prepared.append(
+            RevealSubmission(item.sender, item.entry_type, _validate_entry_text(item.body, item.refs), item.refs)
+        )
+
+    with exclusive(root, name):
+        signal = read_signal(root, name)
+        existing = [
+            entry
+            for entry in thread_entries(root, thread, name)
+            if marker in entry.body
+        ]
+        if existing:
+            if (
+                len(existing) != 2
+                or {entry.sender for entry in existing} != set(config.parties)
+                or sorted(entry.seq for entry in existing)[1] != sorted(entry.seq for entry in existing)[0] + 1
+            ):
+                raise ChannelError(f"refused: partial or malformed paired reveal {reveal_id!r}")
+            high = max(entry.seq for entry in existing)
+            if _as_int(signal.get("seq", 0)) > high:
+                raise ChannelError(f"refused: channel advanced beyond paired reveal {reveal_id!r}")
+            stamp = max(existing, key=lambda entry: entry.seq).timestamp
+            repaired = {
+                "seq": high,
+                "turn": next_turn,
+                "thread": thread,
+                "last_entry": f"MSG-{high}",
+                "updated_at": stamp,
+                "phase": "deliberation",
+                "deadline": deadline,
+                "case_thread": thread,
+            }
+            _atomic_write(_signal_path(root, name), json.dumps(repaired, indent=2))
+            ordered = sorted(existing, key=lambda entry: entry.seq)
+            return f"MSG-{ordered[0].seq}", f"MSG-{ordered[1].seq}"
+
+        if str(signal.get("thread", "")) != thread:
+            raise ChannelError(f"refused: paired reveal thread {thread!r} is not open")
+        count = len(thread_entries(root, thread, name))
+        if count + 2 > config.thread_cap:
+            raise ChannelError(
+                f"refused: paired reveal would exceed thread cap {config.thread_cap} for {thread!r}"
+            )
+        base = _as_int(signal.get("seq", 0))
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        blocks = "".join(
+            _render_entry_block(
+                seq=base + offset,
+                stamp=stamp,
+                sender=item.sender,
+                entry_type=item.entry_type,
+                thread=thread,
+                refs=item.refs,
+                body=item.body,
+            )
+            for offset, item in enumerate(prepared, start=1)
+        )
+        path = mailbox_path(root, name)
+        with path.open(encoding="utf-8", newline="") as handle:
+            mailbox = handle.read()
+        _atomic_write(path, mailbox + blocks)
+        high = base + 2
         _atomic_write(
             _signal_path(root, name),
             json.dumps(
                 {
-                    "seq": seq,
-                    "turn": new_turn,
-                    "thread": new_thread,
-                    "last_entry": entry_id,
+                    "seq": high,
+                    "turn": next_turn,
+                    "thread": thread,
+                    "last_entry": f"MSG-{high}",
                     "updated_at": stamp,
+                    "phase": "deliberation",
+                    "deadline": deadline,
+                    "case_thread": thread,
                 },
                 indent=2,
             ),
         )
-        return entry_id
+        return f"MSG-{base + 1}", f"MSG-{high}"
+
+
+def close_managed_case(
+    root: Path,
+    *,
+    thread: str,
+    result: str,
+    close_reason: str,
+    body: str,
+    name: str,
+) -> str:
+    """Idempotently append a typed controller close and persist terminal state."""
+    config = load_config(root, name)
+    if config.managed_version != BROKERED_MANAGED_VERSION:
+        raise ChannelError("refused: typed terminal close requires a brokered channel")
+    if result not in TERMINAL_RESULTS:
+        raise ChannelError(f"refused: terminal result must be one of {TERMINAL_RESULTS}")
+    if not close_reason or any(character in close_reason for character in "\r\n"):
+        raise ChannelError("refused: close_reason must be a non-empty single line")
+    body = _validate_entry_text(body, "")
+    marker = f"terminal-result: {result}\n- close-reason: {close_reason}"
+    with exclusive(root, name):
+        signal = read_signal(root, name)
+        existing = [
+            entry
+            for entry in thread_entries(root, thread, name)
+            if entry.entry_type == "close" and marker in entry.body
+        ]
+        if existing:
+            if len(existing) != 1:
+                raise ChannelError(f"refused: duplicate typed terminal closes for {thread!r}")
+            entry = existing[0]
+            terminal_signal = {
+                "seq": max(_as_int(signal.get("seq", 0)), entry.seq),
+                "turn": "",
+                "thread": "",
+                "last_entry": f"MSG-{entry.seq}",
+                "updated_at": entry.timestamp,
+                "phase": "terminal",
+                "terminal_result": result,
+                "close_reason": close_reason,
+                "case_thread": thread,
+                **({"deadline": signal["deadline"]} if "deadline" in signal else {}),
+            }
+            _atomic_write(_signal_path(root, name), json.dumps(terminal_signal, indent=2))
+            return f"MSG-{entry.seq}"
+        open_thread = str(signal.get("thread", ""))
+        if open_thread not in ("", thread):
+            raise ChannelError(f"refused: cannot close {thread!r}; {open_thread!r} is open")
+        if open_thread == "" and signal.get("phase") == "terminal":
+            raise ChannelError(
+                f"refused: {thread!r} is already terminal as {signal.get('terminal_result')!r} "
+                f"({signal.get('close_reason')!r})"
+            )
+        seq = _as_int(signal.get("seq", 0)) + 1
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        terminal_body = body + "\n\nController-Terminal:\n- " + marker
+        path = mailbox_path(root, name)
+        with path.open(encoding="utf-8", newline="") as handle:
+            mailbox = handle.read()
+        _atomic_write(
+            path,
+            mailbox
+            + _render_entry_block(
+                seq=seq,
+                stamp=stamp,
+                sender=config.supervisor,
+                entry_type="close",
+                thread=thread,
+                refs="",
+                body=terminal_body,
+            ),
+        )
+        terminal_signal = {
+            "seq": seq,
+            "turn": "",
+            "thread": "",
+            "last_entry": f"MSG-{seq}",
+            "updated_at": stamp,
+            "phase": "terminal",
+            "terminal_result": result,
+            "close_reason": close_reason,
+            "case_thread": thread,
+            **({"deadline": signal["deadline"]} if "deadline" in signal else {}),
+        }
+        _atomic_write(_signal_path(root, name), json.dumps(terminal_signal, indent=2))
+        return f"MSG-{seq}"
 
 
 ARCHIVE_DIR = "archive"

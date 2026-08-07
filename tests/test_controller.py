@@ -5,13 +5,16 @@ import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from debate import channel
 from debate.controller import (
+    AdapterError,
     AdapterProfile,
+    AdapterResult,
     BrokerConfig,
     BrokerController,
     TimingPolicy,
@@ -45,9 +48,15 @@ result = {
     "body": body,
     "runtime_model": os.environ.get("RUNTIME_MODEL", "fake-model-1"),
     "appendix_markdown": "## Review - fake adapter\n\nStructured appendix.",
+    "decision": os.environ.get(
+        "FAKE_SEALED_DECISION" if payload["phase"] == "sealed" else "FAKE_DELIBERATION_DECISION",
+        os.environ.get("FAKE_DECISION", "PASS"),
+    ),
 }
 if mode == "wrong-sender":
     result["sender"] = "intruder"
+if mode == "missing-decision":
+    result.pop("decision")
 result_path.write_text(json.dumps(result), encoding="utf-8")
 """
 
@@ -92,8 +101,16 @@ def make_profile(
     mode: str = "good",
     additions: dict[str, str] | None = None,
     timeout: int = 30,
+    sealed_decision: str = "PASS",
+    deliberation_decision: str = "PASS",
 ) -> AdapterProfile:
-    environment = {"FAKE_MODE": mode, "RUNTIME_MODEL": f"{party}-runtime-1", **(additions or {})}
+    environment = {
+        "FAKE_MODE": mode,
+        "RUNTIME_MODEL": f"{party}-runtime-1",
+        "FAKE_SEALED_DECISION": sealed_decision,
+        "FAKE_DELIBERATION_DECISION": deliberation_decision,
+        **(additions or {}),
+    }
     return AdapterProfile(
         party=party,
         command=(sys.executable, "{export_root}/fake_adapter.py", "{input_path}", "{result_path}"),
@@ -124,18 +141,36 @@ def make_broker(
     bob_relationship: str = "author-independent",
     bob_mode: str = "good",
     bob_additions: dict[str, str] | None = None,
+    alice_sealed_decision: str = "PASS",
+    bob_sealed_decision: str = "PASS",
+    alice_deliberation_decision: str = "PASS",
+    bob_deliberation_decision: str = "PASS",
     canaries: dict[str, str] | None = None,
     config_sha256: str = "a" * 64,
+    thread_cap: int = 12,
+    whole_case_timeout_seconds: int = 900,
 ) -> BrokerConfig:
     profiles = {
-        "alice": make_profile("alice", alice_relationship),
-        "bob": make_profile("bob", bob_relationship, mode=bob_mode, additions=bob_additions),
+        "alice": make_profile(
+            "alice",
+            alice_relationship,
+            sealed_decision=alice_sealed_decision,
+            deliberation_decision=alice_deliberation_decision,
+        ),
+        "bob": make_profile(
+            "bob",
+            bob_relationship,
+            mode=bob_mode,
+            additions=bob_additions,
+            sealed_decision=bob_sealed_decision,
+            deliberation_decision=bob_deliberation_decision,
+        ),
     }
     timing = TimingPolicy(
-        thread_cap=12,
+        thread_cap=thread_cap,
         scheduler_interval_seconds=60,
         retry_seconds=120,
-        whole_case_timeout_seconds=900,
+        whole_case_timeout_seconds=whole_case_timeout_seconds,
         profiles=(profiles["alice"], profiles["bob"]),
     )
     return BrokerConfig(
@@ -150,13 +185,14 @@ def make_broker(
     )
 
 
-def make_channel(repo: Path) -> tuple[Path, str]:
+def make_channel(repo: Path, *, thread_cap: int = 12) -> tuple[Path, str]:
     root = repo / "collab"
     name = "fixture-11111"
     channel.init_channel(
         root,
         ("alice", "bob"),
         "owner",
+        thread_cap=thread_cap,
         name=name,
         managed_version=channel.BROKERED_MANAGED_VERSION,
     )
@@ -320,20 +356,31 @@ def test_brokered_watcher_posts_validated_result_with_bound_sender_and_provenanc
     output = run_once(config)
 
     entries = channel.read_entries(root, name)
-    assert len(entries) == 2
-    assert entries[1].sender == "bob"
-    assert "fresh fake review" in entries[1].body
-    assert "Controller-Provenance:" in entries[1].body
-    assert broker.profile_hashes["bob"] in entries[1].body
-    assert sha in entries[1].body
-    assert "bob-runtime-1" in entries[1].body
-    assert "Structured appendix." in entries[1].body
-    assert any("brokered bob" in line for line in output)
+    assert len(entries) == 4
+    assert [entry.sender for entry in entries[1:3]] == ["alice", "bob"]
+    assert all("fresh fake review" in entry.body for entry in entries[1:3])
+    assert all("Controller-Provenance:" in entry.body for entry in entries[1:3])
+    assert broker.profile_hashes["bob"] in entries[2].body
+    assert sha in entries[2].body
+    assert "bob-runtime-1" in entries[2].body
+    assert "Structured appendix." in entries[2].body
+    assert entries[-1].entry_type == "close"
+    assert "terminal-result: PASS" in entries[-1].body
+    assert any("to terminal" in line for line in output)
+    with channel.exclusive(root, name):
+        assert not any(
+            finding.level == channel.ANOMALY for finding in channel.verify_record(root, name)
+        )
 
-    invocation = next((broker.runtime_root / "cases" / "review-one" / "invocations").iterdir())
+    invocation = next(
+        path
+        for path in (broker.runtime_root / "cases" / "review-one" / "invocations").iterdir()
+        if "bob" in path.name
+    )
     payload = json.loads((invocation / "input.json").read_text(encoding="utf-8"))
     assert str(root.resolve()) not in json.dumps(payload)
-    assert "current_thread" in payload
+    assert "current_thread" not in payload
+    assert payload["phase"] == "sealed"
     assert payload["seat"]["author_relationship"] == "author-independent"
     assert (invocation / "stdout.txt").is_file()
     assert (invocation / "stderr.txt").is_file()
@@ -695,3 +742,464 @@ def test_broker_revise_records_new_immutable_revision_before_next_seat(tmp_path:
     )
     assert outcome.entry_id == "MSG-3"
     assert second_sha in channel.read_entries(root, name)[-1].body
+
+
+@pytest.mark.parametrize("first_party", ["alice", "bob"])
+def test_sealed_pair_completes_in_either_order_without_cross_anchoring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first_party: str
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="ordered-seal",
+        first_party=first_party,
+        body="Neutral docket.",
+    )
+    order: list[str] = []
+    original = controller.capture_sealed
+
+    def record_order(**kwargs: object) -> AdapterResult:
+        order.append(str(kwargs["party"]))
+        return original(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(controller, "capture_sealed", record_order)
+    outcome = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="ordered-seal",
+        sequence=1,
+        attempt=1,
+    )
+
+    other = "bob" if first_party == "alice" else "alice"
+    assert order == [first_party, other]
+    assert outcome.terminal_result == "PASS"
+    inputs = sorted(broker.runtime_root.glob("cases/ordered-seal/invocations/*/input.json"))
+    assert len(inputs) == 2
+    for path in inputs:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload["phase"] == "sealed"
+        assert "current_thread" not in payload
+        assert "Controller-Sealed-Reveal" not in json.dumps(payload)
+
+
+def test_restart_after_first_private_submission_does_not_repeat_or_expose_it(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    first = BrokerController(broker)
+    first.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="restart-seal",
+        first_party="bob",
+        body="Neutral docket.",
+    )
+
+    first.capture_sealed(
+        channel_root=root,
+        channel_name=name,
+        party="bob",
+        thread="restart-seal",
+        sequence=1,
+        attempt=1,
+    )
+
+    assert len(channel.read_entries(root, name)) == 1
+    assert channel.read_signal(root, name)["turn"] == "alice"
+    restarted = BrokerController(broker)
+    outcome = restarted.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="restart-seal",
+        sequence=1,
+        attempt=1,
+    )
+
+    assert outcome.terminal_result == "PASS"
+    invocation_names = sorted(path.name for path in broker.runtime_root.glob("cases/restart-seal/invocations/*"))
+    assert invocation_names == ["1-alice-1", "1-bob-1"]
+    assert len([entry for entry in channel.read_entries(root, name) if entry.sender == "bob"]) == 1
+
+
+def test_restart_from_persisted_reveal_phase_commits_pair_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="restart-reveal",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    for party in ("alice", "bob"):
+        controller.capture_sealed(
+            channel_root=root,
+            channel_name=name,
+            party=party,
+            thread="restart-reveal",
+            sequence=1,
+            attempt=1,
+        )
+    real_commit = channel.commit_reveal_pair
+
+    def crash_before_mailbox(*_: object, **__: object) -> tuple[str, str]:
+        raise RuntimeError("simulated crash at reveal write boundary")
+
+    monkeypatch.setattr(channel, "commit_reveal_pair", crash_before_mailbox)
+    with pytest.raises(RuntimeError, match="reveal write boundary"):
+        controller.reveal_pair(channel_root=root, channel_name=name, thread="restart-reveal")
+    state = json.loads((broker.runtime_root / "cases" / "restart-reveal" / "case.json").read_text())
+    assert state["phase"] == "reveal"
+    assert len(channel.read_entries(root, name)) == 1
+
+    monkeypatch.setattr(channel, "commit_reveal_pair", real_commit)
+    outcome = BrokerController(broker).drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="restart-reveal",
+        sequence=1,
+        attempt=1,
+    )
+
+    assert outcome.terminal_result == "PASS"
+    assert len([entry for entry in channel.read_entries(root, name) if entry.sender in broker.profiles]) == 2
+
+
+def test_one_retryable_sealed_timeout_publishes_nothing_until_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="one-timeout",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    original = controller._invoke
+    timed_out = False
+
+    def timeout_once(**kwargs: object) -> tuple[AdapterResult, dict[str, str | Path]]:
+        nonlocal timed_out
+        if not timed_out:
+            timed_out = True
+            raise AdapterError("fixture timeout", retryable=True, close_reason="adapter-timeout")
+        return original(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(controller, "_invoke", timeout_once)
+    with pytest.raises(AdapterError, match="fixture timeout"):
+        controller.drive_case(
+            channel_root=root,
+            channel_name=name,
+            thread="one-timeout",
+            sequence=1,
+            attempt=1,
+        )
+    assert len(channel.read_entries(root, name)) == 1
+
+    outcome = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="one-timeout",
+        sequence=1,
+        attempt=2,
+    )
+    assert outcome.terminal_result == "PASS"
+
+
+def test_expiry_during_sealed_invocation_closes_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, whole_case_timeout_seconds=5)
+    opened_at = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+    controller = BrokerController(broker, now=opened_at)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="expires-during",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+
+    def finish_after_deadline(**_: object) -> tuple[AdapterResult, dict[str, str | Path]]:
+        controller._fixed_now = opened_at + timedelta(seconds=6)
+        return (
+            AdapterResult("verdict", "late", "", "", "fixture", "PASS"),
+            {
+                "input_sha256": "1" * 64,
+                "source_manifest_sha256": "2" * 64,
+                "docket_revision_sha256": "3" * 64,
+                "diagnostics_root": broker.runtime_root,
+            },
+        )
+
+    monkeypatch.setattr(controller, "_invoke", finish_after_deadline)
+    outcome = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="expires-during",
+        sequence=1,
+        attempt=1,
+    )
+
+    assert outcome.terminal_result == "ERROR"
+    assert outcome.close_reason == "case-deadline-expired"
+    assert channel.read_signal(root, name)["close_reason"] == "case-deadline-expired"
+    assert not any(entry.sender in broker.profiles for entry in channel.read_entries(root, name))
+
+
+def test_expiry_recovery_is_idempotent_after_controller_restart(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, whole_case_timeout_seconds=5)
+    opened_at = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+    BrokerController(broker, now=opened_at).open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="expired-restart",
+        first_party="bob",
+        body="Neutral docket.",
+    )
+    expired = opened_at + timedelta(seconds=6)
+
+    first = BrokerController(broker, now=expired).drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="expired-restart",
+        sequence=1,
+        attempt=1,
+    )
+    second = BrokerController(broker, now=expired + timedelta(seconds=30)).drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="expired-restart",
+        sequence=2,
+        attempt=1,
+    )
+
+    assert first.terminal_result == second.terminal_result == "ERROR"
+    assert len([entry for entry in channel.read_entries(root, name) if entry.entry_type == "close"]) == 1
+
+
+def test_restart_with_both_private_positions_expires_between_sealed_and_reveal(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, whole_case_timeout_seconds=5)
+    opened_at = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+    controller = BrokerController(broker, now=opened_at)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="expires-between",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    for party in ("alice", "bob"):
+        controller.capture_sealed(
+            channel_root=root,
+            channel_name=name,
+            party=party,
+            thread="expires-between",
+            sequence=1,
+            attempt=1,
+        )
+    assert len(channel.read_entries(root, name)) == 1
+
+    outcome = BrokerController(broker, now=opened_at + timedelta(seconds=6)).drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="expires-between",
+        sequence=1,
+        attempt=1,
+    )
+
+    assert outcome.terminal_result == "ERROR"
+    assert outcome.close_reason == "case-deadline-expired"
+    assert not any("Controller-Sealed-Reveal" in entry.body for entry in channel.read_entries(root, name))
+
+
+def test_disagreement_deliberates_then_converges_automatically(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(
+        repo,
+        sha,
+        alice_sealed_decision="PASS",
+        bob_sealed_decision="NO_PASS",
+        bob_deliberation_decision="PASS",
+    )
+    open_brokered_thread(root, name, broker)
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+    )
+
+    first = run_once(config)
+    assert channel.read_signal(root, name)["phase"] == "deliberation"
+    assert len(channel.read_entries(root, name)) == 3
+    assert any("votes disagree" in line for line in first)
+
+    second = run_once(config)
+    signal = channel.read_signal(root, name)
+    assert signal["terminal_result"] == "PASS"
+    assert signal["close_reason"] == "party-vote-agreement"
+    assert any("to terminal" in line for line in second)
+
+
+def test_supervisor_verdict_is_not_a_vote_and_affiliated_pass_cannot_replace_independent_vote(
+    tmp_path: Path,
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(
+        repo,
+        sha,
+        alice_sealed_decision="PASS",
+        bob_sealed_decision="NO_PASS",
+        bob_deliberation_decision="NO_PASS",
+    )
+    open_brokered_thread(root, name, broker)
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+    )
+    run_once(config)
+
+    channel.post(
+        root,
+        "owner",
+        "verdict",
+        "review-one",
+        "Supervisor says PASS, but this is not a party vote.",
+        name=name,
+    )
+
+    assert channel.read_signal(root, name)["thread"] == "review-one"
+    state = json.loads((broker.runtime_root / "cases" / "review-one" / "case.json").read_text(encoding="utf-8"))
+    assert state["latest_votes"]["alice"]["decision"] == "PASS"
+    assert state["latest_votes"]["bob"]["decision"] == "NO_PASS"
+    assert set(state["latest_votes"]) == {"alice", "bob"}
+    assert BrokerController(broker)._agreement(state) is None
+
+
+def test_thread_cap_exhaustion_closes_no_pass(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo, thread_cap=4)
+    broker = make_broker(
+        repo,
+        sha,
+        thread_cap=4,
+        alice_sealed_decision="PASS",
+        bob_sealed_decision="NO_PASS",
+        bob_deliberation_decision="NO_PASS",
+    )
+    open_brokered_thread(root, name, broker)
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+    )
+    run_once(config)
+    run_once(config)
+
+    signal = channel.read_signal(root, name)
+    assert signal["terminal_result"] == "NO_PASS"
+    assert signal["close_reason"] == "thread-cap-exhausted"
+    assert len(channel.thread_entries(root, "review-one", name)) == 5, "typed close may follow the cap"
+
+
+def test_verdict_without_typed_decision_is_refused_before_mailbox_write(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, bob_mode="missing-decision")
+    open_brokered_thread(root, name, broker)
+
+    with pytest.raises(AdapterError, match="verdict decision"):
+        BrokerController(broker).capture_sealed(
+            channel_root=root,
+            channel_name=name,
+            party="bob",
+            thread="review-one",
+            sequence=1,
+            attempt=1,
+        )
+
+    assert len(channel.read_entries(root, name)) == 1
+
+
+def test_broker_retry_exhaustion_closes_error_instead_of_escalating_to_human(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    open_brokered_thread(root, name, broker)
+    state_path = broker.runtime_root / "watcher-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "last_mirrored_seq": 1,
+                "invocations": {
+                    "1": {"count": 2, "last_at": "2020-01-01T00:00:00+00:00"}
+                },
+                "escalated": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=state_path,
+        broker=broker,
+        retry_seconds=1,
+    )
+
+    output = run_once(config)
+
+    signal = channel.read_signal(root, name)
+    assert signal["terminal_result"] == "ERROR"
+    assert signal["close_reason"] == "adapter-retries-exhausted"
+    assert not any(line.startswith("ESCALATE:") for line in output)
+
+
+def test_recurring_tick_repairs_case_state_after_terminal_channel_commit(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    open_brokered_thread(root, name, broker)
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+    )
+    run_once(config)
+    case_path = broker.runtime_root / "cases" / "review-one" / "case.json"
+    stale = json.loads(case_path.read_text(encoding="utf-8"))
+    stale["phase"] = "deliberation"
+    stale.pop("terminal_result", None)
+    stale.pop("close_reason", None)
+    case_path.write_text(json.dumps(stale), encoding="utf-8")
+
+    output = run_once(config)
+
+    repaired = json.loads(case_path.read_text(encoding="utf-8"))
+    assert repaired["phase"] == "terminal"
+    assert repaired["terminal_result"] == "PASS"
+    assert any("broker confirmed" in line for line in output)

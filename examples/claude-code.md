@@ -7,7 +7,9 @@ substitute any conforming headless harness.
 
 For new isolated gates, use managed version 2 and the brokered profile contract in the
 README. Version 1 agents receive the live channel path and self-post, so this page must not
-be cited as proof of sender binding or sealed context isolation.
+be cited as proof of sender binding or sealed context isolation. A version 2 wrapper writes
+the controller-owned result JSON and includes `decision: PASS` or `decision: NO_PASS` for
+every verdict; it never calls `debate post` itself.
 
 ## 1. The channel lives in your repo
 

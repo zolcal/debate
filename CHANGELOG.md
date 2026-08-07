@@ -32,6 +32,14 @@ it.
 - `broker-revise` snapshots each post-fix commit/docket as a new content-addressed case
   revision, records it through a supervisor entry without changing the party turn, and
   blocks invocation on a half-recorded revision.
+- Brokered cases now persist `docket`, `sealed`, `reveal`, `deliberation`, and `terminal`
+  phases. The two initial typed positions remain private until `commit_reveal_pair`
+  publishes both with one atomic mailbox replacement; restart recovery repairs the
+  doorbell without duplicating or exposing one side early.
+- Version 2 verdicts carry `PASS` or `NO_PASS`. Matching party votes close automatically
+  (a `PASS` requires an agreeing author-independent seat), the thread cap closes
+  `NO_PASS`, and adapter or whole-case deadline failure closes `ERROR` with a separate
+  `close_reason`. Supervisor entries never count as votes.
 
 ## v0.4.0 — 2026-08-05
 

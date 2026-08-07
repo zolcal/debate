@@ -11,7 +11,8 @@ Design rules, each one paid for in production (see docs/case-study):
   field means nothing; a watcher firing on turn alone burns an agent
   invocation on an empty mailbox.
 - **Once per seq.** An invocation that produced no reply is retried once
-  after ``retry_seconds``, then escalated to the supervisor — never looped.
+  after ``retry_seconds``. Version 1 then escalates; version 2 closes ``ERROR``
+  through its controller — never looped.
 - **Managed pairs drive every turn.** Version 1 requires direct commands for
   both parties. Version 2 requires controller-bound adapter profiles. Both
   normally use zero debounce; neither can become a live-session fallback.
@@ -236,6 +237,17 @@ def decide(
             )
         return Decision(None, None, f"no command configured for {turn!r}")
 
+    if config.broker is not None:
+        deadline = _parse_stamp(str(signal.get("deadline", "")))
+        if deadline is None:
+            return Decision(
+                None,
+                f"invalid managed channel: open brokered thread {thread!r} has no absolute deadline",
+                "invalid managed deadline",
+            )
+        if now >= deadline:
+            return Decision(turn, None, f"whole-case deadline expired for {thread!r}; controller recovery due")
+
     updated_at = _parse_stamp(str(signal.get("updated_at", "")))
     debounce = int(config.debounce_seconds.get(turn, 0))
     if debounce and updated_at is not None and (now - updated_at).total_seconds() < debounce:
@@ -254,6 +266,8 @@ def decide(
     if count == 1 and age is not None and age >= config.retry_seconds:
         return Decision(turn, None, f"retry for seq {seq} after {int(age)}s without a reply")
     if count >= 2 and age is not None and age >= config.retry_seconds:
+        if config.broker is not None:
+            return Decision(turn, None, f"broker retry exhaustion recovery for seq {seq}")
         return Decision(
             None,
             f"thread {thread!r} stuck on {turn!r} at seq {seq} after {count} invocations",
@@ -306,6 +320,13 @@ def status(
     if problem is not None:
         return WatchStatus("INVALID", f"managed channel configuration is invalid: {problem}{holder}")
 
+    if not thread and signal.get("phase") == "terminal":
+        result = str(signal.get("terminal_result", ""))
+        return WatchStatus(
+            "ERROR" if result == "ERROR" else "TERMINAL",
+            f"managed case {signal.get('case_thread')!r} closed as "
+            f"{result!r} ({signal.get('close_reason')!r})",
+        )
     if not thread:
         return WatchStatus("IDLE", "no open thread; nothing is waiting to be driven")
     if f"{thread}:{seq}" in set(state.get("escalated", [])):
@@ -328,6 +349,19 @@ def status(
             f"turn {turn!r} has no command configured; a live session answers this seat, "
             f"not the watcher{holder}",
         )
+    if config.broker is not None:
+        deadline = _parse_stamp(str(signal.get("deadline", "")))
+        if deadline is None:
+            return WatchStatus(
+                "INVALID",
+                f"brokered thread {thread!r} has no readable absolute deadline{holder}",
+            )
+        if now >= deadline:
+            return WatchStatus(
+                "STALE",
+                f"brokered thread {thread!r} passed its whole-case deadline; "
+                f"the next recurring tick must close ERROR{holder}",
+            )
 
     record = dict(dict(state.get("invocations", {})).get(str(seq), {}))
     count = int(record.get("count", 0))
@@ -395,6 +429,8 @@ def read_status(
         f"unit:     debate-watch-{config.state_path.stem} (by convention; scheduling is host config)",
         f"signal:   seq {signal.get('seq', 0)} | turn {str(signal.get('turn', '')) or '-'} | "
         f"thread {str(signal.get('thread', '')) or '-'} | updated {signal.get('updated_at', '-')}",
+        f"managed:  phase {signal.get('phase', '-')} | deadline {signal.get('deadline', '-')} | "
+        f"result {signal.get('terminal_result', '-')} | close_reason {signal.get('close_reason', '-')}",
         f"mirrored: last_mirrored_seq {state.get('last_mirrored_seq', 0)}",
     ]
     records = sorted(dict(state.get("invocations", {})).items(), key=lambda kv: int(kv[0]))
@@ -804,40 +840,57 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
             output.append(f"STUCK: seq {seq} escalated; supervisor action required")
         _save_state(config.state_path, state)  # recorded before the expensive child
 
-    if decision.invoke and config.broker is not None:
-        assert config.channel_name is not None  # brokered configs are named-only
-        attempt = int(dict(state.get("invocations", {}))[str(seq)]["count"])
-        transcript = [
-            {
-                "id": f"MSG-{entry.seq}",
-                "sender": entry.sender,
-                "type": entry.entry_type,
-                "refs": entry.refs,
-                "body": entry.body,
-            }
-            for entry in entries
-            if entry.thread == str(signal.get("thread", ""))
-        ]
+    if (
+        config.broker is not None
+        and signal.get("phase") == "terminal"
+        and not str(signal.get("thread", ""))
+    ):
+        assert config.channel_name is not None
+        terminal_thread = str(signal.get("case_thread", ""))
         try:
-            outcome = BrokerController(config.broker).invoke_and_post(
+            recovered = BrokerController(config.broker).recover_terminal_state(
                 channel_root=config.channel_root,
                 channel_name=config.channel_name,
-                party=decision.invoke,
-                thread=str(signal.get("thread", "")),
-                sequence=seq,
-                attempt=attempt,
-                transcript=transcript,
+                thread=terminal_thread,
             )
+        except ChannelError as error:
+            output.append(f"ESCALATE: terminal case recovery failed for {terminal_thread!r}: {error}")
+        else:
+            output.append(f"broker confirmed {terminal_thread!r} terminal: {recovered.detail}")
+
+    elif decision.invoke and config.broker is not None:
+        assert config.channel_name is not None  # brokered configs are named-only
+        attempt = int(dict(state.get("invocations", {}))[str(seq)]["count"])
+        thread = str(signal.get("thread", ""))
+        controller = BrokerController(config.broker)
+        try:
+            profile = config.broker.profiles[decision.invoke]
+            if attempt > profile.retry_limit + 1:
+                outcome = controller.close_error(
+                    channel_root=config.channel_root,
+                    channel_name=config.channel_name,
+                    thread=thread,
+                    close_reason="adapter-retries-exhausted",
+                )
+            else:
+                outcome = controller.drive_case(
+                    channel_root=config.channel_root,
+                    channel_name=config.channel_name,
+                    thread=thread,
+                    sequence=seq,
+                    attempt=attempt,
+                )
         except AdapterError as error:
             if error.retryable:
                 output.append(f"invoked {decision.invoke} for seq {seq}: {error}")
             else:
-                output.append(f"broker refused {decision.invoke} for seq {seq}: {error}")
-                output.append(
-                    f"ESCALATE: adapter profile for {decision.invoke!r} was rejected on "
-                    f"thread {signal.get('thread')!r}; inspect the project-local case diagnostics"
+                terminal = controller.close_error(
+                    channel_root=config.channel_root,
+                    channel_name=config.channel_name,
+                    thread=thread,
+                    close_reason=error.close_reason,
                 )
-                state = record_escalation(state, str(signal.get("thread", "")), seq)
+                output.append(f"broker terminal ERROR for {thread!r}: {terminal.detail}")
         except ChannelError as error:
             output.append(f"broker refused {decision.invoke} for seq {seq}: {error}")
             output.append(
@@ -846,10 +899,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
             )
             state = record_escalation(state, str(signal.get("thread", "")), seq)
         else:
-            output.append(
-                f"brokered {outcome.party} for seq {seq}: {outcome.entry_id}, "
-                f"profile {outcome.profile_sha256}, runtime model {outcome.runtime_model}"
-            )
+            output.append(f"broker advanced {thread!r} to {outcome.phase}: {outcome.detail}")
 
         refreshed = channel.read_entries(config.channel_root, config.channel_name)
         output.extend(new_entry_lines(refreshed, int(state.get("last_mirrored_seq", 0))))

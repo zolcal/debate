@@ -37,8 +37,9 @@ your audit trail).
 
 - **`<channel>.channel.md`** is the conversation. Messages are only ever *added*, never
   edited or deleted, so it doubles as a complete record of who said what, when.
-- **`<channel>.signal.json`** is the doorbell: five small fields that say whose turn it
-  is and which discussion is open.
+- **`<channel>.signal.json`** is the doorbell: five core fields that say whose turn it
+  is and which discussion is open. Brokered cases also persist their phase, absolute
+  deadline, and typed terminal result there.
 
 `<channel>` is the channel's own name — `debate init` generates it once, as
 `<label>-<NNNNN>` (the label defaults to your repo's directory name; five random digits
@@ -143,7 +144,8 @@ debate init --root ./collab --parties party-a,party-b --supervisor owner --broke
 # This validates topology, cost mode, profile hashes and timing without invoking a model.
 debate adapter-doctor --root ./collab --channel <id> --config watcher.json
 
-# The controller snapshots the case, posts a neutral supervisor docket, and assigns a seat.
+# The controller snapshots the case and posts a neutral supervisor docket. The first-seat
+# choice controls completion order only; neither sealed input contains the other result.
 debate broker-open --root ./collab --channel <id> --config watcher.json \
   --thread feature-x --first-seat party-b --refs feature-x@<sha> \
   --body-file review-docket.md
@@ -179,11 +181,34 @@ JSON, may not contain `sender`, and is posted under the bound seat by the contro
 revision was only half-recorded; verdict provenance therefore never points only at a mutable
 gitignored filename.
 
+Every `verdict` result also carries a typed `decision` of `PASS` or `NO_PASS`:
+
+```json
+{
+  "schema_version": 1,
+  "entry_type": "verdict",
+  "decision": "PASS",
+  "body": "APPROVE - fresh export run: 412 passed.",
+  "runtime_model": "resolved-model-id"
+}
+```
+
+The case state advances through `docket` -> `sealed` -> `reveal` -> `deliberation` ->
+`terminal`. Both initial results are kept outside the shared record until they exist, then
+published by one atomic mailbox replacement. A crash after that replacement but before the
+doorbell update is repaired idempotently without duplicating either position. After reveal,
+each fresh seat sees only the current thread. Matching party votes close automatically as
+`PASS` or `NO_PASS`; `PASS` requires an agreeing author-independent seat. A supervisor
+verdict is visible context but never a vote. Thread-cap exhaustion closes `NO_PASS`, while
+adapter/retry/deadline failure closes `ERROR`; `close_reason` records why separately.
+
 The runtime lives below `<project>/var/debate/<channel>/`, never `.pytest_cache` or another
 tool cache. `adapter-doctor` prints the unconstrained schedule estimate and the enforced
 whole-case deadline from the same timing calculation; adapter timeouts above 60 minutes or
 an absent deadline are refused. It also prints `cost_mode` before any future smoke can spend
-money.
+money. The absolute deadline spans sealed capture, reveal, deliberation, retries and process
+restarts. Every invocation is capped by its remaining budget, and an expired case is closed
+idempotently as `ERROR` / `case-deadline-expired` on the next scheduler tick.
 
 Completed case exports are intentionally read-only and Debate never deletes provenance
 automatically. Project cleanup must first restore owner write permission within the exact
@@ -341,7 +366,8 @@ Be precise about what this tool guarantees, especially before running agents una
 - **Broker-enforced for managed version 2:** exact party/profile binding, at least one
   author-independent seat, a full pinned source export with no reachable parent Git store,
   immutable docket/profile/config hashes, clean environment and project-local runtime,
-  controller-owned sender, and schema-validated result files.
+  controller-owned sender, schema-validated typed results, sealed paired reveal, deadline
+  recovery, and automatic `PASS`/`NO_PASS`/`ERROR` terminal transitions.
 - **Advisory, soft:** everything an agent does *outside* the mailbox. "Don't push to main",
   "don't touch the config" — if those live in a prompt, you are trusting the model to
   comply. The tool can force *when* an agent speaks. It cannot force what the agent says to
@@ -361,8 +387,8 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
 1. **Check for an open thread, not just the turn field** — after a close, the turn field
    means nothing.
 2. **Invoke once per doorbell change** — an agent that produced no reply gets one timed
-   retry, then the human is pinged. Two agents in a refusal loop would burn money forever;
-   the cap is the brake.
+   retry. Version 1 then escalates; version 2 records and closes `ERROR`. Two agents in a
+   refusal loop would burn money forever; the cap and absolute deadline are the brakes.
 3. **Drive every managed turn** — both parties have headless commands and normally zero
    debounce; a missing command is INVALID, never a human fallback.
 4. **The watcher's memory lives outside the shared folder** — its state file is not part of
@@ -373,6 +399,8 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
    happen. Corrections are new messages, never edits.
 7. **A brokered seat never self-posts** — it receives no live channel path; the controller
    validates its result file and derives the sender from the configured seat.
+8. **Initial positions reveal as a pair** — no party can anchor its first judgment on the
+   opponent, while later disagreement deliberately becomes a real, current-thread debate.
 
 ## Why not just…
 

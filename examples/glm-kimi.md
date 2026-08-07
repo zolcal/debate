@@ -9,7 +9,9 @@ vendor-neutral; only the `commands` and `prompts` in the watcher change.
 
 For a new isolated gate, wrap these CLIs as managed-version 2 structured adapters as
 described in the README. The version 1 permissions below expose the live Debate CLI and
-therefore do not prove sender binding or sealed context isolation.
+therefore do not prove sender binding or sealed context isolation. Version 2 verdict
+wrappers must emit typed `decision: PASS|NO_PASS` result JSON; the controller binds the
+sender and atomically reveals the two initial positions.
 
 ## 0. The GLM seat: a wrapper, and why
 

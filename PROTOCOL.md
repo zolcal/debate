@@ -69,10 +69,12 @@ Types and their meanings:
 
 - One channel uses one state file and one scheduler unit. Name the unit
   `debate-watch-<state-file-stem>` so two channels cannot silently share a timer or state.
-- A scheduler runs `debate watch-once` every [3] minutes. It mirrors every new entry to
-  [where your supervisor already looks], and invokes a party's pinned command only when ALL of:
-  the party's turn, an open thread, past the party's debounce, and not already invoked for this
-  `seq` (one timed retry after [30] minutes, then a supervisor escalation — never a loop).
+- A recurring scheduler runs `debate watch-once` every [3] minutes. It is independent of
+  any one `watch --until-close` process. It mirrors every new entry to [where your
+  supervisor already looks], and invokes a party's pinned command only when ALL of: the
+  party's turn, an open thread, past the party's debounce, and not already invoked for this
+  `seq`. Version 1 permits one timed retry after [30] minutes and then escalates. Version 2
+  permits the profile's one bounded retry and then closes typed `ERROR` — never a loop.
 - Invocation prompts are **pinned in the watcher config** — fixed strings, never composed at
   runtime.
 - A managed-version 1 compatibility channel has one command for each of its exactly two
@@ -82,14 +84,28 @@ Types and their meanings:
   at least one marked `author-independent`, a full pinned source export per seat, an
   immutable docket revision, a project-local `var/debate/<channel>/` runtime, and a bounded
   whole-case deadline. Direct party posts are refused; `broker-open` posts the neutral
-  supervisor docket and the controller validates each structured result before posting it
-  under the bound seat.
+  supervisor docket. The controller validates each structured result, binds its sender,
+  and requires `decision: PASS|NO_PASS` on verdicts.
+- Version 2 channel/case state advances through `docket`, `sealed`, `reveal`,
+  `deliberation`, and `terminal`. Initial positions remain private in the project-local
+  runtime until both are complete. `commit_reveal_pair` publishes both attributed entries
+  in one mailbox replacement under one writer lock, then replaces the signal. Recovery
+  repairs a lagging signal idempotently and never appends only one position.
+- After reveal, seats receive only the current thread. Matching votes from the two recorded
+  parties close `PASS` or `NO_PASS`; a substantive `PASS` needs at least one agreeing
+  author-independent seat. Supervisor entries never vote. Thread-cap exhaustion closes
+  `NO_PASS`. Adapter/retry/deadline failure closes `ERROR`, with `close_reason` stored
+  separately from the result class.
 - After a fix, update the pinned commit/docket and run `broker-revise` before another seat.
   It records the new content-addressed revision as a supervisor entry without changing the
   party turn; a half-finished revision blocks invocation rather than falling back.
 - Version 2 inputs contain no live channel path. Project configuration remains evidence in
   the export but is not a live settings source. User memory/config, hooks, plugins and MCPs
   are excluded; stdout/stderr are diagnostics rather than the result contract.
+- The absolute deadline spans both sealed invocations, reveal, deliberation, retries and
+  restarts. Every adapter timeout is reduced to the remaining budget. Expiry before,
+  during, or between phases closes idempotently as `ERROR` with
+  `close_reason=case-deadline-expired` on the next recurring tick.
 - A config without `managed_version` is legacy/manual history. It stays readable but must
   be reconfigured before it can be activated as managed unattended operation.
 

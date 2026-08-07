@@ -374,3 +374,189 @@ def test_supervisor_verdict_with_nothing_open_creates_turnless_open_thread(tmp_p
     signal = channel.read_signal(root)
     assert signal["thread"] == "t-one"   # supervisor posts are exempt and open the slug
     assert signal["turn"] == ""          # with no turn assigned - the supervisor-only state of D2
+
+
+def _open_managed_reveal_channel(tmp_path: Path) -> tuple[Path, str, str]:
+    root = tmp_path / "collab"
+    name = "reveal-11111"
+    channel.init_channel(
+        root,
+        ("alice", "bob"),
+        "owner",
+        name=name,
+        managed_version=channel.BROKERED_MANAGED_VERSION,
+    )
+    deadline = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")
+    channel.post(
+        root,
+        "owner",
+        "review-request",
+        "sealed-one",
+        "Neutral docket.",
+        name=name,
+        _initial_turn="alice",
+        _managed_phase="docket",
+        _case_deadline=deadline,
+    )
+    return root, name, deadline
+
+
+def test_commit_reveal_pair_is_one_mailbox_replacement_and_recovers_lagging_signal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, name, deadline = _open_managed_reveal_channel(tmp_path)
+    reveal_id = "r" * 64
+    submissions = (
+        channel.RevealSubmission(
+            "alice",
+            "verdict",
+            f"Alice position.\n\nController-Sealed-Reveal:\n- reveal-id: {reveal_id}",
+        ),
+        channel.RevealSubmission(
+            "bob",
+            "verdict",
+            f"Bob position.\n\nController-Sealed-Reveal:\n- reveal-id: {reveal_id}",
+        ),
+    )
+    real_atomic_write = channel._atomic_write
+    reveal_counts_seen_after_mailbox_write: list[int] = []
+    crashed = False
+
+    def crash_between_mailbox_and_signal(path: Path, content: str) -> None:
+        nonlocal crashed
+        if path.name.endswith(".signal.json") and reveal_id in channel.mailbox_path(root, name).read_text(
+            encoding="utf-8"
+        ) and not crashed:
+            crashed = True
+            raise RuntimeError("simulated crash after paired mailbox commit")
+        real_atomic_write(path, content)
+        if path == channel.mailbox_path(root, name):
+            reveal_counts_seen_after_mailbox_write.append(
+                sum(reveal_id in entry.body for entry in channel.read_entries(root, name))
+            )
+
+    monkeypatch.setattr(channel, "_atomic_write", crash_between_mailbox_and_signal)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        channel.commit_reveal_pair(
+            root,
+            thread="sealed-one",
+            submissions=submissions,
+            reveal_id=reveal_id,
+            next_turn="alice",
+            deadline=deadline,
+            name=name,
+        )
+
+    assert reveal_counts_seen_after_mailbox_write == [2]
+    assert channel.read_signal(root, name)["seq"] == 1
+    assert len(channel.read_entries(root, name)) == 3
+
+    monkeypatch.setattr(channel, "_atomic_write", real_atomic_write)
+    ids = channel.commit_reveal_pair(
+        root,
+        thread="sealed-one",
+        submissions=submissions,
+        reveal_id=reveal_id,
+        next_turn="alice",
+        deadline=deadline,
+        name=name,
+    )
+
+    assert ids == ("MSG-2", "MSG-3")
+    assert len(channel.read_entries(root, name)) == 3, "recovery must not duplicate either position"
+    signal = channel.read_signal(root, name)
+    assert signal["seq"] == 3
+    assert signal["phase"] == "deliberation"
+    assert signal["turn"] == "alice"
+
+
+def test_typed_terminal_close_is_idempotent_and_records_result_separately(tmp_path: Path) -> None:
+    root, name, _ = _open_managed_reveal_channel(tmp_path)
+
+    first = channel.close_managed_case(
+        root,
+        thread="sealed-one",
+        result="ERROR",
+        close_reason="case-deadline-expired",
+        body="The absolute case deadline expired.",
+        name=name,
+    )
+    second = channel.close_managed_case(
+        root,
+        thread="sealed-one",
+        result="ERROR",
+        close_reason="case-deadline-expired",
+        body="The absolute case deadline expired.",
+        name=name,
+    )
+
+    assert first == second == "MSG-2"
+    assert len(channel.read_entries(root, name)) == 2
+    signal = channel.read_signal(root, name)
+    assert signal["thread"] == ""
+    assert signal["phase"] == "terminal"
+    assert signal["terminal_result"] == "ERROR"
+    assert signal["close_reason"] == "case-deadline-expired"
+
+    deadline = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(timespec="seconds")
+    channel.post(
+        root,
+        "owner",
+        "review-request",
+        "sealed-two",
+        "Next neutral docket.",
+        name=name,
+        _initial_turn="bob",
+        _managed_phase="docket",
+        _case_deadline=deadline,
+    )
+    next_signal = channel.read_signal(root, name)
+    assert next_signal["phase"] == "docket"
+    assert "terminal_result" not in next_signal
+    assert "close_reason" not in next_signal
+
+
+def test_typed_terminal_close_repairs_crash_between_mailbox_and_signal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, name, _ = _open_managed_reveal_channel(tmp_path)
+    real_atomic_write = channel._atomic_write
+    crashed = False
+
+    def crash_before_terminal_signal(path: Path, content: str) -> None:
+        nonlocal crashed
+        if (
+            path.name.endswith(".signal.json")
+            and "terminal-result: ERROR" in channel.mailbox_path(root, name).read_text(encoding="utf-8")
+            and not crashed
+        ):
+            crashed = True
+            raise RuntimeError("simulated terminal signal crash")
+        real_atomic_write(path, content)
+
+    monkeypatch.setattr(channel, "_atomic_write", crash_before_terminal_signal)
+    with pytest.raises(RuntimeError, match="terminal signal crash"):
+        channel.close_managed_case(
+            root,
+            thread="sealed-one",
+            result="ERROR",
+            close_reason="case-deadline-expired",
+            body="Deadline expired.",
+            name=name,
+        )
+    assert channel.read_signal(root, name)["thread"] == "sealed-one"
+    assert len(channel.read_entries(root, name)) == 2
+
+    monkeypatch.setattr(channel, "_atomic_write", real_atomic_write)
+    entry_id = channel.close_managed_case(
+        root,
+        thread="sealed-one",
+        result="ERROR",
+        close_reason="case-deadline-expired",
+        body="Deadline expired.",
+        name=name,
+    )
+
+    assert entry_id == "MSG-2"
+    assert len(channel.read_entries(root, name)) == 2
+    assert channel.read_signal(root, name)["phase"] == "terminal"

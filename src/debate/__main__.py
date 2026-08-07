@@ -191,7 +191,7 @@ def _watcher_config(root: Path, config_path: Path, channel_name: str | None = No
 
 # Verdicts that mean "a human should look now". Exit 4 matches `watch()`'s
 # escalation code, so an alerting scheduler treats both the same way.
-_NEEDS_ATTENTION = ("STALE", "ESCALATED", "INVALID")
+_NEEDS_ATTENTION = ("STALE", "ESCALATED", "INVALID", "ERROR")
 
 
 def _watch_status_report(root: Path, config_path: Path, grace: int, channel_name: str | None = None) -> int:
