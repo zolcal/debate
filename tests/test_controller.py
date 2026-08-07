@@ -22,8 +22,8 @@ from debate.controller import (
     doctor_lines,
     materialize_docket,
 )
-from debate.__main__ import main
-from debate.watcher import WatcherConfig, run_once
+from debate.__main__ import _NEEDS_ATTENTION, main
+from debate.watcher import WatcherConfig, read_status, run_once
 
 
 FAKE_ADAPTER = r"""
@@ -36,6 +36,9 @@ input_path = Path(sys.argv[1])
 result_path = Path(sys.argv[2])
 payload = json.loads(input_path.read_text(encoding="utf-8"))
 mode = os.environ.get("FAKE_MODE", "good")
+if mode == "timeout":
+    import time
+    time.sleep(2)
 if mode == "malformed":
     result_path.write_text("{ broken", encoding="utf-8")
     raise SystemExit(0)
@@ -141,6 +144,8 @@ def make_broker(
     bob_relationship: str = "author-independent",
     bob_mode: str = "good",
     bob_additions: dict[str, str] | None = None,
+    alice_timeout: int = 30,
+    bob_timeout: int = 30,
     alice_sealed_decision: str = "PASS",
     bob_sealed_decision: str = "PASS",
     alice_deliberation_decision: str = "PASS",
@@ -154,6 +159,7 @@ def make_broker(
         "alice": make_profile(
             "alice",
             alice_relationship,
+            timeout=alice_timeout,
             sealed_decision=alice_sealed_decision,
             deliberation_decision=alice_deliberation_decision,
         ),
@@ -162,6 +168,7 @@ def make_broker(
             bob_relationship,
             mode=bob_mode,
             additions=bob_additions,
+            timeout=bob_timeout,
             sealed_decision=bob_sealed_decision,
             deliberation_decision=bob_deliberation_decision,
         ),
@@ -933,6 +940,138 @@ def test_recurring_tick_repairs_paired_reveal_after_mailbox_before_signal_crash(
     assert any("recovered paired reveal" in line for line in output)
 
 
+def test_recurring_tick_repairs_typed_close_after_mailbox_before_signal_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="restart-typed-close",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    real_atomic_write = channel._atomic_write
+    crashed = False
+
+    def crash_after_terminal_mailbox(path: Path, content: str) -> None:
+        nonlocal crashed
+        if path.name.endswith(".signal.json") and '"phase": "terminal"' in content and not crashed:
+            crashed = True
+            raise RuntimeError("simulated crash after terminal mailbox commit")
+        real_atomic_write(path, content)
+
+    monkeypatch.setattr(channel, "_atomic_write", crash_after_terminal_mailbox)
+    with pytest.raises(RuntimeError, match="terminal mailbox"):
+        controller.drive_case(
+            channel_root=root,
+            channel_name=name,
+            thread="restart-typed-close",
+            sequence=1,
+            attempt=1,
+        )
+    monkeypatch.setattr(channel, "_atomic_write", real_atomic_write)
+
+    assert channel.read_signal(root, name)["phase"] == "deliberation"
+    assert len(channel.read_entries(root, name)) == 4
+    case_state = json.loads(
+        (broker.runtime_root / "cases" / "restart-typed-close" / "case.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert case_state["pending_terminal"] == {
+        "result": "PASS",
+        "close_reason": "party-vote-agreement",
+    }
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+    )
+
+    output = run_once(config)
+
+    signal = channel.read_signal(root, name)
+    repaired = json.loads(
+        (broker.runtime_root / "cases" / "restart-typed-close" / "case.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert signal["phase"] == repaired["phase"] == "terminal"
+    assert signal["terminal_result"] == repaired["terminal_result"] == "PASS"
+    assert "pending_terminal" not in repaired
+    assert len(channel.read_entries(root, name)) == 4
+    assert not any(line.startswith(("ESCALATE:", "STUCK:")) for line in output)
+    assert any("recovered typed close" in line for line in output)
+
+
+def test_reveal_phase_does_not_explain_an_unrelated_mailbox_ahead_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="unexplained-ahead",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    for party in ("alice", "bob"):
+        controller.capture_sealed(
+            channel_root=root,
+            channel_name=name,
+            party=party,
+            thread="unexplained-ahead",
+            sequence=1,
+            attempt=1,
+        )
+
+    def stop_before_reveal(*_: object, **__: object) -> tuple[str, str]:
+        raise RuntimeError("stop before paired mailbox commit")
+
+    monkeypatch.setattr(channel, "commit_reveal_pair", stop_before_reveal)
+    with pytest.raises(RuntimeError, match="stop before"):
+        controller.reveal_pair(channel_root=root, channel_name=name, thread="unexplained-ahead")
+    real_atomic_write = channel._atomic_write
+
+    def crash_unknown_signal(path: Path, content: str) -> None:
+        if path.name.endswith(".signal.json"):
+            raise RuntimeError("unrelated writer crashed")
+        real_atomic_write(path, content)
+
+    monkeypatch.setattr(channel, "_atomic_write", crash_unknown_signal)
+    with pytest.raises(RuntimeError, match="unrelated writer"):
+        channel.post(
+            root,
+            "owner",
+            "info",
+            "unexplained-ahead",
+            "Unrelated supervisor entry without a signal.",
+            name=name,
+        )
+    monkeypatch.setattr(channel, "_atomic_write", real_atomic_write)
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+    )
+
+    output = run_once(config)
+
+    assert channel.read_signal(root, name)["seq"] == 1
+    assert len(channel.read_entries(root, name)) == 2
+    assert any("mailbox ahead of signal" in line for line in output)
+    assert not any("broker recover" in line for line in output)
+
+
 def test_one_retryable_sealed_timeout_publishes_nothing_until_retry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -976,6 +1115,58 @@ def test_one_retryable_sealed_timeout_publishes_nothing_until_retry(
         attempt=2,
     )
     assert outcome.terminal_result == "PASS"
+
+
+def test_real_adapter_timeout_is_bounded_and_retryable_without_mailbox_write(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, alice_timeout=1)
+    slow_profile = AdapterProfile(
+        **{
+            **broker.profiles["alice"].__dict__,
+            "environment": {
+                **broker.profiles["alice"].environment,
+                "FAKE_MODE": "timeout",
+            },
+        }
+    )
+    profiles = {**broker.profiles, "alice": slow_profile}
+    slow_broker = BrokerConfig(
+        repository_root=broker.repository_root,
+        runtime_root=broker.runtime_root,
+        source_ref=broker.source_ref,
+        profiles=profiles,
+        timing=TimingPolicy(
+            thread_cap=12,
+            scheduler_interval_seconds=60,
+            retry_seconds=120,
+            whole_case_timeout_seconds=900,
+            profiles=(profiles["alice"], profiles["bob"]),
+        ),
+        config_sha256=broker.config_sha256,
+        docket_files=broker.docket_files,
+    )
+    controller = BrokerController(slow_broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="real-timeout",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+
+    with pytest.raises(AdapterError, match="timed out after 1s") as caught:
+        controller.drive_case(
+            channel_root=root,
+            channel_name=name,
+            thread="real-timeout",
+            sequence=1,
+            attempt=1,
+        )
+
+    assert caught.value.retryable is True
+    assert caught.value.close_reason == "adapter-timeout"
+    assert len(channel.read_entries(root, name)) == 1
 
 
 def test_expiry_during_sealed_invocation_closes_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1262,3 +1453,77 @@ def test_recurring_tick_repairs_case_state_after_terminal_channel_commit(tmp_pat
     assert repaired["phase"] == "terminal"
     assert repaired["terminal_result"] == "PASS"
     assert any("broker confirmed" in line for line in output)
+
+    quiet = run_once(config)
+    assert not any("broker confirmed" in line for line in quiet)
+
+
+def test_expired_deadline_outranks_retry_exhaustion_close_reason(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, whole_case_timeout_seconds=5)
+    opened_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    BrokerController(broker, now=opened_at).open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="expired-and-retried",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    state_path = broker.runtime_root / "watcher-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "last_mirrored_seq": 1,
+                "invocations": {
+                    "1": {"count": 2, "last_at": "2020-01-01T00:00:00+00:00"}
+                },
+                "escalated": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=state_path,
+        broker=broker,
+        retry_seconds=1,
+    )
+
+    run_once(config)
+
+    assert channel.read_signal(root, name)["close_reason"] == "case-deadline-expired"
+
+
+def test_watch_status_reports_managed_terminal_surface_and_error_attention(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="status-error",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    controller.close_error(
+        channel_root=root,
+        channel_name=name,
+        thread="status-error",
+        close_reason="adapter-error",
+    )
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+    )
+
+    lines, result = read_status(config, datetime.now(timezone.utc))
+
+    assert result.verdict == "ERROR"
+    assert "status-error" in result.detail
+    assert any("phase terminal" in line and "result ERROR" in line for line in lines)
+    assert "ERROR" in _NEEDS_ATTENTION

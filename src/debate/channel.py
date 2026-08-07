@@ -887,15 +887,20 @@ def close_managed_case(
     marker = f"terminal-result: {result}\n- close-reason: {close_reason}"
     with exclusive(root, name):
         signal = read_signal(root, name)
-        existing = [
+        typed_closes = [
             entry
             for entry in thread_entries(root, thread, name)
-            if entry.entry_type == "close" and marker in entry.body
+            if entry.entry_type == "close" and "Controller-Terminal:" in entry.body
         ]
-        if existing:
-            if len(existing) != 1:
+        if typed_closes:
+            if len(typed_closes) != 1:
                 raise ChannelError(f"refused: duplicate typed terminal closes for {thread!r}")
-            entry = existing[0]
+            entry = typed_closes[0]
+            if marker not in entry.body:
+                raise ChannelError(
+                    f"refused: existing typed terminal close for {thread!r} disagrees with "
+                    f"requested {result}/{close_reason}"
+                )
             terminal_signal = {
                 "seq": max(_as_int(signal.get("seq", 0)), entry.seq),
                 "turn": "",

@@ -91,6 +91,10 @@ Types and their meanings:
   runtime until both are complete. `commit_reveal_pair` publishes both attributed entries
   in one mailbox replacement under one writer lock, then replaces the signal. Recovery
   repairs a lagging signal idempotently and never appends only one position.
+- Typed terminal intent is persisted before the close mailbox write. The recurring
+  scheduler repairs an interrupted close signal only when the pending result/reason and
+  exact extra supervisor close marker agree; unexplained mailbox-ahead states still
+  escalate rather than being normalized as controller traffic.
 - After reveal, seats receive only the current thread. Matching votes from the two recorded
   parties close `PASS` or `NO_PASS`; a substantive `PASS` needs at least one agreeing
   author-independent seat. Supervisor entries never vote. Thread-cap exhaustion closes

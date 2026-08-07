@@ -1330,6 +1330,15 @@ class BrokerController:
                     f"{existing_result!r}/{state.get('close_reason')!r}"
                 )
             return DriveOutcome("terminal", f"already terminal as {result}", result, close_reason)
+        target = {"result": result, "close_reason": close_reason}
+        pending = state.get("pending_terminal")
+        if pending is not None and pending != target:
+            raise channel.ChannelError(
+                f"refused: case {thread!r} already has a different pending terminal transition"
+            )
+        if pending is None:
+            state["pending_terminal"] = target
+            self._write_case(thread, state)
         body = (
             f"Controller closed the managed case as {result}. "
             f"Reason: {close_reason}. Supervisor messages were not counted as party votes."
@@ -1351,6 +1360,7 @@ class BrokerController:
                 "terminal_entry": entry_id,
             }
         )
+        state.pop("pending_terminal", None)
         self._write_case(thread, state)
         return DriveOutcome("terminal", f"{entry_id} closed {result}: {close_reason}", result, close_reason)
 
@@ -1382,6 +1392,17 @@ class BrokerController:
         if result not in channel.TERMINAL_RESULTS or not reason:
             raise channel.ChannelError(f"refused: terminal channel state for {thread!r} is incomplete")
         state = self._load_case(thread)
+        synchronized = (
+            state.get("phase") == "terminal"
+            and state.get("terminal_result") == result
+            and state.get("close_reason") == reason
+            and state.get("terminal_entry") == signal.get("last_entry")
+            and "pending_terminal" not in state
+        )
+        if synchronized:
+            return DriveOutcome(
+                "terminal", f"already synchronized terminal {result}: {reason}", result, reason
+            )
         state.update(
             {
                 "phase": "terminal",
@@ -1390,8 +1411,52 @@ class BrokerController:
                 "terminal_entry": signal.get("last_entry"),
             }
         )
+        state.pop("pending_terminal", None)
         self._write_case(thread, state)
         return DriveOutcome("terminal", f"recovered terminal {result}: {reason}", result, reason)
+
+    def pending_channel_commit(
+        self,
+        *,
+        channel_root: Path,
+        channel_name: str,
+        thread: str,
+        signal_seq: int,
+        entries: list[channel.Entry],
+    ) -> str | None:
+        """Classify an exact controller-owned mailbox-ahead crash boundary."""
+        state = self._load_case(thread)
+        extra = sorted((entry for entry in entries if entry.seq > signal_seq), key=lambda entry: entry.seq)
+        expected_seqs = list(range(signal_seq + 1, signal_seq + 1 + len(extra)))
+        if [entry.seq for entry in extra] != expected_seqs or any(entry.thread != thread for entry in extra):
+            return None
+        if state.get("phase") == "reveal" and len(extra) == 2:
+            reveal_id = state.get("reveal_id")
+            marker = f"reveal-id: {reveal_id}"
+            if (
+                isinstance(reveal_id, str)
+                and reveal_id
+                and {entry.sender for entry in extra} == set(self.config.profiles)
+                and all(entry.entry_type == "verdict" and entry.body.count(marker) == 1 for entry in extra)
+            ):
+                return "paired-reveal"
+        pending = state.get("pending_terminal")
+        if isinstance(pending, dict) and len(extra) == 1:
+            result = pending.get("result")
+            reason = pending.get("close_reason")
+            channel_config = channel.load_config(channel_root, channel_name)
+            marker = f"terminal-result: {result}\n- close-reason: {reason}"
+            entry = extra[0]
+            if (
+                result in channel.TERMINAL_RESULTS
+                and isinstance(reason, str)
+                and reason
+                and entry.sender == channel_config.supervisor
+                and entry.entry_type == "close"
+                and entry.body.count(marker) == 1
+            ):
+                return "typed-close"
+        return None
 
     def _agreement(self, state: dict[str, object]) -> tuple[str, str] | None:
         votes = state.get("latest_votes", {})
@@ -1512,6 +1577,19 @@ class BrokerController:
         if signal.get("phase") == "terminal":
             return self.recover_terminal_state(
                 channel_root=channel_root, channel_name=channel_name, thread=thread
+            )
+        pending_terminal = state.get("pending_terminal")
+        if isinstance(pending_terminal, dict):
+            result = pending_terminal.get("result")
+            close_reason = pending_terminal.get("close_reason")
+            if result not in channel.TERMINAL_RESULTS or not isinstance(close_reason, str):
+                raise channel.ChannelError(f"refused: case {thread!r} has malformed pending terminal state")
+            return self._close_terminal(
+                channel_root=channel_root,
+                channel_name=channel_name,
+                thread=thread,
+                result=str(result),
+                close_reason=close_reason,
             )
         deadline = self._deadline_from(state, thread)
         if self._now() >= deadline:

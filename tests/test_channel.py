@@ -579,6 +579,17 @@ def test_typed_terminal_close_repairs_crash_between_mailbox_and_signal(
     assert channel.read_signal(root, name)["thread"] == "sealed-one"
     assert len(channel.read_entries(root, name)) == 2
 
+    with pytest.raises(channel.ChannelError, match="disagrees with requested"):
+        channel.close_managed_case(
+            root,
+            thread="sealed-one",
+            result="ERROR",
+            close_reason="adapter-error",
+            body="Different attempted terminal reason.",
+            name=name,
+        )
+    assert len(channel.read_entries(root, name)) == 2
+
     monkeypatch.setattr(channel, "_atomic_write", real_atomic_write)
     entry_id = channel.close_managed_case(
         root,

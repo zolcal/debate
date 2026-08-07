@@ -720,7 +720,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
 
     output: list[str] = []
     decision = Decision(None, None, "no broker recovery due")
-    reveal_recovery: tuple[str, int] | None = None
+    broker_recovery: tuple[str, str, int] | None = None
     # THIRD instance of the same unguarded-read pattern, found by probing for it
     # after the doorbell (MSG-168) and the mailbox (MSG-170) rather than waiting
     # to be told: _load_state does json.loads + dict() with no guard, so a
@@ -792,32 +792,38 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         findings = doorbell_failure or mailbox_failure or channel.verify_record(config.channel_root, config.channel_name)
         anomalies = [f for f in findings if f.level == channel.ANOMALY]
         if anomalies:
-            # A paired reveal intentionally has a recoverable write boundary:
-            # the mailbox replacement can survive while its signal replacement
-            # does not. The case state was made ``reveal`` before either write,
-            # so it proves this exact mailbox-ahead shape belongs to the
-            # controller rather than an unknown writer. Defer the actual repair
-            # until after releasing this non-reentrant writer lock.
+            # Paired reveal and typed close intentionally have recoverable write
+            # boundaries: an atomic mailbox replacement can survive while its
+            # signal replacement does not. Case state plus exact extra-entry
+            # markers distinguish those controller commits from an unknown
+            # writer. Defer repair until this non-reentrant lock is released.
             thread = str(signal.get("thread", ""))
-            recoverable_reveal = (
+            maybe_broker_commit = (
                 config.broker is not None
                 and not doorbell_failure
                 and not mailbox_failure
                 and {anomaly.code for anomaly in anomalies} == {"mailbox-ahead-of-doorbell"}
                 and mailbox_seq > seq
                 and bool(thread)
+                and f"{thread}:{seq}" not in set(state.get("escalated", []))
             )
-            if recoverable_reveal:
+            if maybe_broker_commit:
                 try:
-                    phase = BrokerController(config.broker)._load_case(thread).get("phase")
+                    kind = BrokerController(config.broker).pending_channel_commit(
+                        channel_root=config.channel_root,
+                        channel_name=str(config.channel_name),
+                        thread=thread,
+                        signal_seq=seq,
+                        entries=entries,
+                    )
                 except ChannelError:
-                    phase = None
-                if phase == "reveal":
+                    kind = None
+                if kind is not None:
                     state.pop(ANOMALY_FINGERPRINT, None)
-                    reveal_recovery = (thread, seq)
-                    output.append(f"broker recovering paired reveal for {thread!r}")
+                    broker_recovery = (kind, thread, seq)
+                    output.append(f"broker recovering {kind.replace('-', ' ')} for {thread!r}")
 
-            if reveal_recovery is None:
+            if broker_recovery is None:
                 # An anomalous reading has TWO causes and a SINGLE TICK CANNOT TELL
                 # THEM APART:
                 #   - a post genuinely IN FLIGHT (the mailbox append landed, the
@@ -858,7 +864,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         # cannot combine with a LATER unrelated one to look persistent.
         state.pop(ANOMALY_FINGERPRINT, None)
 
-        if reveal_recovery is None:
+        if broker_recovery is None:
             decision = decide(signal, state, config, datetime.now(timezone.utc))
             if decision.escalate:
                 output.append(f"ESCALATE: {decision.escalate}")
@@ -869,10 +875,11 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
                 output.append(f"STUCK: seq {seq} escalated; supervisor action required")
         _save_state(config.state_path, state)  # recorded before the expensive child
 
-    if reveal_recovery is not None:
+    if broker_recovery is not None:
         assert config.broker is not None
         assert config.channel_name is not None
-        thread, recovery_seq = reveal_recovery
+        kind, thread, recovery_seq = broker_recovery
+        shown_kind = kind.replace("-", " ")
         try:
             outcome = BrokerController(config.broker).drive_case(
                 channel_root=config.channel_root,
@@ -882,9 +889,14 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
                 attempt=0,
             )
         except (AdapterError, ChannelError) as error:
-            output.append(f"ESCALATE: paired reveal recovery failed for {thread!r}: {error}")
+            output.append(f"ESCALATE: {shown_kind} recovery failed for {thread!r}: {error}")
+            fingerprint = "|".join(
+                [str(mailbox_seq), str(seq), "mailbox-ahead-of-doorbell"]
+            )
+            state[ANOMALY_FINGERPRINT] = fingerprint
+            state = record_escalation(state, thread, recovery_seq)
         else:
-            output.append(f"broker recovered paired reveal for {thread!r}: {outcome.detail}")
+            output.append(f"broker recovered {shown_kind} for {thread!r}: {outcome.detail}")
         refreshed = channel.read_entries(config.channel_root, config.channel_name)
         output.extend(new_entry_lines(refreshed, int(state.get("last_mirrored_seq", 0))))
         state["last_mirrored_seq"] = max(
@@ -907,7 +919,8 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         except ChannelError as error:
             output.append(f"ESCALATE: terminal case recovery failed for {terminal_thread!r}: {error}")
         else:
-            output.append(f"broker confirmed {terminal_thread!r} terminal: {recovered.detail}")
+            if not recovered.detail.startswith("already synchronized"):
+                output.append(f"broker confirmed {terminal_thread!r} terminal: {recovered.detail}")
 
     elif decision.invoke and config.broker is not None:
         assert config.channel_name is not None  # brokered configs are named-only
@@ -916,7 +929,16 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         controller = BrokerController(config.broker)
         try:
             profile = config.broker.profiles[decision.invoke]
-            if attempt > profile.retry_limit + 1:
+            deadline = _parse_stamp(str(signal.get("deadline", "")))
+            if deadline is not None and datetime.now(timezone.utc) >= deadline:
+                outcome = controller.drive_case(
+                    channel_root=config.channel_root,
+                    channel_name=config.channel_name,
+                    thread=thread,
+                    sequence=seq,
+                    attempt=attempt,
+                )
+            elif attempt > profile.retry_limit + 1:
                 outcome = controller.close_error(
                     channel_root=config.channel_root,
                     channel_name=config.channel_name,

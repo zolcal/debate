@@ -201,6 +201,9 @@ each fresh seat sees only the current thread. Matching party votes close automat
 `PASS` or `NO_PASS`; `PASS` requires an agreeing author-independent seat. A supervisor
 verdict is visible context but never a vote. Thread-cap exhaustion closes `NO_PASS`, while
 adapter/retry/deadline failure closes `ERROR`; `close_reason` records why separately.
+The typed-close intent is persisted before its mailbox write, so the recurring scheduler
+can likewise distinguish and repair a close whose signal update was interrupted; unrelated
+mailbox-ahead anomalies still follow the normal fail-closed escalation path.
 
 The runtime lives below `<project>/var/debate/<channel>/`, never `.pytest_cache` or another
 tool cache. `adapter-doctor` prints the unconstrained schedule estimate and the enforced
@@ -217,8 +220,10 @@ completed `var/debate/<channel>/` case directory, then remove only that validate
 This is strong protection against accidental contamination, not a claim that a same-user
 process is hostile-code safe. Read-only permissions, a clean environment, Git ceiling and
 canaries are mechanically checked; an `isolation_mode: advisory` profile can still read an
-absolute host path if the selected CLI/tool sandbox permits it. Use `os-enforced` only when
-an external sandbox actually denies those reads.
+absolute host path if the selected CLI/tool sandbox permits it. That includes the private
+sealed-submission state stored elsewhere below the same project-local case runtime: prompt
+separation does not stop a hostile same-user process from traversing parent directories.
+Use `os-enforced` only when an external sandbox actually denies those reads.
 
 ### Managed version 1 compatibility
 
