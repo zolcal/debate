@@ -9,6 +9,7 @@ and stored — never re-derived — so it is stable under later renames.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -93,13 +94,15 @@ def test_init_named_channel_writes_prefixed_files_and_records_name(tmp_path: Pat
     assert (tmp_path / "alpha-11111.signal.json").exists()
     raw = json.loads((tmp_path / "alpha-11111.debate.json").read_text(encoding="utf-8"))
     assert raw["name"] == "alpha-11111"
+    assert raw["managed_version"] == 1
+    assert raw["thread_cap"] == 12
     # The legacy filenames must NOT appear: this channel is born named.
     assert not (tmp_path / "debate.json").exists()
     assert not (tmp_path / "CHANNEL.md").exists()
 
 
-def test_legacy_init_is_byte_identical_to_before(tmp_path: Path) -> None:
-    """Library callers without a name keep the exact 0.3.1 layout and config."""
+def test_legacy_init_keeps_the_old_layout_and_no_managed_marker(tmp_path: Path) -> None:
+    """Unnamed callers keep the 0.3.1 shape while adopting cap 12."""
     import json
 
     config = channel.init_channel(tmp_path, ("alice", "bob"), "owner")
@@ -107,6 +110,32 @@ def test_legacy_init_is_byte_identical_to_before(tmp_path: Path) -> None:
     assert config.name is None
     raw = json.loads((tmp_path / "debate.json").read_text(encoding="utf-8"))
     assert "name" not in raw
+    assert "managed_version" not in raw
+
+
+def test_unknown_or_malformed_managed_version_refuses(tmp_path: Path) -> None:
+    channel.init_channel(tmp_path, ("alice", "bob"), "owner", name="alpha-11111")
+    path = tmp_path / "alpha-11111.debate.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+
+    for value in (3, True, "1"):
+        raw["managed_version"] = value
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        with pytest.raises(ChannelError, match="managed_version"):
+            channel.load_config(tmp_path, name="alpha-11111")
+
+
+def test_brokered_managed_version_two_is_explicit_and_supported(tmp_path: Path) -> None:
+    config = channel.init_channel(
+        tmp_path,
+        ("alice", "bob"),
+        "owner",
+        name="alpha-11111",
+        managed_version=channel.BROKERED_MANAGED_VERSION,
+    )
+
+    assert config.managed_version == 2
+    assert channel.load_config(tmp_path, name="alpha-11111").managed_version == 2
 
 
 def test_named_channel_round_trips_config_signal_and_post(tmp_path: Path) -> None:

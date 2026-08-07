@@ -36,6 +36,17 @@ def test_cli_init_generates_and_prints_the_channel_id(
     assert cid in capsys.readouterr().out
     raw = json.loads((tmp_path / f"{cid}.debate.json").read_text(encoding="utf-8"))
     assert raw["name"] == cid
+    assert raw["managed_version"] == 1
+    assert raw["thread_cap"] == 12
+
+
+def test_cli_init_help_states_the_default_cap(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["init", "--help"])
+
+    assert excinfo.value.code == 0
+    output = capsys.readouterr().out
+    assert "default: 12" in output
 
 
 def test_cli_init_creates_a_missing_root_folder(tmp_path: Path) -> None:

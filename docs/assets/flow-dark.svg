@@ -61,7 +61,7 @@
   <text x="204" y="283" text-anchor="middle" font-size="11.5" fill="#a371f7">turn it is</text>
   <path d="M 550 300 C 700 300 740 220 740 158" fill="none" stroke="#a371f7" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrowAccent)"/>
   <text x="676" y="268" text-anchor="middle" font-size="11.5" fill="#a371f7">pinned prompt,</text>
-  <text x="676" y="283" text-anchor="middle" font-size="11.5" fill="#a371f7">debounced, once per seq</text>
+  <text x="676" y="283" text-anchor="middle" font-size="11.5" fill="#a371f7">zero debounce, once per seq</text>
 
   <!-- ===== supervisor (bottom, full width strip) ===== -->
   <rect x="40" y="380" width="800" height="40" rx="10" fill="#12261a" stroke="#3fb950" stroke-width="1.5"/>

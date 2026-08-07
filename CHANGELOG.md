@@ -6,6 +6,56 @@ Every release from v0.2.0 onward went through this project's own review channel 
 record is under [`collab/`](collab/), and the message numbers cited below are entries in
 it.
 
+## Unreleased
+
+### Changed
+
+- Newly named channels are `managed_version: 1`, default to a 12-entry thread cap,
+  and require watcher commands for both arbitrary party names. Existing explicit caps
+  remain unchanged; configs without the managed marker remain readable as legacy/manual
+  history.
+- Managed missing-command and turnless-open states are `INVALID`, never healthy
+  `MANUAL`; `watch-status` returns the shared needs-attention exit code. Both headless
+  seats default to zero debounce in the shipped examples.
+- Added explicit managed-version 2 brokered channels (`debate init --brokered`). A neutral
+  `broker-open` snapshots the case before assigning the first seat; direct party posts are
+  refused and structured adapter results are posted under controller-bound identities.
+- Generic adapter profiles record author relationship, provider/model/runtime identity,
+  reasoning, CLI/authentication/cost/permission/settings policy and a sanitized fingerprint. At least one
+  seat must be author-independent; one versus two independent seats is reported as the
+  minimum two-agent versus recommended three-agent topology.
+- Brokered seats run from separate read-only pinned exports with a Git ceiling and clean
+  project-local environment. Gitignored docket evidence is materialized by content hash;
+  runtime/case state lives below `var/debate/`, survives pytest cache clearing, and records
+  source, docket, prompt, profile and controller hashes. `adapter-doctor` validates and
+  reports both timing bounds and cost modes without invoking a model.
+- `broker-revise` snapshots each post-fix commit/docket as a new content-addressed case
+  revision, records it through a supervisor entry without changing the party turn, and
+  blocks invocation on a half-recorded revision.
+- Brokered cases now persist `docket`, `sealed`, `reveal`, `deliberation`, and `terminal`
+  phases. The two initial typed positions remain private until `commit_reveal_pair`
+  publishes both with one atomic mailbox replacement; restart recovery repairs the
+  doorbell without duplicating or exposing one side early. Each reveal provenance block
+  records when that private initial submission was captured. Typed-close intent is also
+  persisted so the recurring scheduler can repair its mailbox/signal crash boundary
+  without treating unrelated record anomalies as controller traffic.
+- Version 2 verdicts carry `PASS` or `NO_PASS`. Matching party votes close automatically
+  (a `PASS` requires an agreeing author-independent seat), the thread cap closes
+  `NO_PASS`, and adapter or whole-case deadline failure closes `ERROR` with a separate
+  `close_reason`. Supervisor entries never count as votes.
+- Migrated this repository's active guidance to a fresh cap-12 brokered channel while
+  preserving the historical Opus/GLM record. The local repository profile selects
+  headless Opus/Codex without making that pair a product default; examples document the
+  minimum two-agent and recommended three-agent topologies plus alternative pairs.
+- Every scheduler line and watcher prompt now addresses multi-channel roots with explicit
+  `--channel`; the repository protocol reads each channel's persisted cap instead of
+  declaring one root-wide number. The old commandless-seat timer is retired from active
+  use rather than treated as a supported managed mode.
+- The repository's final brokered proof (MSG-11..14) records separate initial-capture
+  timestamps, atomically reveals both independently gathered positions, and closes `PASS`
+  automatically. Failed adapter setup attempts remain in the same append-only record as
+  bounded `ERROR` outcomes.
+
 ## v0.4.0 — 2026-08-05
 
 **A channel now knows its own name, and which project it serves.** The headline is that

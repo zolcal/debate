@@ -30,7 +30,9 @@ from debate.watcher import WatcherConfig, run_once
 
 
 def main() -> None:
-    root = Path(tempfile.mkdtemp(prefix="debate-demo-")) / "collab"
+    runtime_parent = Path.cwd() / "var"
+    runtime_parent.mkdir(exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix="debate-demo-", dir=runtime_parent)) / "collab"
 
     # --- 1. Create the channel: two parties, a supervisor, its own name. ---
     cid = init_channel(root, ("builder", "reviewer"), "owner", name=generate_channel_id(root, label="demo")).name
@@ -73,8 +75,13 @@ def main() -> None:
         channel_root=root,
         state_path=root.parent / "watcher-state.json",
         channel_name=cid,
-        commands={"reviewer": reviewer_cmd},
-        prompts={"reviewer": "(a pinned prompt would go here)"},
+        commands={
+            "builder": [sys.executable, "-c", "raise SystemExit('builder was not expected')"],
+            "reviewer": reviewer_cmd,
+        },
+        prompts={"builder": "(pinned builder prompt)", "reviewer": "(a pinned reviewer prompt)"},
+        managed_version=1,
+        parties=("builder", "reviewer"),
     )
     print("watcher tick #1:")
     for line in run_once(config):

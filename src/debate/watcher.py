@@ -11,12 +11,14 @@ Design rules, each one paid for in production (see docs/case-study):
   field means nothing; a watcher firing on turn alone burns an agent
   invocation on an empty mailbox.
 - **Once per seq.** An invocation that produced no reply is retried once
-  after ``retry_seconds``, then escalated to the supervisor — never looped.
-- **Debounce.** A live human-driven session may be about to answer; the
-  watcher waits ``debounce_seconds`` of unchanged turn before firing, and
-  treats its own trigger as a *fallback*, not the primary path.
-- **Fixed prompts.** The command and prompt for each party are pinned in
-  config — the watcher never composes free-form instructions.
+  after ``retry_seconds``. Version 1 then escalates; version 2 closes ``ERROR``
+  through its controller — never looped.
+- **Managed pairs drive every turn.** Version 1 requires direct commands for
+  both parties. Version 2 requires controller-bound adapter profiles. Both
+  normally use zero debounce; neither can become a live-session fallback.
+- **Brokered inputs.** Version 2 centrally renders phase-limited input and
+  validates a result file; the seat receives no live channel path and never
+  selects its sender. Version 1 fixed prompts remain compatibility behavior.
 - **State lives outside the channel.** The watcher's memory (last seen seq,
   invocation counts) must not pollute the shared channel directory. Enforced
   at config construction: a ``state_path`` that resolves inside
@@ -35,7 +37,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from debate.channel import ChannelError
+from debate.channel import BROKERED_MANAGED_VERSION, MANAGED_VERSION, ChannelError, load_config
+from debate.controller import AdapterError, BrokerConfig, BrokerController
 
 # Windows: suppress the console window a scheduled invocation would flash.
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -52,12 +55,14 @@ _LOCK_BYTE_OFFSET = 1 << 16  # 65536 - orders of magnitude past a 3-line note
 
 @dataclass(frozen=True)
 class WatcherConfig:
-    """Per-party invocation commands plus timing knobs.
+    """Per-party direct commands or a brokered controller, plus timing knobs.
 
     ``commands`` maps party name -> argv list. The placeholder ``{prompt}``
     in any argv element is replaced with that party's pinned prompt from
-    ``prompts``. Parties without a command are never invoked (a human-driven
-    party can simply have no entry).
+    ``prompts``. Legacy channels may omit a command for a human-driven party.
+    Managed version 1 requires commands for both recorded parties. Managed
+    version 2 requires exactly two brokered profiles. Both report an invalid
+    configuration instead of silently waiting for a live session.
     """
 
     channel_root: Path
@@ -68,8 +73,28 @@ class WatcherConfig:
     retry_seconds: int = 30 * 60
     timeout_seconds: int = 30 * 60
     channel_name: str | None = None  # instance id; None = legacy layout
+    managed_version: int | None = None
+    parties: tuple[str, str] | None = None
+    broker: BrokerConfig | None = None
 
     def __post_init__(self) -> None:
+        # Library callers must not be able to accidentally treat a named
+        # managed channel as legacy merely by omitting the duplicated watcher
+        # fields. Bind from the channel record whenever it exists. An absent
+        # legacy record remains allowed for pure decision tests and pre-init
+        # config, but an explicitly named channel must bind its record rather
+        # than silently falling back to legacy/manual behavior.
+        if self.managed_version is None or self.parties is None:
+            try:
+                channel_config = load_config(self.channel_root, self.channel_name)
+            except ChannelError:
+                if self.channel_name is not None or (self.channel_root / "debate.json").exists():
+                    raise
+            else:
+                if self.managed_version is None:
+                    object.__setattr__(self, "managed_version", channel_config.managed_version)
+                if self.parties is None:
+                    object.__setattr__(self, "parties", channel_config.parties)
         state = self.state_path.resolve()
         root = self.channel_root.resolve()
         if state == root or state.is_relative_to(root):
@@ -80,6 +105,72 @@ class WatcherConfig:
         for party, argv in self.commands.items():
             if not all(isinstance(part, str) for part in argv):
                 raise ChannelError(f"refused: command for {party!r} has non-string elements: {argv!r}")
+        if isinstance(self.managed_version, bool) or self.managed_version not in (
+            None,
+            MANAGED_VERSION,
+            BROKERED_MANAGED_VERSION,
+        ):
+            raise ChannelError(
+                f"refused: unsupported managed_version {self.managed_version!r}; this release supports 1 and 2"
+            )
+        if self.managed_version is not None and self.parties is None:
+            raise ChannelError("refused: a managed watcher must be bound to exactly two channel parties")
+        if self.broker is not None:
+            if self.managed_version != BROKERED_MANAGED_VERSION or self.channel_name is None or self.parties is None:
+                raise ChannelError("refused: brokered adapters require a named managed-version 2 channel")
+            if set(self.broker.profiles) != set(self.parties):
+                raise ChannelError(
+                    "refused: brokered adapter names must exactly match the two channel parties"
+                )
+            if self.commands:
+                raise ChannelError(
+                    "refused: do not mix direct commands with brokered adapter profiles"
+                )
+            runtime = self.broker.runtime_root.resolve()
+            state = self.state_path.resolve()
+            if not state.is_relative_to(runtime):
+                raise ChannelError(
+                    f"refused: brokered watcher state {state} must live below runtime_root {runtime}"
+                )
+
+    def managed_problem(self) -> str | None:
+        """Return the fail-closed configuration problem for a managed pair.
+
+        Kept pure so `decide()` and `status()` share exactly one definition of
+        validity. A legacy channel has no managed contract and returns None.
+        """
+        if self.managed_version is None:
+            return None
+        assert self.parties is not None
+        expected = set(self.parties)
+        if self.managed_version == BROKERED_MANAGED_VERSION and self.broker is None:
+            return "managed-version 2 requires two brokered adapter profiles"
+        if self.broker is not None:
+            configured_profiles = set(self.broker.profiles)
+            if configured_profiles != expected:
+                missing = sorted(expected - configured_profiles)
+                extra = sorted(configured_profiles - expected)
+                return (
+                    "brokered adapter bindings do not match channel parties "
+                    f"(missing={missing}, extra={extra})"
+                )
+            return None
+        configured = set(self.commands)
+        missing = sorted(expected - configured)
+        extra = sorted(configured - expected)
+        if missing:
+            return f"missing adapter command for managed parties: {', '.join(missing)}"
+        if extra:
+            return f"commands configured for non-party names: {', '.join(extra)}"
+        empty = sorted(party for party in expected if not self.commands.get(party))
+        if empty:
+            return f"empty adapter command for managed parties: {', '.join(empty)}"
+        return None
+
+    def has_adapter(self, party: str) -> bool:
+        if self.broker is not None:
+            return party in self.broker.profiles
+        return self.command_for(party) is not None
 
     def command_for(self, party: str) -> list[str] | None:
         """Build the argv for a party, expanding placeholders in ONE fixed order.
@@ -123,12 +214,39 @@ def decide(
     thread = str(signal.get("thread", ""))
     seq = int(signal.get("seq", 0))
 
+    problem = config.managed_problem()
+    if problem is not None:
+        return Decision(None, f"invalid managed channel: {problem}", "invalid managed configuration")
+
     if not thread:
         return Decision(None, None, "no open thread")
     if not turn:
+        if config.managed_version is not None:
+            return Decision(
+                None,
+                f"invalid managed channel: open thread {thread!r} has no party turn",
+                "invalid managed turnless thread",
+            )
         return Decision(None, None, "no turn set")
-    if config.command_for(turn) is None:
+    if not config.has_adapter(turn):
+        if config.managed_version is not None:
+            return Decision(
+                None,
+                f"invalid managed channel: no adapter command for turn {turn!r}",
+                "invalid managed command",
+            )
         return Decision(None, None, f"no command configured for {turn!r}")
+
+    if config.broker is not None:
+        deadline = _parse_stamp(str(signal.get("deadline", "")))
+        if deadline is None:
+            return Decision(
+                None,
+                f"invalid managed channel: open brokered thread {thread!r} has no absolute deadline",
+                "invalid managed deadline",
+            )
+        if now >= deadline:
+            return Decision(turn, None, f"whole-case deadline expired for {thread!r}; controller recovery due")
 
     updated_at = _parse_stamp(str(signal.get("updated_at", "")))
     debounce = int(config.debounce_seconds.get(turn, 0))
@@ -148,6 +266,8 @@ def decide(
     if count == 1 and age is not None and age >= config.retry_seconds:
         return Decision(turn, None, f"retry for seq {seq} after {int(age)}s without a reply")
     if count >= 2 and age is not None and age >= config.retry_seconds:
+        if config.broker is not None:
+            return Decision(turn, None, f"broker retry exhaustion recovery for seq {seq}")
         return Decision(
             None,
             f"thread {thread!r} stuck on {turn!r} at seq {seq} after {count} invocations",
@@ -187,28 +307,61 @@ def status(
 ) -> WatchStatus:
     """Pure verdict core: no I/O, no clock reads — the same rule as ``decide()``.
 
-    Verdict order is deliberate. ESCALATED outranks everything (a human is
-    already owed an answer); MANUAL outranks staleness (a party with no
-    configured command is answered by a live session, so "the watcher did not
-    fire" is the design, not a fault). Only then do the timing verdicts apply.
+    Verdict order is deliberate. A malformed managed pair is INVALID before
+    any healthy verdict can be returned. ESCALATED then outranks timing, while
+    MANUAL remains only for explicitly legacy human-driven channels.
     """
     thread = str(signal.get("thread", ""))
     turn = str(signal.get("turn", ""))
     seq = int(signal.get("seq", 0))
     holder = _holder_note(lock)
 
+    problem = config.managed_problem()
+    if problem is not None:
+        return WatchStatus("INVALID", f"managed channel configuration is invalid: {problem}{holder}")
+
+    if not thread and signal.get("phase") == "terminal":
+        result = str(signal.get("terminal_result", ""))
+        return WatchStatus(
+            "ERROR" if result == "ERROR" else "TERMINAL",
+            f"managed case {signal.get('case_thread')!r} closed as "
+            f"{result!r} ({signal.get('close_reason')!r})",
+        )
     if not thread:
         return WatchStatus("IDLE", "no open thread; nothing is waiting to be driven")
     if f"{thread}:{seq}" in set(state.get("escalated", [])):
         return WatchStatus("ESCALATED", f"seq {seq} escalated on {thread!r}; supervisor action required{holder}")
     if not turn:
+        if config.managed_version is not None:
+            return WatchStatus(
+                "INVALID",
+                f"managed thread {thread!r} has no party turn; no adapter can drive it{holder}",
+            )
         return WatchStatus("MANUAL", f"thread {thread!r} has no turn (supervisor opener); no seat is due{holder}")
-    if config.command_for(turn) is None:
+    if not config.has_adapter(turn):
+        if config.managed_version is not None:
+            return WatchStatus(
+                "INVALID",
+                f"managed turn {turn!r} has no adapter command; the channel cannot be driven{holder}",
+            )
         return WatchStatus(
             "MANUAL",
             f"turn {turn!r} has no command configured; a live session answers this seat, "
             f"not the watcher{holder}",
         )
+    if config.broker is not None:
+        deadline = _parse_stamp(str(signal.get("deadline", "")))
+        if deadline is None:
+            return WatchStatus(
+                "INVALID",
+                f"brokered thread {thread!r} has no readable absolute deadline{holder}",
+            )
+        if now >= deadline:
+            return WatchStatus(
+                "STALE",
+                f"brokered thread {thread!r} passed its whole-case deadline; "
+                f"the next recurring tick must close ERROR{holder}",
+            )
 
     record = dict(dict(state.get("invocations", {})).get(str(seq), {}))
     count = int(record.get("count", 0))
@@ -276,6 +429,8 @@ def read_status(
         f"unit:     debate-watch-{config.state_path.stem} (by convention; scheduling is host config)",
         f"signal:   seq {signal.get('seq', 0)} | turn {str(signal.get('turn', '')) or '-'} | "
         f"thread {str(signal.get('thread', '')) or '-'} | updated {signal.get('updated_at', '-')}",
+        f"managed:  phase {signal.get('phase', '-')} | deadline {signal.get('deadline', '-')} | "
+        f"result {signal.get('terminal_result', '-')} | close_reason {signal.get('close_reason', '-')}",
         f"mirrored: last_mirrored_seq {state.get('last_mirrored_seq', 0)}",
     ]
     records = sorted(dict(state.get("invocations", {})).items(), key=lambda kv: int(kv[0]))
@@ -564,6 +719,8 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
     from debate import channel  # local import keeps module load light
 
     output: list[str] = []
+    decision = Decision(None, None, "no broker recovery due")
+    broker_recovery: tuple[str, str, int] | None = None
     # THIRD instance of the same unguarded-read pattern, found by probing for it
     # after the doorbell (MSG-168) and the mailbox (MSG-170) rather than waiting
     # to be told: _load_state does json.loads + dict() with no guard, so a
@@ -635,59 +792,198 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         findings = doorbell_failure or mailbox_failure or channel.verify_record(config.channel_root, config.channel_name)
         anomalies = [f for f in findings if f.level == channel.ANOMALY]
         if anomalies:
-            # An anomalous reading has TWO causes and a SINGLE TICK CANNOT TELL
-            # THEM APART:
-            #   - a post genuinely IN FLIGHT (the mailbox append landed, the
-            #     doorbell bump has not) - transient, resolves next tick;
-            #   - a crashed or forged writer - permanent.
-            # Escalating the first would cry wolf on healthy traffic, which is
-            # exactly why this branch used to defer. But deferring the second
-            # is the silent wedge: one line a minute, nobody invoked, nobody
-            # told - the 2026-08-01 silent-channel failure in a different hat.
-            # So defer ONCE, remember the exact reading, and escalate only when
-            # the SAME reading survives a tick. That difference IS the
-            # difference between in-flight and wedged.
-            fingerprint = "|".join(
-                [str(mailbox_seq), str(seq), *sorted(f"{a.code}" for a in anomalies)]
+            # Paired reveal and typed close intentionally have recoverable write
+            # boundaries: an atomic mailbox replacement can survive while its
+            # signal replacement does not. Case state plus exact extra-entry
+            # markers distinguish those controller commits from an unknown
+            # writer. Defer repair until this non-reentrant lock is released.
+            thread = str(signal.get("thread", ""))
+            broker = config.broker
+            maybe_broker_commit = (
+                broker is not None
+                and not doorbell_failure
+                and not mailbox_failure
+                and {anomaly.code for anomaly in anomalies} == {"mailbox-ahead-of-doorbell"}
+                and mailbox_seq > seq
+                and bool(thread)
+                and f"{thread}:{seq}" not in set(state.get("escalated", []))
             )
-            if state.get(ANOMALY_FINGERPRINT) == fingerprint:
-                for anomaly in anomalies:
-                    output.append(f"ESCALATE: record anomaly - {anomaly.code}: {anomaly.detail}")
-                # Keyed distinctly from the turn-stuck thread:seq escalation
-                # below, so neither can mask the other.
-                state = record_escalation(state, "record-anomaly", mailbox_seq)
-            else:
-                state[ANOMALY_FINGERPRINT] = fingerprint
-                if mailbox_seq > seq:
-                    output.append(
-                        f"mailbox ahead of signal (entries at {mailbox_seq}, signal at {seq}); "
-                        "deferring to next tick"
+            if maybe_broker_commit and broker is not None:
+                try:
+                    kind = BrokerController(broker).pending_channel_commit(
+                        channel_root=config.channel_root,
+                        channel_name=str(config.channel_name),
+                        thread=thread,
+                        signal_seq=seq,
+                        entries=entries,
                     )
+                except ChannelError:
+                    kind = None
+                if kind is not None:
+                    state.pop(ANOMALY_FINGERPRINT, None)
+                    broker_recovery = (kind, thread, seq)
+                    output.append(f"broker recovering {kind.replace('-', ' ')} for {thread!r}")
+
+            if broker_recovery is None:
+                # An anomalous reading has TWO causes and a SINGLE TICK CANNOT TELL
+                # THEM APART:
+                #   - a post genuinely IN FLIGHT (the mailbox append landed, the
+                #     doorbell bump has not) - transient, resolves next tick;
+                #   - a crashed or forged writer - permanent.
+                # Escalating the first would cry wolf on healthy traffic, which is
+                # exactly why this branch used to defer. But deferring the second
+                # is the silent wedge: one line a minute, nobody invoked, nobody
+                # told - the 2026-08-01 silent-channel failure in a different hat.
+                # So defer ONCE, remember the exact reading, and escalate only when
+                # the SAME reading survives a tick. That difference IS the
+                # difference between in-flight and wedged.
+                fingerprint = "|".join(
+                    [str(mailbox_seq), str(seq), *sorted(f"{a.code}" for a in anomalies)]
+                )
+                if state.get(ANOMALY_FINGERPRINT) == fingerprint:
+                    for anomaly in anomalies:
+                        output.append(f"ESCALATE: record anomaly - {anomaly.code}: {anomaly.detail}")
+                    # Keyed distinctly from the turn-stuck thread:seq escalation
+                    # below, so neither can mask the other.
+                    state = record_escalation(state, "record-anomaly", mailbox_seq)
                 else:
-                    output.append(
-                        f"record anomaly ({', '.join(sorted(a.code for a in anomalies))}); "
-                        "deferring to next tick"
-                    )
-            _save_state(config.state_path, state)
-            return output
+                    state[ANOMALY_FINGERPRINT] = fingerprint
+                    if mailbox_seq > seq:
+                        output.append(
+                            f"mailbox ahead of signal (entries at {mailbox_seq}, signal at {seq}); "
+                            "deferring to next tick"
+                        )
+                    else:
+                        output.append(
+                            f"record anomaly ({', '.join(sorted(a.code for a in anomalies))}); "
+                            "deferring to next tick"
+                        )
+                _save_state(config.state_path, state)
+                return output
 
         # Healthy again: forget any prior reading so a resolved in-flight post
         # cannot combine with a LATER unrelated one to look persistent.
         state.pop(ANOMALY_FINGERPRINT, None)
 
-        decision = decide(signal, state, config, datetime.now(timezone.utc))
-        if decision.escalate:
-            output.append(f"ESCALATE: {decision.escalate}")
-            state = record_escalation(state, str(signal.get("thread", "")), seq)
-        elif decision.invoke:
-            state = record_invocation(state, seq, datetime.now(timezone.utc))
-        elif decision.reason.endswith("already escalated"):
-            output.append(f"STUCK: seq {seq} escalated; supervisor action required")
+        if broker_recovery is None:
+            decision = decide(signal, state, config, datetime.now(timezone.utc))
+            if decision.escalate:
+                output.append(f"ESCALATE: {decision.escalate}")
+                state = record_escalation(state, str(signal.get("thread", "")), seq)
+            elif decision.invoke:
+                state = record_invocation(state, seq, datetime.now(timezone.utc))
+            elif decision.reason.endswith("already escalated"):
+                output.append(f"STUCK: seq {seq} escalated; supervisor action required")
         _save_state(config.state_path, state)  # recorded before the expensive child
 
-    if decision.invoke:
+    if broker_recovery is not None:
+        assert config.broker is not None
+        assert config.channel_name is not None
+        kind, thread, recovery_seq = broker_recovery
+        shown_kind = kind.replace("-", " ")
+        try:
+            outcome = BrokerController(config.broker).drive_case(
+                channel_root=config.channel_root,
+                channel_name=config.channel_name,
+                thread=thread,
+                sequence=recovery_seq,
+                attempt=0,
+            )
+        except (AdapterError, ChannelError) as error:
+            output.append(f"ESCALATE: {shown_kind} recovery failed for {thread!r}: {error}")
+            fingerprint = "|".join(
+                [str(mailbox_seq), str(seq), "mailbox-ahead-of-doorbell"]
+            )
+            state[ANOMALY_FINGERPRINT] = fingerprint
+            state = record_escalation(state, thread, recovery_seq)
+        else:
+            output.append(f"broker recovered {shown_kind} for {thread!r}: {outcome.detail}")
+        refreshed = channel.read_entries(config.channel_root, config.channel_name)
+        output.extend(new_entry_lines(refreshed, int(state.get("last_mirrored_seq", 0))))
+        state["last_mirrored_seq"] = max(
+            [int(state.get("last_mirrored_seq", 0)), *[entry.seq for entry in refreshed]]
+        )
+
+    elif (
+        config.broker is not None
+        and signal.get("phase") == "terminal"
+        and not str(signal.get("thread", ""))
+    ):
+        assert config.channel_name is not None
+        terminal_thread = str(signal.get("case_thread", ""))
+        try:
+            recovered = BrokerController(config.broker).recover_terminal_state(
+                channel_root=config.channel_root,
+                channel_name=config.channel_name,
+                thread=terminal_thread,
+            )
+        except ChannelError as error:
+            output.append(f"ESCALATE: terminal case recovery failed for {terminal_thread!r}: {error}")
+        else:
+            if not recovered.detail.startswith("already synchronized"):
+                output.append(f"broker confirmed {terminal_thread!r} terminal: {recovered.detail}")
+
+    elif decision.invoke and config.broker is not None:
+        assert config.channel_name is not None  # brokered configs are named-only
+        attempt = int(dict(state.get("invocations", {}))[str(seq)]["count"])
+        thread = str(signal.get("thread", ""))
+        controller = BrokerController(config.broker)
+        try:
+            profile = config.broker.profiles[decision.invoke]
+            deadline = _parse_stamp(str(signal.get("deadline", "")))
+            if deadline is not None and datetime.now(timezone.utc) >= deadline:
+                outcome = controller.drive_case(
+                    channel_root=config.channel_root,
+                    channel_name=config.channel_name,
+                    thread=thread,
+                    sequence=seq,
+                    attempt=attempt,
+                )
+            elif attempt > profile.retry_limit + 1:
+                outcome = controller.close_error(
+                    channel_root=config.channel_root,
+                    channel_name=config.channel_name,
+                    thread=thread,
+                    close_reason="adapter-retries-exhausted",
+                )
+            else:
+                outcome = controller.drive_case(
+                    channel_root=config.channel_root,
+                    channel_name=config.channel_name,
+                    thread=thread,
+                    sequence=seq,
+                    attempt=attempt,
+                )
+        except AdapterError as error:
+            if error.retryable:
+                output.append(f"invoked {decision.invoke} for seq {seq}: {error}")
+            else:
+                terminal = controller.close_error(
+                    channel_root=config.channel_root,
+                    channel_name=config.channel_name,
+                    thread=thread,
+                    close_reason=error.close_reason,
+                )
+                output.append(f"broker terminal ERROR for {thread!r}: {terminal.detail}")
+        except ChannelError as error:
+            output.append(f"broker refused {decision.invoke} for seq {seq}: {error}")
+            output.append(
+                f"ESCALATE: brokered case for {decision.invoke!r} cannot proceed on "
+                f"thread {signal.get('thread')!r}"
+            )
+            state = record_escalation(state, str(signal.get("thread", "")), seq)
+        else:
+            output.append(f"broker advanced {thread!r} to {outcome.phase}: {outcome.detail}")
+
+        refreshed = channel.read_entries(config.channel_root, config.channel_name)
+        output.extend(new_entry_lines(refreshed, int(state.get("last_mirrored_seq", 0))))
+        state["last_mirrored_seq"] = max(
+            [int(state.get("last_mirrored_seq", 0)), *[e.seq for e in refreshed]]
+        )
+
+    elif decision.invoke:
         argv = config.command_for(decision.invoke)
-        assert argv is not None  # decide() only returns invocable parties
+        assert argv is not None  # decide() only returns invocable legacy/direct parties
         try:
             # No cwd override: the agent runs where the watcher runs. The
             # documented pattern is `cd <project> && debate watch-once --root

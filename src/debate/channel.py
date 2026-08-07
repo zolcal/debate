@@ -7,7 +7,8 @@ different machines-in-principle) exchange messages through two files:
 - ``signal.json`` — the doorbell: tiny, machine-parseable, cheap to poll.
 
 Everything a watcher needs is in the doorbell; everything a human auditor
-needs is in the mailbox. All writes go through :func:`post` — the single
+needs is in the mailbox. All writes go through :func:`post` — called directly
+for legacy/version 1 channels and only by the controller for version 2 — the single
 place the protocol is *enforced* rather than requested:
 
 - **Turn alternation** binds within an open thread. An out-of-turn post is
@@ -50,6 +51,9 @@ CONFIG_NAME = "debate.json"
 CHANNEL_NAME = "CHANNEL.md"
 SIGNAL_NAME = "signal.json"
 LOCK_NAME = ".lock"
+MANAGED_VERSION = 1
+BROKERED_MANAGED_VERSION = 2
+SUPPORTED_MANAGED_VERSIONS = (MANAGED_VERSION, BROKERED_MANAGED_VERSION)
 
 # Writers (post, compact) serialize on a transient lock file. A holder that
 # crashed is assumed dead after the stale window — both operations complete
@@ -58,6 +62,8 @@ _LOCK_TIMEOUT_SECONDS = 5.0
 _LOCK_STALE_SECONDS = 30.0
 
 ENTRY_TYPES = ("review-request", "verdict", "fix-report", "question", "info", "close")
+MANAGED_PHASES = ("docket", "sealed", "reveal", "deliberation", "terminal")
+TERMINAL_RESULTS = ("PASS", "NO_PASS", "ERROR")
 
 # Types that may START a discussion. verdict/fix-report are replies by nature;
 # close stays an opener for the documented one-shot close-correction idiom.
@@ -107,9 +113,10 @@ class ChannelConfig:
 
     parties: tuple[str, str]
     supervisor: str
-    thread_cap: int = 8
+    thread_cap: int = 12
     name: str | None = None
     project: str | None = None
+    managed_version: int | None = None
 
     def __post_init__(self) -> None:
         names = (*self.parties, self.supervisor)
@@ -120,6 +127,11 @@ class ChannelConfig:
                 raise ChannelError(f"invalid party name {name!r} (lowercase alphanumerics and dashes)")
         if self.thread_cap < 2:
             raise ChannelError("thread_cap must be >= 2 (a request and a reply)")
+        if isinstance(self.managed_version, bool) or self.managed_version not in (None, *SUPPORTED_MANAGED_VERSIONS):
+            raise ChannelError(
+                f"unsupported managed_version {self.managed_version!r}; "
+                f"this release supports {SUPPORTED_MANAGED_VERSIONS}"
+            )
 
     def other(self, party: str) -> str:
         a, b = self.parties
@@ -139,6 +151,16 @@ class Entry:
     thread: str
     refs: str
     body: str
+
+
+@dataclass(frozen=True)
+class RevealSubmission:
+    """One controller-bound initial position for an atomic paired reveal."""
+
+    sender: str
+    entry_type: str
+    body: str
+    refs: str = ""
 
 
 def discover_channel(root: Path, channel: str | None = None) -> str | None:
@@ -311,21 +333,32 @@ def init_channel(
     root: Path,
     parties: tuple[str, str],
     supervisor: str,
-    thread_cap: int = 8,
+    thread_cap: int = 12,
     name: str | None = None,
+    managed_version: int | None = None,
 ) -> ChannelConfig:
     """Create a channel: config + empty mailbox + fresh doorbell.
 
     With ``name`` the files carry the id prefix (``<name>.debate.json``,
     ``<name>.channel.md``, ``<name>.signal.json``), so several channels can
-    coexist in one folder. Without it, the legacy 0.3.1 layout is written
-    unchanged — existing library callers keep their exact behavior.
+    coexist in one folder. Without it, the legacy 0.3.1 filenames and absent
+    managed marker are preserved; the corrected default cap is 12 everywhere.
     """
     if name is not None and not _SLUG_RE.fullmatch(name):
         raise ChannelError(f"invalid channel name {name!r} (lowercase alphanumerics and dashes)")
     project = _derived_project(root) if name is not None else None
+    # Every newly named channel is managed. The unnamed library path exists
+    # only for 0.3.x compatibility; migration preserves its absent marker so
+    # an old human-driven channel is never silently reclassified.
+    if name is not None and managed_version is None:
+        managed_version = MANAGED_VERSION
     config = ChannelConfig(
-        parties=parties, supervisor=supervisor, thread_cap=thread_cap, name=name, project=project
+        parties=parties,
+        supervisor=supervisor,
+        thread_cap=thread_cap,
+        name=name,
+        project=project,
+        managed_version=managed_version,
     )
     root.mkdir(parents=True, exist_ok=True)
     config_path = _config_path(root, name)
@@ -338,10 +371,11 @@ def init_channel(
         "thread_cap": config.thread_cap,
     }
     if name is not None:
-        # A named channel records the project it serves; the legacy library
-        # path stays byte-identical to 0.3.1 and records nothing new.
+        # A named channel records the project and managed version it serves;
+        # the legacy library path keeps the old shape and records neither.
         payload["name"] = name
         payload["project"] = project
+        payload["managed_version"] = config.managed_version
     _atomic_write(config_path, json.dumps(payload, indent=2))
     mailbox_path(root, name).touch()
     _atomic_write(_signal_path(root, name), json.dumps(_fresh_signal(), indent=2))
@@ -349,8 +383,20 @@ def init_channel(
 
 
 def load_config(root: Path, name: str | None = None) -> ChannelConfig:
-    raw = json.loads(_config_path(root, name).read_text(encoding="utf-8"))
-    parties = raw["parties"]
+    path = _config_path(root, name)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ChannelError(f"refused: unreadable channel config {path}: {error}") from error
+    if not isinstance(raw, dict):
+        raise ChannelError(
+            f"refused: channel config {path} must be a JSON object, got {type(raw).__name__}"
+        )
+    try:
+        parties = raw["parties"]
+        supervisor = raw["supervisor"]
+    except KeyError as error:
+        raise ChannelError(f"refused: channel config {path} is missing required key {error.args[0]!r}") from error
     if not isinstance(parties, list) or len(parties) != 2:
         raise ChannelError(f"config parties must be a two-item list, got {parties!r}")
     if name is not None and raw.get("name") != name:
@@ -361,13 +407,25 @@ def load_config(root: Path, name: str | None = None) -> ChannelConfig:
             f"which disagrees with its filename; fix the config before using this channel"
         )
     project = raw.get("project")
-    return ChannelConfig(
-        parties=(str(parties[0]), str(parties[1])),
-        supervisor=str(raw["supervisor"]),
-        thread_cap=int(raw.get("thread_cap", 8)),
-        name=name,
-        project=str(project) if project is not None else None,
-    )
+    managed_version = raw.get("managed_version")
+    if isinstance(managed_version, bool) or (
+        managed_version is not None and not isinstance(managed_version, int)
+    ):
+        raise ChannelError(
+            f"refused: {_config_path(root, name).name} records invalid "
+            f"managed_version {managed_version!r}"
+        )
+    try:
+        return ChannelConfig(
+            parties=(str(parties[0]), str(parties[1])),
+            supervisor=str(supervisor),
+            thread_cap=int(raw.get("thread_cap", 12)),
+            name=name,
+            project=str(project) if project is not None else None,
+            managed_version=managed_version,
+        )
+    except (TypeError, ValueError) as error:
+        raise ChannelError(f"refused: invalid channel config {path}: {error}") from error
 
 
 def read_signal(root: Path, name: str | None = None) -> dict[str, object]:
@@ -471,6 +529,28 @@ def turn_parked_since(root: Path, now: datetime, name: str | None = None) -> tup
     return (max(0, int((now - stamp).total_seconds())), seq)
 
 
+def _validate_entry_text(body: str, refs: str) -> str:
+    """Validate fields interpolated into the append-only record; return stripped body."""
+    stripped = body.strip()
+    if not stripped:
+        raise ChannelError("refused: empty body")
+    for offset, line in enumerate(stripped.splitlines(), start=1):
+        if _HEADER_RE.match(line):
+            raise ChannelError(
+                f"refused: body line {offset} would parse as an entry header and forge an "
+                f"entry into the record: {line!r}. Quote it as a blockquote ('> ## MSG-...') "
+                "or inside a code fence. Indenting the FIRST line does not work - the body "
+                "is stripped before it is written."
+            )
+    lines = refs.splitlines()
+    if lines and (len(lines) > 1 or lines[0] != refs):
+        raise ChannelError(
+            "refused: refs must be a single line - it is written into the entry header, "
+            f"and a line break there forges an entry when the record is re-parsed: {refs!r}"
+        )
+    return stripped
+
+
 def post(
     root: Path,
     sender: str,
@@ -480,6 +560,10 @@ def post(
     refs: str = "",
     force: bool = False,
     name: str | None = None,
+    _brokered: bool = False,
+    _initial_turn: str | None = None,
+    _managed_phase: str | None = None,
+    _case_deadline: str | None = None,
 ) -> str:
     """Validate against the protocol, append the entry, bump the doorbell.
 
@@ -487,49 +571,36 @@ def post(
     is refused — in that case nothing was written.
     """
     config = load_config(root, name)
-    body = body.strip()
-    if not body:
-        raise ChannelError("refused: empty body")
+    body = _validate_entry_text(body, refs)
     if entry_type not in ENTRY_TYPES:
         raise ChannelError(f"refused: unknown entry type {entry_type!r} (one of {ENTRY_TYPES})")
     if sender != config.supervisor and sender not in config.parties:
         raise ChannelError(f"refused: unknown sender {sender!r} (parties {config.parties}, supervisor {config.supervisor!r})")
+    if config.managed_version == BROKERED_MANAGED_VERSION and sender in config.parties and not _brokered:
+        raise ChannelError(
+            "refused: managed party entries are controller-brokered; the adapter may not "
+            "self-assert --from or post directly"
+        )
+    if _initial_turn is not None:
+        if (
+            config.managed_version != BROKERED_MANAGED_VERSION
+            or sender != config.supervisor
+            or entry_type != "review-request"
+            or _initial_turn not in config.parties
+        ):
+            raise ChannelError(
+                "refused: an initial party turn is controller-only, supervisor-authored, "
+                "and valid only for a brokered review-request"
+            )
+    if _managed_phase is not None:
+        if config.managed_version != BROKERED_MANAGED_VERSION or sender != config.supervisor:
+            raise ChannelError("refused: managed phase initialization is broker-controller-only")
+        if _managed_phase not in MANAGED_PHASES:
+            raise ChannelError(f"refused: unknown managed phase {_managed_phase!r}")
+        if _case_deadline is None or _parse_ts(_case_deadline) is None:
+            raise ChannelError("refused: managed phase initialization requires an absolute case deadline")
     if not _SLUG_RE.fullmatch(thread):
         raise ChannelError(f"refused: invalid thread slug {thread!r} (lowercase alphanumerics and dashes)")
-    # The mailbox is re-parsed line-anchored by _HEADER_RE, so a BODY line in
-    # that grammar becomes a real entry - a forged one, attributable to anyone,
-    # and indistinguishable from a genuine entry in `git diff`. Quoting a prior
-    # message is the accidental path into this, which is why the refusal below
-    # says how to quote safely instead of just saying no. Checked against the
-    # SAME pattern the parser uses: a second hand-maintained pattern would drift
-    # and reopen the hole silently. Runs on the STRIPPED body and before the
-    # lock, so a refusal costs no lock and reflects exactly what would be
-    # written.
-    for offset, line in enumerate(body.splitlines(), start=1):
-        if _HEADER_RE.match(line):
-            raise ChannelError(
-                f"refused: body line {offset} would parse as an entry header and forge an "
-                f"entry into the record: {line!r}. Quote it as a blockquote ('> ## MSG-...') "
-                "or inside a code fence. Indenting the FIRST line does not work - the body "
-                "is stripped before it is written."
-            )
-    # refs is interpolated into the header LINE, so a line break in it splits
-    # that line and everything after the break is re-parsed as record structure.
-    #
-    # Do NOT hand-list separators here. `read_entries` re-splits the file with
-    # str.splitlines(), which breaks on a SUPERSET of \n and \r: \v \f \x1c
-    # \x1d \x1e \x85 (NEL)   (LS)   (PS). The first version of this
-    # guard listed \n and \r only, and all five exotic separators still forged
-    # an entry through refs (found at review, MSG-163) - the same "a second
-    # hand-maintained pattern drifts and reopens the hole" failure the body
-    # guard above is written to avoid, one field over. So ask the parser's own
-    # mechanism whether this value survives a split unchanged.
-    lines = refs.splitlines()
-    if lines and (len(lines) > 1 or lines[0] != refs):
-        raise ChannelError(
-            "refused: refs must be a single line - it is written into the entry header, "
-            f"and a line break there forges an entry when the record is re-parsed: {refs!r}"
-        )
     if force and sender != config.supervisor:
         raise ChannelError(
             f"refused: force is supervisor-only (supervisor {config.supervisor!r}); "
@@ -559,6 +630,8 @@ def post(
             raise ChannelError(f"refused: not your turn (turn={signal['turn']}); double-posting is how loops start")
         if open_thread and thread != open_thread and not force:
             raise ChannelError(f"refused: thread '{open_thread}' is open; one thread at a time (force to override)")
+        if open_thread and _initial_turn is not None:
+            raise ChannelError("refused: a controller initial turn can only open a new thread")
         if open_thread and thread == open_thread and entry_type != "close":
             count = len(thread_entries(root, thread, name))
             if count >= config.thread_cap:
@@ -580,6 +653,8 @@ def post(
         # the first production deployment: see docs/case-study.)
         if entry_type == "close":
             new_turn = ""
+        elif _initial_turn is not None:
+            new_turn = _initial_turn
         elif sender == config.supervisor:
             new_turn = str(signal["turn"])
         else:
@@ -592,20 +667,295 @@ def post(
             new_thread = open_thread
         else:
             new_thread = thread
+        next_signal: dict[str, object] = {
+            key: signal[key]
+            for key in ("phase", "deadline", "terminal_result", "close_reason", "case_thread")
+            if key in signal
+        }
+        next_signal.update(
+            {
+                "seq": seq,
+                "turn": new_turn,
+                "thread": new_thread,
+                "last_entry": entry_id,
+                "updated_at": stamp,
+            }
+        )
+        if _managed_phase is not None:
+            next_signal.pop("terminal_result", None)
+            next_signal.pop("close_reason", None)
+            next_signal.update(
+                {
+                    "phase": _managed_phase,
+                    "deadline": _case_deadline,
+                    "case_thread": thread,
+                }
+            )
+        _atomic_write(
+            _signal_path(root, name),
+            json.dumps(next_signal, indent=2),
+        )
+        return entry_id
+
+
+def update_managed_phase(
+    root: Path,
+    *,
+    thread: str,
+    phase: str,
+    turn: str,
+    deadline: str,
+    name: str,
+) -> None:
+    """Advance broker-owned doorbell state without publishing a mailbox entry."""
+    config = load_config(root, name)
+    if config.managed_version != BROKERED_MANAGED_VERSION:
+        raise ChannelError("refused: managed phases require a brokered channel")
+    if phase not in MANAGED_PHASES or phase == "terminal":
+        raise ChannelError(f"refused: invalid non-terminal managed phase {phase!r}")
+    if turn not in config.parties:
+        raise ChannelError(f"refused: managed phase turn {turn!r} is not a channel party")
+    if _parse_ts(deadline) is None:
+        raise ChannelError("refused: managed phase requires an absolute deadline")
+    with exclusive(root, name):
+        signal = read_signal(root, name)
+        if str(signal.get("thread", "")) != thread:
+            raise ChannelError(
+                f"refused: cannot advance managed phase for {thread!r}; "
+                f"the open thread is {signal.get('thread')!r}"
+            )
+        signal.update(
+            {
+                "phase": phase,
+                "turn": turn,
+                "deadline": deadline,
+                "case_thread": thread,
+                "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+        )
+        _atomic_write(_signal_path(root, name), json.dumps(signal, indent=2))
+
+
+def _render_entry_block(
+    *, seq: int, stamp: str, sender: str, entry_type: str, thread: str, refs: str, body: str
+) -> str:
+    header = (
+        f"## MSG-{seq} | {stamp} | from: {sender} | type: {entry_type} | "
+        f"thread: {thread} | refs: {refs or '-'}"
+    )
+    return f"\n{header}\n\n{body}\n"
+
+
+def commit_reveal_pair(
+    root: Path,
+    *,
+    thread: str,
+    submissions: tuple[RevealSubmission, RevealSubmission],
+    reveal_id: str,
+    next_turn: str,
+    deadline: str,
+    name: str,
+) -> tuple[str, str]:
+    """Atomically publish both initial positions, or repair only a lagging signal.
+
+    The mailbox is replaced once with both rendered blocks. If the process dies
+    after that replacement but before the doorbell replacement, a repeat call
+    recognizes the controller reveal id and advances the doorbell without
+    appending either position again.
+    """
+    config = load_config(root, name)
+    if config.managed_version != BROKERED_MANAGED_VERSION:
+        raise ChannelError("refused: paired reveal requires a brokered channel")
+    if {item.sender for item in submissions} != set(config.parties):
+        raise ChannelError("refused: paired reveal requires exactly one submission from each channel party")
+    if next_turn not in config.parties:
+        raise ChannelError(f"refused: reveal next_turn {next_turn!r} is not a channel party")
+    if not reveal_id or any(character.isspace() for character in reveal_id):
+        raise ChannelError("refused: reveal_id must be a non-empty token")
+    if _parse_ts(deadline) is None:
+        raise ChannelError("refused: paired reveal requires an absolute deadline")
+    marker = f"reveal-id: {reveal_id}"
+    prepared: list[RevealSubmission] = []
+    for item in submissions:
+        if item.entry_type != "verdict":
+            raise ChannelError("refused: sealed positions must be typed verdict entries")
+        if item.body.count(marker) != 1:
+            raise ChannelError(
+                f"refused: each paired submission must contain exactly one controller reveal marker {marker!r}"
+            )
+        if config.project is not None:
+            _refuse_foreign_refs(item.refs, Path(config.project))
+        prepared.append(
+            RevealSubmission(item.sender, item.entry_type, _validate_entry_text(item.body, item.refs), item.refs)
+        )
+
+    with exclusive(root, name):
+        signal = read_signal(root, name)
+        existing = [
+            entry
+            for entry in thread_entries(root, thread, name)
+            if marker in entry.body
+        ]
+        if existing:
+            if (
+                len(existing) != 2
+                or {entry.sender for entry in existing} != set(config.parties)
+                or sorted(entry.seq for entry in existing)[1] != sorted(entry.seq for entry in existing)[0] + 1
+            ):
+                raise ChannelError(f"refused: partial or malformed paired reveal {reveal_id!r}")
+            high = max(entry.seq for entry in existing)
+            if _as_int(signal.get("seq", 0)) > high:
+                raise ChannelError(f"refused: channel advanced beyond paired reveal {reveal_id!r}")
+            stamp = max(existing, key=lambda entry: entry.seq).timestamp
+            repaired = {
+                "seq": high,
+                "turn": next_turn,
+                "thread": thread,
+                "last_entry": f"MSG-{high}",
+                "updated_at": stamp,
+                "phase": "deliberation",
+                "deadline": deadline,
+                "case_thread": thread,
+            }
+            _atomic_write(_signal_path(root, name), json.dumps(repaired, indent=2))
+            ordered = sorted(existing, key=lambda entry: entry.seq)
+            return f"MSG-{ordered[0].seq}", f"MSG-{ordered[1].seq}"
+
+        if str(signal.get("thread", "")) != thread:
+            raise ChannelError(f"refused: paired reveal thread {thread!r} is not open")
+        count = len(thread_entries(root, thread, name))
+        if count + 2 > config.thread_cap:
+            raise ChannelError(
+                f"refused: paired reveal would exceed thread cap {config.thread_cap} for {thread!r}"
+            )
+        base = _as_int(signal.get("seq", 0))
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        blocks = "".join(
+            _render_entry_block(
+                seq=base + offset,
+                stamp=stamp,
+                sender=item.sender,
+                entry_type=item.entry_type,
+                thread=thread,
+                refs=item.refs,
+                body=item.body,
+            )
+            for offset, item in enumerate(prepared, start=1)
+        )
+        path = mailbox_path(root, name)
+        with path.open(encoding="utf-8", newline="") as handle:
+            mailbox = handle.read()
+        _atomic_write(path, mailbox + blocks)
+        high = base + 2
         _atomic_write(
             _signal_path(root, name),
             json.dumps(
                 {
-                    "seq": seq,
-                    "turn": new_turn,
-                    "thread": new_thread,
-                    "last_entry": entry_id,
+                    "seq": high,
+                    "turn": next_turn,
+                    "thread": thread,
+                    "last_entry": f"MSG-{high}",
                     "updated_at": stamp,
+                    "phase": "deliberation",
+                    "deadline": deadline,
+                    "case_thread": thread,
                 },
                 indent=2,
             ),
         )
-        return entry_id
+        return f"MSG-{base + 1}", f"MSG-{high}"
+
+
+def close_managed_case(
+    root: Path,
+    *,
+    thread: str,
+    result: str,
+    close_reason: str,
+    body: str,
+    name: str,
+) -> str:
+    """Idempotently append a typed controller close and persist terminal state."""
+    config = load_config(root, name)
+    if config.managed_version != BROKERED_MANAGED_VERSION:
+        raise ChannelError("refused: typed terminal close requires a brokered channel")
+    if result not in TERMINAL_RESULTS:
+        raise ChannelError(f"refused: terminal result must be one of {TERMINAL_RESULTS}")
+    if not close_reason or any(character in close_reason for character in "\r\n"):
+        raise ChannelError("refused: close_reason must be a non-empty single line")
+    body = _validate_entry_text(body, "")
+    marker = f"terminal-result: {result}\n- close-reason: {close_reason}"
+    with exclusive(root, name):
+        signal = read_signal(root, name)
+        typed_closes = [
+            entry
+            for entry in thread_entries(root, thread, name)
+            if entry.entry_type == "close" and "Controller-Terminal:" in entry.body
+        ]
+        if typed_closes:
+            if len(typed_closes) != 1:
+                raise ChannelError(f"refused: duplicate typed terminal closes for {thread!r}")
+            entry = typed_closes[0]
+            if marker not in entry.body:
+                raise ChannelError(
+                    f"refused: existing typed terminal close for {thread!r} disagrees with "
+                    f"requested {result}/{close_reason}"
+                )
+            terminal_signal = {
+                "seq": max(_as_int(signal.get("seq", 0)), entry.seq),
+                "turn": "",
+                "thread": "",
+                "last_entry": f"MSG-{entry.seq}",
+                "updated_at": entry.timestamp,
+                "phase": "terminal",
+                "terminal_result": result,
+                "close_reason": close_reason,
+                "case_thread": thread,
+                **({"deadline": signal["deadline"]} if "deadline" in signal else {}),
+            }
+            _atomic_write(_signal_path(root, name), json.dumps(terminal_signal, indent=2))
+            return f"MSG-{entry.seq}"
+        open_thread = str(signal.get("thread", ""))
+        if open_thread not in ("", thread):
+            raise ChannelError(f"refused: cannot close {thread!r}; {open_thread!r} is open")
+        if open_thread == "" and signal.get("phase") == "terminal":
+            raise ChannelError(
+                f"refused: {thread!r} is already terminal as {signal.get('terminal_result')!r} "
+                f"({signal.get('close_reason')!r})"
+            )
+        seq = _as_int(signal.get("seq", 0)) + 1
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        terminal_body = body + "\n\nController-Terminal:\n- " + marker
+        path = mailbox_path(root, name)
+        with path.open(encoding="utf-8", newline="") as handle:
+            mailbox = handle.read()
+        _atomic_write(
+            path,
+            mailbox
+            + _render_entry_block(
+                seq=seq,
+                stamp=stamp,
+                sender=config.supervisor,
+                entry_type="close",
+                thread=thread,
+                refs="",
+                body=terminal_body,
+            ),
+        )
+        terminal_signal = {
+            "seq": seq,
+            "turn": "",
+            "thread": "",
+            "last_entry": f"MSG-{seq}",
+            "updated_at": stamp,
+            "phase": "terminal",
+            "terminal_result": result,
+            "close_reason": close_reason,
+            "case_thread": thread,
+            **({"deadline": signal["deadline"]} if "deadline" in signal else {}),
+        }
+        _atomic_write(_signal_path(root, name), json.dumps(terminal_signal, indent=2))
+        return f"MSG-{seq}"
 
 
 ARCHIVE_DIR = "archive"

@@ -1,0 +1,65 @@
+{
+  "state_path": "/absolute/project/var/debate/my-channel/watcher-state.json",
+  "runtime_root": "/absolute/project/var/debate/my-channel",
+  "source_ref": "0000000000000000000000000000000000000000",
+  "whole_case_timeout_seconds": 7200,
+  "scheduler_interval_seconds": 60,
+  "retry_seconds": 300,
+  "adapters": {
+    "party-a": {
+      "command": [
+        "/absolute/path/to/seat-a-wrapper",
+        "--input",
+        "{input_path}",
+        "--result",
+        "{result_path}"
+      ],
+      "provider": "provider-a",
+      "requested_model": "exact-model-or-alias",
+      "expected_runtime_model": "resolved-model-id",
+      "author_relationship": "author-affiliated",
+      "reasoning_effort": "high",
+      "cli_version": "record-the-installed-version",
+      "cost_mode": "subscription",
+      "authentication_mode": "subscription-oauth-or-keychain",
+      "permission_policy": "read-only-source; result-file-only",
+      "settings_sources": [],
+      "environment_allowlist": ["PATH"],
+      "environment": {},
+      "timeout_seconds": 1800,
+      "retry_limit": 1,
+      "session_persistence": false,
+      "isolation_mode": "advisory"
+    },
+    "party-b": {
+      "command": [
+        "/absolute/path/to/seat-b-wrapper",
+        "--input",
+        "{input_path}",
+        "--result",
+        "{result_path}"
+      ],
+      "provider": "provider-b",
+      "requested_model": "exact-model-or-alias",
+      "expected_runtime_model": "resolved-model-id",
+      "author_relationship": "author-independent",
+      "reasoning_effort": "high",
+      "cli_version": "record-the-installed-version",
+      "cost_mode": "subscription",
+      "authentication_mode": "subscription-oauth-or-keychain",
+      "permission_policy": "read-only-source; result-file-only",
+      "settings_sources": [],
+      "environment_allowlist": ["PATH"],
+      "environment": {},
+      "timeout_seconds": 1800,
+      "retry_limit": 1,
+      "session_persistence": false,
+      "isolation_mode": "advisory"
+    }
+  },
+  "docket_files": [
+    "docs/plans/2026-08-06-example.md",
+    "watcher.json"
+  ],
+  "contamination_canaries": {}
+}

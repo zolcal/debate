@@ -37,8 +37,9 @@ your audit trail).
 
 - **`<channel>.channel.md`** is the conversation. Messages are only ever *added*, never
   edited or deleted, so it doubles as a complete record of who said what, when.
-- **`<channel>.signal.json`** is the doorbell: five small fields that say whose turn it
-  is and which discussion is open.
+- **`<channel>.signal.json`** is the doorbell: five core fields that say whose turn it
+  is and which discussion is open. Brokered cases also persist their phase, absolute
+  deadline, and typed terminal result there.
 
 `<channel>` is the channel's own name — `debate init` generates it once, as
 `<label>-<NNNNN>` (the label defaults to your repo's directory name; five random digits
@@ -52,12 +53,13 @@ mailbox is the two files above. Channels created by 0.3.x use the older fixed fi
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-dark.svg">
-    <img alt="The channel is two files in a shared directory: an append-only record that acts as the hansard, and a doorbell holding sequence number, whose turn it is, and which thread is open. A builder agent and a reviewer agent — deliberately from different vendors — each post and read through one writer that enforces turns, one open thread at a time, and message caps. A dumb cron watcher polls the doorbell every minute, prints new entries, and wakes whichever agent's turn it is with a pinned, debounced prompt. The human supervisor sees every entry and owns the merges, never acting as courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="820">
+    <img alt="The channel is two files in a shared directory: an append-only record that acts as the hansard, and a doorbell holding sequence number, whose turn it is, and which thread is open. A builder agent and a reviewer agent — deliberately from different vendors — each post and read through one writer that enforces turns, one open thread at a time, and message caps. A dumb cron watcher polls the doorbell every minute, prints new entries, and wakes whichever headless agent's turn it is with a pinned, zero-debounce prompt. The human supervisor sees every entry and owns the merges, never acting as courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="820">
   </picture>
 </p>
 
-One command-line tool, `debate post`, is the only thing that writes to either file — and it
-*enforces* the rules instead of politely asking: you can't post out of turn, you can't open
+One channel writer is the only code that writes to either file — whether called by the
+legacy `debate post` surface or the brokered controller — and it *enforces* the rules
+instead of politely asking: you can't post out of turn, you can't open
 a second discussion while one is open, and a runaway back-and-forth gets cut off by a
 message cap. A small scheduled job wakes whichever agent the doorbell points at. No server,
 no message broker, no API keys, no framework to adopt.
@@ -99,22 +101,23 @@ it auditable is enforced by the tool.
 ```bash
 pip install debate        # Python 3.10+, stdlib only — or just vendor the two modules
 
-# Create the mailbox: two agents named claude and glm, plus you as supervisor.
+# Create a managed mailbox: two headless agents named claude and glm, plus you as supervisor.
 # Prints the generated channel id, e.g. 'myproject-48213' (--label overrides the prefix).
+# New channels record managed_version 1 and default to a 12-entry thread cap.
 debate init --root ./collab --parties claude,glm --supervisor owner
 
 # The builder asks for a review:
-debate post --root ./collab --from claude --type review-request \
+debate post --root ./collab --channel myproject-48213 --from claude --type review-request \
     --thread feature-x --refs feature-x@abc123 \
     --body "Please review commit abc123: ..."
 
 # The reviewer answers (its own tool/app runs this after reading the thread):
-debate post --root ./collab --from glm --type verdict \
+debate post --root ./collab --channel myproject-48213 --from glm --type verdict \
     --thread feature-x --refs feature-x@abc123 \
     --body "APPROVE — verified: 27 tests pass at abc123."
 
 # Whoever acted last closes the thread:
-debate post --root ./collab --from claude --type close \
+debate post --root ./collab --channel myproject-48213 --from claude --type close \
     --thread feature-x --body "Merged. Closing."
 ```
 
@@ -122,6 +125,125 @@ Try posting twice in a row from the same party: the tool refuses. That refusal i
 protocol.
 
 ## Running it unattended
+
+There are two recorded managed versions. **Version 2 is the brokered path for new isolated
+gates.** Version 1 is retained so existing two-command channels keep working, but those
+agents receive the channel path and self-post with `--from`; it does not provide sender
+binding or context isolation.
+
+### Brokered managed version 2
+
+Initialize the channel explicitly as brokered, then fill in
+[`watcher.brokered.example.json`](watcher.brokered.example.json). Party names are arbitrary;
+the two `adapters` keys must exactly match the addressed channel.
+
+```bash
+debate init --root ./collab --parties party-a,party-b --supervisor owner --brokered
+
+# Use the generated id and a full, already-existing 40-character commit SHA in the config.
+# This validates topology, cost mode, profile hashes and timing without invoking a model.
+debate adapter-doctor --root ./collab --channel <id> --config watcher.json
+
+# The controller snapshots the case and posts a neutral supervisor docket. The first-seat
+# choice controls completion order only; neither sealed input contains the other result.
+debate broker-open --root ./collab --channel <id> --config watcher.json \
+  --thread feature-x --first-seat party-b --refs feature-x@<sha> \
+  --body-file review-docket.md
+
+debate watch-once --root ./collab --channel <id> --config watcher.json
+
+# After a fix, update source_ref/docket files in the config and snapshot them before
+# another seat runs. This supervisor entry does not steal or change the party turn.
+debate broker-revise --root ./collab --channel <id> --config watcher.json \
+  --thread feature-x --refs feature-x@<new-sha> --body "Revision ready after fixes."
+```
+
+Each profile records its provider/model, reasoning setting, CLI version, authentication
+mode, cost mode, permission policy and relationship to the artifact author. Exactly one
+independent seat is the minimum two-agent topology: the interactive author's fresh
+headless seat is honestly labeled an isolated author-affiliated self-review, while the
+opponent is independent. The interactive session never fills a turn itself. Two
+independent seats are the recommended three-agent topology, where the interactive
+author/controller is outside both debate seats. The core never infers either topology from
+names such as Opus, Codex, GLM or Kimi.
+
+The model pair is configuration, not policy. A GPT-5.6 Sol author can, for example, use
+headless Opus 5 plus a smoke-approved GPT-5.6 Terra profile so neither reviewer is the
+interactive author. Another channel can use Opus/GLM, GLM/Kimi, or local models without a
+code change. A Kimi controller can oversee separate Opus/Codex and Opus/GLM channels, but
+each remains a two-seat debate with its own explicit channel id. Every example must record
+the author relationship and the requested and resolved model identities; changing any of
+those, the effort, permissions, authentication, or cost mode opens a fresh case.
+
+`adapter-doctor` prints every seat's authentication and cost mode before it invokes
+anything and explicitly reports that the check incurred no charge. Subscription seats
+have no per-call API line item but still consume plan quota; API seats are metered by their
+provider's current input/output-token prices; local seats consume host compute. Debate
+does not estimate a dollar total because CLI prompts, cache discounts and provider prices
+vary. Confirm the printed mode and the provider's current price before the first smoke.
+
+`expected_runtime_model` is optional because some CLIs do not expose a stable resolved ID.
+When omitted, Debate still records the returned runtime identity but cannot refuse silent
+model substitution; configure it whenever the adapter can report a falsifiable exact ID.
+
+Before the neutral docket is posted, the controller creates two separate read-only exports
+of the complete tracked repository at the pinned commit. `collab/`, `var/` and `.git` are
+separated; tracked project settings stay present as evidence but live settings sources are
+refused. Each seat gets a clean project-local HOME/cache/temp area, an allowlisted
+environment, a Git discovery ceiling, the immutable docket revision, and a controller-owned
+result path. Gitignored cited files such as a plan or `watcher.json` are materialized and
+hashed separately. Stdout/stderr are diagnostics only; the result must be schema-versioned
+JSON, may not contain `sender`, and is posted under the bound seat by the controller.
+`broker-revise` maintains a content-addressed revision chain and blocks invocation if a
+revision was only half-recorded; verdict provenance therefore never points only at a mutable
+gitignored filename.
+
+Every `verdict` result also carries a typed `decision` of `PASS` or `NO_PASS`:
+
+```json
+{
+  "schema_version": 1,
+  "entry_type": "verdict",
+  "decision": "PASS",
+  "body": "APPROVE - fresh export run: 412 passed.",
+  "runtime_model": "resolved-model-id"
+}
+```
+
+The case state advances through `docket` -> `sealed` -> `reveal` -> `deliberation` ->
+`terminal`. Both initial results are kept outside the shared record until they exist, then
+published by one atomic mailbox replacement with each private capture timestamp recorded
+in its reveal provenance. A crash after that replacement but before the
+doorbell update is repaired idempotently without duplicating either position. After reveal,
+each fresh seat sees only the current thread. Matching party votes close automatically as
+`PASS` or `NO_PASS`; `PASS` requires an agreeing author-independent seat. A supervisor
+verdict is visible context but never a vote. Thread-cap exhaustion closes `NO_PASS`, while
+adapter/retry/deadline failure closes `ERROR`; `close_reason` records why separately.
+The typed-close intent is persisted before its mailbox write, so the recurring scheduler
+can likewise distinguish and repair a close whose signal update was interrupted; unrelated
+mailbox-ahead anomalies still follow the normal fail-closed escalation path.
+
+The runtime lives below `<project>/var/debate/<channel>/`, never `.pytest_cache` or another
+tool cache. `adapter-doctor` prints the unconstrained schedule estimate and the enforced
+whole-case deadline from the same timing calculation; adapter timeouts above 60 minutes or
+an absent deadline are refused. It also prints `cost_mode` before any future smoke can spend
+money. The absolute deadline spans sealed capture, reveal, deliberation, retries and process
+restarts. Every invocation is capped by its remaining budget, and an expired case is closed
+idempotently as `ERROR` / `case-deadline-expired` on the next scheduler tick.
+
+Completed case exports are intentionally read-only and Debate never deletes provenance
+automatically. Project cleanup must first restore owner write permission within the exact
+completed `var/debate/<channel>/` case directory, then remove only that validated directory.
+
+This is strong protection against accidental contamination, not a claim that a same-user
+process is hostile-code safe. Read-only permissions, a clean environment, Git ceiling and
+canaries are mechanically checked; an `isolation_mode: advisory` profile can still read an
+absolute host path if the selected CLI/tool sandbox permits it. That includes the private
+sealed-submission state stored elsewhere below the same project-local case runtime: prompt
+separation does not stop a hostile same-user process from traversing parent directories.
+Use `os-enforced` only when an external sandbox actually denies those reads.
+
+### Managed version 1 compatibility
 
 `debate watch-once` is one tick of a deliberately simple watcher. Put it on a schedule
 (cron, every minute): it checks the doorbell, prints any new messages to stdout —
@@ -132,9 +254,15 @@ config file:
 ```json
 {
   "state_path": "/somewhere/outside/the/channel/watcher-state-myproject.json",
-  "commands": { "claude": ["claude", "-p", "{prompt}"] },
-  "prompts":  { "claude": "It is your turn on the review channel at ./collab. Read the open thread, act, post via debate, then stop." },
-  "debounce_seconds": { "claude": 600 },
+  "commands": {
+    "claude": ["claude", "-p", "{prompt}"],
+    "glm": ["glm-agent", "{prompt}"]
+  },
+  "prompts": {
+    "claude": "It is your turn on ./collab --channel myproject-48213. Read only the open thread with `debate read --root ./collab --channel myproject-48213`, act, post with the same explicit channel, then stop.",
+    "glm": "It is your turn on ./collab --channel myproject-48213. Read only the open thread with `debate read --root ./collab --channel myproject-48213`, cite your own fresh evidence, post with the same explicit channel, then stop."
+  },
+  "debounce_seconds": { "claude": 0, "glm": 0 },
   "retry_seconds": 1800
 }
 ```
@@ -150,7 +278,9 @@ with colliding tags and colliding unit names, and telling their watchers apart g
 reading `/proc` by hand — which is how a wrong-process kill happened here once.
 
 ```bash
-debate watch-once --root ./collab --config watcher.json   # cron this every 60s
+*/3 * * * * cd /absolute/path/to/project && debate watch-once \
+  --root /absolute/path/to/project/collab --channel myproject-48213 \
+  --config /absolute/path/to/project/watcher.json
 ```
 
 Agents run in the watcher's own working directory — `cd` to your project root before
@@ -158,10 +288,14 @@ Agents run in the watcher's own working directory — `cd` to your project root 
 "Start in" explicitly, or relative paths in your pinned prompts will resolve somewhere
 surprising.
 
-When nothing changed, nothing runs — no model is invoked, no tokens are spent. A party with
-no `commands` entry is never started automatically; that's how a human-driven side works
-(the watcher waits `debounce_seconds` first, so a live session gets the chance to answer
-before the machinery steps in).
+When nothing changed, nothing runs — no model is invoked, no tokens are spent. A managed
+version 1 channel requires one command for each of its two recorded parties. If either is absent,
+or an open managed thread has no party turn, `watch-status` reports **INVALID** and exits
+4; the watcher never represents that state as healthy or waits for a live human session.
+Configs without `managed_version` remain readable as legacy/manual history but must be
+reconfigured before managed unattended use. Managed version 2 instead requires exactly two
+brokered adapter profiles and refuses direct party posts. Headless seats normally use zero
+debounce.
 
 ### Running to completion
 
@@ -169,7 +303,7 @@ Cron is for unattended operation. At the keyboard and just want the current revi
 to its close? Run the same watcher in the foreground:
 
 ```bash
-debate watch --root ./collab --config watcher.json --until-close
+debate watch --root ./collab --channel myproject-48213 --config watcher.json --until-close
 ```
 
 Same config, same safety rails — agents launch with stdin detached and a timeout
@@ -189,7 +323,7 @@ has been parked longer than an hour — put it wherever you already alert from.
 ### Is anything actually driving this channel?
 
 ```bash
-debate watch-status --root ./collab --config watcher.json
+debate watch-status --root ./collab --channel myproject-48213 --config watcher.json
 ```
 
 Reports whether a watcher holds the lock — naming the holder's pid and working directory —
@@ -254,6 +388,11 @@ Be precise about what this tool guarantees, especially before running agents una
   (the mailbox entry always lands before the doorbell rings, so a watcher can never read a
   half-written message). An agent that breaks these rules gets its post *refused*, not a
   warning.
+- **Broker-enforced for managed version 2:** exact party/profile binding, at least one
+  author-independent seat, a full pinned source export with no reachable parent Git store,
+  immutable docket/profile/config hashes, clean environment and project-local runtime,
+  controller-owned sender, schema-validated typed results, sealed paired reveal, deadline
+  recovery, and automatic `PASS`/`NO_PASS`/`ERROR` terminal transitions.
 - **Advisory, soft:** everything an agent does *outside* the mailbox. "Don't push to main",
   "don't touch the config" — if those live in a prompt, you are trusting the model to
   comply. The tool can force *when* an agent speaks. It cannot force what the agent says to
@@ -273,16 +412,20 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
 1. **Check for an open thread, not just the turn field** — after a close, the turn field
    means nothing.
 2. **Invoke once per doorbell change** — an agent that produced no reply gets one timed
-   retry, then the human is pinged. Two agents in a refusal loop would burn money forever;
-   the cap is the brake.
-3. **Wait before waking an agent** — a human may be mid-reply; the fallback should behave
-   like a fallback.
+   retry. Version 1 then escalates; version 2 records and closes `ERROR`. Two agents in a
+   refusal loop would burn money forever; the cap and absolute deadline are the brakes.
+3. **Drive every managed turn** — both parties have headless commands and normally zero
+   debounce; a missing command is INVALID, never a human fallback.
 4. **The watcher's memory lives outside the shared folder** — its state file is not part of
    the record and never collides with a fresh clone.
 5. **The supervisor can speak at any time without taking a turn** — the human interjecting
    never breaks the agents' alternation.
 6. **The mailbox is the record** — if it didn't happen in the channel file, it didn't
    happen. Corrections are new messages, never edits.
+7. **A brokered seat never self-posts** — it receives no live channel path; the controller
+   validates its result file and derives the sender from the configured seat.
+8. **Initial positions reveal as a pair** — no party can anchor its first judgment on the
+   opponent, while later disagreement deliberately becomes a real, current-thread debate.
 
 ## Why not just…
 
@@ -350,12 +493,21 @@ description of the shape, not as a benchmark of anything. `debate` is the baton 
 two conductors, and the score everyone can read afterwards.
 
 The same shape fits whatever pair of ecosystems you already run. The origin above is one
-example, not the design — and the pairing has rotated since: **this repo's own channel now
-runs Claude Opus 5 (builder) ↔ GLM (reviewer)**, and its live record is committed under
-[`collab/`](collab/). What is there is the review trail of this project's own 0.4 work: a
-plan reviewed against the source before a line of it was executed, then four code branches
-gated one at a time, each verdict citing the reviewer's own checkout and its own test run.
-It is the protocol used in anger on the repo you are reading.
+example, not the design. This repo's historical channel used a human-driven Opus builder
+and headless GLM reviewer; that append-only record remains under [`collab/`](collab/) as
+incident and 0.4 provenance, but its commandless-seat scheduler is retired. The fresh
+`repository-unattended-02750` channel selects headless Opus/Codex only in local config and
+uses the same vendor-neutral broker shipped here. Its record includes the repository's own
+end-to-end sealed/reveal/automatic-close proof. The final proof is MSG-11..14: independent
+Opus and Codex capture timestamps, one paired reveal, and automatic `PASS` with no
+live-session or human intervention. Earlier MSG-1..6 adapter-integration attempts remain
+visible as bounded `ERROR` closes rather than being rewritten. The pinned profiles were
+Claude Code 2.1.223 /
+`claude-opus-5` high and Codex CLI 0.146.1 / `gpt-5.6-terra` high, both
+author-independent and subscription-authenticated; the final CLIs reported a `$0.355168`
+Opus usage-equivalent and 43,729 Codex tokens. Those numbers consume subscription quota and
+are operational evidence, not a promise of zero cost. Branch-gate verdicts separately cite
+the reviewer's own full export run rather than author-pasted evidence.
 
 A GLM + Kimi pairing works the same way anywhere (see
 [`examples/glm-kimi.md`](examples/glm-kimi.md) — both seats verified live), and a local

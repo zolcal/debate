@@ -14,7 +14,7 @@ Every file except this contract carries the channel's name — the `<channel>-<N
 | File | Role | In version control? |
 |---|---|---|
 | `PROTOCOL.md` | this contract | yes |
-| `<channel>.debate.json` | channel config: parties, supervisor, thread cap, the project served | yes |
+| `<channel>.debate.json` | channel config: parties, supervisor, managed version, thread cap, the project served | yes |
 | `<channel>.channel.md` | append-only message log (the mailbox) | [your call — in-repo history is a feature] |
 | `<channel>.signal.json` | the doorbell — tiny, machine-parseable, watched by both sides | [usually no] |
 | `archive/` | closed threads relocated verbatim by `debate compact`, plus `<channel>-INDEX.md` | [same call as the mailbox] |
@@ -53,8 +53,9 @@ Types and their meanings:
 - **A thread is opened by `review-request`, `question`, `info` — or a one-shot close
   correction.** `verdict` and `fix-report` are replies: with no thread open they are refused
   (supervisor exempt).
-- **Thread cap: [8] entries.** At the cap only `close` is accepted; the watcher escalates to
-  the supervisor. A thread that long means the agents are looping, not converging.
+- **Thread cap: [12] entries.** On managed version 1, at the cap only `close` is accepted
+  and the watcher escalates to the supervisor. On managed version 2, cap exhaustion closes
+  typed `NO_PASS` automatically. A thread that long means the agents are not converging.
 - Supervisor posts never flip the turn and are accepted at any time.
 - Normal lifecycle: `review-request → verdict → [fix-report → verdict …] → close`.
 - Corrections to the record are NEW entries (a `close`-typed post under a fresh slug opens
@@ -67,18 +68,59 @@ Types and their meanings:
 
 ## 4. Watchers
 
-- A scheduler runs `debate watch-once` every [3] minutes. It mirrors every new entry to
-  [where your supervisor already looks], and invokes a party's pinned command only when ALL of:
-  the party's turn, an open thread, past the party's debounce, and not already invoked for this
-  `seq` (one timed retry after [30] minutes, then a supervisor escalation — never a loop).
+- One channel uses one state file and one scheduler unit. Name the unit
+  `debate-watch-<state-file-stem>` so two channels cannot silently share a timer or state.
+- Every scheduled command and every pinned version-1 prompt names the channel explicitly:
+  `debate watch-once --root /absolute/project/collab --channel <id> --config /absolute/project/watcher.json`.
+  A multi-channel root is expected to refuse an unqualified command.
+- A recurring scheduler runs `debate watch-once` every [3] minutes. It is independent of
+  any one `watch --until-close` process. It mirrors every new entry to [where your
+  supervisor already looks], and invokes a party's pinned command only when ALL of: the
+  party's turn, an open thread, past the party's debounce, and not already invoked for this
+  `seq`. Version 1 permits one timed retry after [30] minutes and then escalates. Version 2
+  permits the profile's one bounded retry and then closes typed `ERROR` — never a loop.
 - Invocation prompts are **pinned in the watcher config** — fixed strings, never composed at
   runtime.
-- A live human-driven session answers its own doorbell; the watcher's trigger is the fallback.
-  Recommended debounce for a human-driven party: [10] minutes.
+- A managed-version 1 compatibility channel has one command for each of its exactly two
+  parties and normally zero debounce. A missing command or a turnless open thread is
+  `INVALID`, exits nonzero under `watch-status`, and is never delegated to a live human.
+- A managed-version 2 channel instead has exactly two controller-bound adapter profiles,
+  at least one marked `author-independent`, a full pinned source export per seat, an
+  immutable docket revision, a project-local `var/debate/<channel>/` runtime, and a bounded
+  whole-case deadline. Direct party posts are refused; `broker-open` posts the neutral
+  supervisor docket. The controller validates each structured result, binds its sender,
+  and requires `decision: PASS|NO_PASS` on verdicts.
+- Version 2 channel/case state advances through `docket`, `sealed`, `reveal`,
+  `deliberation`, and `terminal`. Initial positions remain private in the project-local
+  runtime until both are complete. `commit_reveal_pair` publishes both attributed entries
+  with their individual private capture timestamps in one mailbox replacement under one
+  writer lock, then replaces the signal. Recovery
+  repairs a lagging signal idempotently and never appends only one position.
+- Typed terminal intent is persisted before the close mailbox write. The recurring
+  scheduler repairs an interrupted close signal only when the pending result/reason and
+  exact extra supervisor close marker agree; unexplained mailbox-ahead states still
+  escalate rather than being normalized as controller traffic.
+- After reveal, seats receive only the current thread. Matching votes from the two recorded
+  parties close `PASS` or `NO_PASS`; a substantive `PASS` needs at least one agreeing
+  author-independent seat. Supervisor entries never vote. Thread-cap exhaustion closes
+  `NO_PASS`. Adapter/retry/deadline failure closes `ERROR`, with `close_reason` stored
+  separately from the result class.
+- After a fix, update the pinned commit/docket and run `broker-revise` before another seat.
+  It records the new content-addressed revision as a supervisor entry without changing the
+  party turn; a half-finished revision blocks invocation rather than falling back.
+- Version 2 inputs contain no live channel path. Project configuration remains evidence in
+  the export but is not a live settings source. User memory/config, hooks, plugins and MCPs
+  are excluded; stdout/stderr are diagnostics rather than the result contract.
+- The absolute deadline spans both sealed invocations, reveal, deliberation, retries and
+  restarts. Every adapter timeout is reduced to the remaining budget. Expiry before,
+  during, or between phases closes idempotently as `ERROR` with
+  `close_reason=case-deadline-expired` on the next recurring tick.
+- A config without `managed_version` is legacy/manual history. It stays readable but must
+  be reconfigured before it can be activated as managed unattended operation.
 
 ## 5. Constraints on unattended sessions
 
-An unattended agent session invoked by the watcher MAY: read anything, build and commit on
+An unattended version 1 session invoked by the watcher MAY: read anything, build and commit on
 feature branches, run tests, and post to the channel. It MAY NOT: merge or push to [main],
 change scheduler/watcher config, or touch [anything you consider load-bearing: deploy paths,
 secrets, decision thresholds]. **These constraints are advisory** — they bind only as well as
@@ -90,6 +132,11 @@ your model follows its prompt. Two hard-won additions to every unattended prompt
 2. *Assume a live session may share the checkout: if the working tree is dirty, restrict
    yourself to read-only verification and posting; build in a separate worktree; never switch
    branches or rebase in the main checkout.*
+
+A version 2 seat instead receives a read-only pinned export, docket and result path. That
+mechanically prevents normal source edits and detects contamination output, but is still
+advisory against undisclosed absolute-path reads unless the profile records and verifies an
+external OS sandbox.
 
 ## 6. Authority
 

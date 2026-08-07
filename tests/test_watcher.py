@@ -127,6 +127,110 @@ def test_party_without_command_is_never_invoked(tmp_path: Path) -> None:
     assert "no command" in decision.reason
 
 
+def test_managed_pair_with_both_arbitrary_commands_drives_normally(tmp_path: Path) -> None:
+    for parties in (("opus", "codex"), ("kimi", "glm")):
+        cfg = config(
+            tmp_path,
+            commands={parties[0]: ["agent-a"], parties[1]: ["agent-b"]},
+            managed_version=1,
+            parties=parties,
+        )
+        decision = decide(signal(turn=parties[1]), {}, cfg, NOW)
+        assert decision.invoke == parties[1]
+        assert decision.escalate is None
+
+
+def test_managed_pair_missing_a_command_fails_closed(tmp_path: Path) -> None:
+    cfg = config(
+        tmp_path,
+        commands={"opus": ["agent"]},
+        managed_version=1,
+        parties=("opus", "codex"),
+    )
+
+    decision = decide(signal(turn="codex"), {}, cfg, NOW)
+
+    assert decision.invoke is None
+    assert decision.escalate is not None
+    assert "invalid managed" in decision.reason
+
+
+def test_managed_pair_with_an_empty_command_fails_closed(tmp_path: Path) -> None:
+    cfg = config(
+        tmp_path,
+        commands={"opus": ["agent"], "codex": []},
+        managed_version=1,
+        parties=("opus", "codex"),
+    )
+
+    decision = decide(signal(turn="codex"), {}, cfg, NOW)
+
+    assert decision.invoke is None
+    assert decision.escalate is not None
+    assert "empty adapter command" in decision.escalate
+
+
+def test_managed_pair_refuses_zero_or_more_than_two_bindings(tmp_path: Path) -> None:
+    for commands in ({}, {"opus": ["a"], "codex": ["b"], "intruder": ["c"]}):
+        cfg = config(
+            tmp_path,
+            commands=commands,
+            managed_version=1,
+            parties=("opus", "codex"),
+        )
+        decision = decide(signal(turn="opus"), {}, cfg, NOW)
+        assert decision.invoke is None
+        assert decision.escalate is not None
+
+
+def test_brokered_version_two_without_profiles_fails_closed_even_with_direct_commands(
+    tmp_path: Path,
+) -> None:
+    cfg = config(
+        tmp_path,
+        commands={"opus": ["agent-a"], "codex": ["agent-b"]},
+        managed_version=2,
+        parties=("opus", "codex"),
+    )
+
+    decision = decide(signal(turn="opus"), {}, cfg, NOW)
+
+    assert decision.invoke is None
+    assert decision.escalate is not None
+    assert "managed-version 2" in decision.escalate
+
+
+def test_watcher_auto_binds_the_managed_contract_from_a_named_channel(tmp_path: Path) -> None:
+    root = tmp_path / "collab"
+    init_channel(root, ("opus", "codex"), "owner", name="managed-11111")
+
+    cfg = WatcherConfig(
+        channel_root=root,
+        channel_name="managed-11111",
+        state_path=tmp_path / "state.json",
+        commands={"opus": ["agent"]},
+    )
+
+    assert cfg.managed_version == 1
+    assert cfg.parties == ("opus", "codex")
+    assert cfg.managed_problem() is not None
+
+
+def test_managed_open_thread_without_a_turn_fails_closed(tmp_path: Path) -> None:
+    cfg = config(
+        tmp_path,
+        commands={"opus": ["agent-a"], "codex": ["agent-b"]},
+        managed_version=1,
+        parties=("opus", "codex"),
+    )
+
+    decision = decide(signal(turn=""), {}, cfg, NOW)
+
+    assert decision.invoke is None
+    assert decision.escalate is not None
+    assert "turnless" in decision.reason
+
+
 def test_first_invocation_fires(tmp_path: Path) -> None:
     decision = decide(signal(), {}, config(tmp_path), NOW)
 

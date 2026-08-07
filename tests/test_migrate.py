@@ -132,9 +132,24 @@ def test_cli_migrate_prints_the_id_and_the_operator_edits(
     assert len(created) == 1
     cid = created[0].name[: -len(".debate.json")]
     assert cid in out
+    assert "thread cap: 12 from explicit legacy config" in out
     # The operator owes two edits; the tool must name both.
     assert "watcher" in out and "state_path" in out
     assert f"debate-watch-{cid}" in out
+
+
+def test_cli_migrate_reports_the_default_for_a_fieldless_legacy_cap(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    channel.init_channel(tmp_path, ("alice", "bob"), "owner")
+    path = tmp_path / "debate.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw.pop("thread_cap")
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    assert main(["migrate", "--root", str(tmp_path), "--label", "alpha"]) == 0
+
+    assert "thread cap: 12 from default (field absent)" in capsys.readouterr().out
 
 
 def test_cli_migrate_refuses_on_a_named_only_folder(

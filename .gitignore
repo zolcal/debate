@@ -37,6 +37,10 @@ docs/HANDOVER-SESSION-*.md
 # README.md, PROTOCOL.md, examples/ and docs/case-study.md.
 docs/plans/
 
+# Managed Debate controller/runtime state and source exports are operational,
+# project-local, and never part of a source or review export.
+var/
+
 # The retired channel: 187 messages mixing this project with debate-bench research,
 # unpublished benchmark results and host paths. Kept as local history, never published.
 # It is append-only by design and so could not be cleaned in place.

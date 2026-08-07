@@ -206,42 +206,23 @@ def test_multiline_body_reports_the_offending_line_number(tmp_path: Path) -> Non
     assert "line 3" in message, f"the refusal must locate the line, got: {message}"
 
 
-def test_real_record_body_headings_are_still_postable(tmp_path: Path) -> None:
-    """Opportunistic: if the checkout's record HAS body headings, none may be refused.
+def test_public_document_headings_are_still_postable(tmp_path: Path) -> None:
+    """Use stable authored documents, not the private live-channel corpus.
 
-    This check has gone vacuous twice, in two different ways, and both times it
-    still reported success:
-
-    1. It posted TWO entries per heading into one thread and ignored the
-       8-entry cap, dying on the 4th heading. It had never actually run - the
-       committed record then carried no body headings, so the loop body was
-       skipped and it passed silently (fixed at MSG-178).
-    2. It then resolved the record as a HARDCODED ``CHANNEL.md``. When the live
-       channel migrated to the 0.4 named layout that file stopped existing, so
-       it skipped on every checkout - visibly, but permanently, and the
-       coverage restored by (1) was gone again.
-
-    Hence resolving through the library's own ``discover_channel``: the corpus
-    follows whatever layout the channel is in, instead of pinning one era of
-    it. If discovery breaks, this test notices rather than quietly skipping.
-
-    So: skip visibly when there is nothing to check, raise the cap when there
-    is, and alternate senders so each heading is one post rather than two.
+    Review exports intentionally omit ``collab/``.  A test that discovers the
+    live mailbox is therefore either skipped or ambiguous once several
+    channels share the root.  Public README/protocol headings exercise the
+    same parser boundary without making the complete project suite depend on
+    channel state.
     """
-    collab = Path(__file__).resolve().parent.parent / "collab"
-    if not collab.is_dir():
-        pytest.skip("no collab folder in this checkout")
-    record = channel.mailbox_path(collab, channel.discover_channel(collab))
-    if not record.exists():
-        pytest.skip("no collab record in this checkout")
-
+    repo = Path(__file__).resolve().parent.parent
     headings = [
         line
-        for line in record.read_text(encoding="utf-8").splitlines()
+        for document in (repo / "README.md", repo / "PROTOCOL.md")
+        for line in document.read_text(encoding="utf-8").splitlines()
         if line.startswith("## ") and not channel._HEADER_RE.match(line)
     ]
-    if not headings:
-        pytest.skip("this checkout's record has no body headings - nothing to corpus-check")
+    assert headings, "the public-document corpus must not become vacuous"
 
     # The thread cap exists to stop runaway agent loops, not to bound a test
     # corpus. Raise it for this channel rather than working around it.
