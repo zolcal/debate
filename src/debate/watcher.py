@@ -719,6 +719,8 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
     from debate import channel  # local import keeps module load light
 
     output: list[str] = []
+    decision = Decision(None, None, "no broker recovery due")
+    reveal_recovery: tuple[str, int] | None = None
     # THIRD instance of the same unguarded-read pattern, found by probing for it
     # after the doorbell (MSG-168) and the mailbox (MSG-170) rather than waiting
     # to be told: _load_state does json.loads + dict() with no guard, so a
@@ -790,57 +792,106 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         findings = doorbell_failure or mailbox_failure or channel.verify_record(config.channel_root, config.channel_name)
         anomalies = [f for f in findings if f.level == channel.ANOMALY]
         if anomalies:
-            # An anomalous reading has TWO causes and a SINGLE TICK CANNOT TELL
-            # THEM APART:
-            #   - a post genuinely IN FLIGHT (the mailbox append landed, the
-            #     doorbell bump has not) - transient, resolves next tick;
-            #   - a crashed or forged writer - permanent.
-            # Escalating the first would cry wolf on healthy traffic, which is
-            # exactly why this branch used to defer. But deferring the second
-            # is the silent wedge: one line a minute, nobody invoked, nobody
-            # told - the 2026-08-01 silent-channel failure in a different hat.
-            # So defer ONCE, remember the exact reading, and escalate only when
-            # the SAME reading survives a tick. That difference IS the
-            # difference between in-flight and wedged.
-            fingerprint = "|".join(
-                [str(mailbox_seq), str(seq), *sorted(f"{a.code}" for a in anomalies)]
+            # A paired reveal intentionally has a recoverable write boundary:
+            # the mailbox replacement can survive while its signal replacement
+            # does not. The case state was made ``reveal`` before either write,
+            # so it proves this exact mailbox-ahead shape belongs to the
+            # controller rather than an unknown writer. Defer the actual repair
+            # until after releasing this non-reentrant writer lock.
+            thread = str(signal.get("thread", ""))
+            recoverable_reveal = (
+                config.broker is not None
+                and not doorbell_failure
+                and not mailbox_failure
+                and {anomaly.code for anomaly in anomalies} == {"mailbox-ahead-of-doorbell"}
+                and mailbox_seq > seq
+                and bool(thread)
             )
-            if state.get(ANOMALY_FINGERPRINT) == fingerprint:
-                for anomaly in anomalies:
-                    output.append(f"ESCALATE: record anomaly - {anomaly.code}: {anomaly.detail}")
-                # Keyed distinctly from the turn-stuck thread:seq escalation
-                # below, so neither can mask the other.
-                state = record_escalation(state, "record-anomaly", mailbox_seq)
-            else:
-                state[ANOMALY_FINGERPRINT] = fingerprint
-                if mailbox_seq > seq:
-                    output.append(
-                        f"mailbox ahead of signal (entries at {mailbox_seq}, signal at {seq}); "
-                        "deferring to next tick"
-                    )
+            if recoverable_reveal:
+                try:
+                    phase = BrokerController(config.broker)._load_case(thread).get("phase")
+                except ChannelError:
+                    phase = None
+                if phase == "reveal":
+                    state.pop(ANOMALY_FINGERPRINT, None)
+                    reveal_recovery = (thread, seq)
+                    output.append(f"broker recovering paired reveal for {thread!r}")
+
+            if reveal_recovery is None:
+                # An anomalous reading has TWO causes and a SINGLE TICK CANNOT TELL
+                # THEM APART:
+                #   - a post genuinely IN FLIGHT (the mailbox append landed, the
+                #     doorbell bump has not) - transient, resolves next tick;
+                #   - a crashed or forged writer - permanent.
+                # Escalating the first would cry wolf on healthy traffic, which is
+                # exactly why this branch used to defer. But deferring the second
+                # is the silent wedge: one line a minute, nobody invoked, nobody
+                # told - the 2026-08-01 silent-channel failure in a different hat.
+                # So defer ONCE, remember the exact reading, and escalate only when
+                # the SAME reading survives a tick. That difference IS the
+                # difference between in-flight and wedged.
+                fingerprint = "|".join(
+                    [str(mailbox_seq), str(seq), *sorted(f"{a.code}" for a in anomalies)]
+                )
+                if state.get(ANOMALY_FINGERPRINT) == fingerprint:
+                    for anomaly in anomalies:
+                        output.append(f"ESCALATE: record anomaly - {anomaly.code}: {anomaly.detail}")
+                    # Keyed distinctly from the turn-stuck thread:seq escalation
+                    # below, so neither can mask the other.
+                    state = record_escalation(state, "record-anomaly", mailbox_seq)
                 else:
-                    output.append(
-                        f"record anomaly ({', '.join(sorted(a.code for a in anomalies))}); "
-                        "deferring to next tick"
-                    )
-            _save_state(config.state_path, state)
-            return output
+                    state[ANOMALY_FINGERPRINT] = fingerprint
+                    if mailbox_seq > seq:
+                        output.append(
+                            f"mailbox ahead of signal (entries at {mailbox_seq}, signal at {seq}); "
+                            "deferring to next tick"
+                        )
+                    else:
+                        output.append(
+                            f"record anomaly ({', '.join(sorted(a.code for a in anomalies))}); "
+                            "deferring to next tick"
+                        )
+                _save_state(config.state_path, state)
+                return output
 
         # Healthy again: forget any prior reading so a resolved in-flight post
         # cannot combine with a LATER unrelated one to look persistent.
         state.pop(ANOMALY_FINGERPRINT, None)
 
-        decision = decide(signal, state, config, datetime.now(timezone.utc))
-        if decision.escalate:
-            output.append(f"ESCALATE: {decision.escalate}")
-            state = record_escalation(state, str(signal.get("thread", "")), seq)
-        elif decision.invoke:
-            state = record_invocation(state, seq, datetime.now(timezone.utc))
-        elif decision.reason.endswith("already escalated"):
-            output.append(f"STUCK: seq {seq} escalated; supervisor action required")
+        if reveal_recovery is None:
+            decision = decide(signal, state, config, datetime.now(timezone.utc))
+            if decision.escalate:
+                output.append(f"ESCALATE: {decision.escalate}")
+                state = record_escalation(state, str(signal.get("thread", "")), seq)
+            elif decision.invoke:
+                state = record_invocation(state, seq, datetime.now(timezone.utc))
+            elif decision.reason.endswith("already escalated"):
+                output.append(f"STUCK: seq {seq} escalated; supervisor action required")
         _save_state(config.state_path, state)  # recorded before the expensive child
 
-    if (
+    if reveal_recovery is not None:
+        assert config.broker is not None
+        assert config.channel_name is not None
+        thread, recovery_seq = reveal_recovery
+        try:
+            outcome = BrokerController(config.broker).drive_case(
+                channel_root=config.channel_root,
+                channel_name=config.channel_name,
+                thread=thread,
+                sequence=recovery_seq,
+                attempt=0,
+            )
+        except (AdapterError, ChannelError) as error:
+            output.append(f"ESCALATE: paired reveal recovery failed for {thread!r}: {error}")
+        else:
+            output.append(f"broker recovered paired reveal for {thread!r}: {outcome.detail}")
+        refreshed = channel.read_entries(config.channel_root, config.channel_name)
+        output.extend(new_entry_lines(refreshed, int(state.get("last_mirrored_seq", 0))))
+        state["last_mirrored_seq"] = max(
+            [int(state.get("last_mirrored_seq", 0)), *[entry.seq for entry in refreshed]]
+        )
+
+    elif (
         config.broker is not None
         and signal.get("phase") == "terminal"
         and not str(signal.get("thread", ""))

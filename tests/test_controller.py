@@ -874,6 +874,65 @@ def test_restart_from_persisted_reveal_phase_commits_pair_once(
     assert len([entry for entry in channel.read_entries(root, name) if entry.sender in broker.profiles]) == 2
 
 
+def test_recurring_tick_repairs_paired_reveal_after_mailbox_before_signal_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="restart-paired-reveal",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    for party in ("alice", "bob"):
+        controller.capture_sealed(
+            channel_root=root,
+            channel_name=name,
+            party=party,
+            thread="restart-paired-reveal",
+            sequence=1,
+            attempt=1,
+        )
+
+    real_atomic_write = channel._atomic_write
+    crashed = False
+
+    def crash_after_paired_mailbox(path: Path, content: str) -> None:
+        nonlocal crashed
+        if path.name.endswith(".signal.json") and not crashed:
+            crashed = True
+            raise RuntimeError("simulated crash after paired mailbox commit")
+        real_atomic_write(path, content)
+
+    monkeypatch.setattr(channel, "_atomic_write", crash_after_paired_mailbox)
+    with pytest.raises(RuntimeError, match="paired mailbox"):
+        controller.reveal_pair(channel_root=root, channel_name=name, thread="restart-paired-reveal")
+    monkeypatch.setattr(channel, "_atomic_write", real_atomic_write)
+
+    assert channel.read_signal(root, name)["seq"] == 1
+    assert len(channel.read_entries(root, name)) == 3
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+    )
+
+    output = run_once(config)
+
+    entries = channel.read_entries(root, name)
+    signal = channel.read_signal(root, name)
+    assert len([entry for entry in entries if entry.sender in broker.profiles]) == 2
+    assert signal["phase"] == "terminal"
+    assert signal["terminal_result"] == "PASS"
+    assert not any(line.startswith(("ESCALATE:", "STUCK:")) for line in output)
+    assert any("recovered paired reveal" in line for line in output)
+
+
 def test_one_retryable_sealed_timeout_publishes_nothing_until_retry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

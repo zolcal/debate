@@ -470,6 +470,38 @@ def test_commit_reveal_pair_is_one_mailbox_replacement_and_recovers_lagging_sign
     assert signal["turn"] == "alice"
 
 
+def test_commit_reveal_pair_refuses_foreign_project_refs(tmp_path: Path) -> None:
+    root, name, deadline = _open_managed_reveal_channel(tmp_path)
+    reveal_id = "s" * 64
+    submissions = (
+        channel.RevealSubmission(
+            "alice",
+            "verdict",
+            f"Alice position.\n\nController-Sealed-Reveal:\n- reveal-id: {reveal_id}",
+            "foreign@0123456789abcdef",
+        ),
+        channel.RevealSubmission(
+            "bob",
+            "verdict",
+            f"Bob position.\n\nController-Sealed-Reveal:\n- reveal-id: {reveal_id}",
+        ),
+    )
+
+    with pytest.raises(channel.ChannelError, match="not a commit in this channel's project"):
+        channel.commit_reveal_pair(
+            root,
+            thread="sealed-one",
+            submissions=submissions,
+            reveal_id=reveal_id,
+            next_turn="alice",
+            deadline=deadline,
+            name=name,
+        )
+
+    assert len(channel.read_entries(root, name)) == 1
+    assert channel.read_signal(root, name)["seq"] == 1
+
+
 def test_typed_terminal_close_is_idempotent_and_records_result_separately(tmp_path: Path) -> None:
     root, name, _ = _open_managed_reveal_channel(tmp_path)
 

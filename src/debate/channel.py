@@ -783,6 +783,8 @@ def commit_reveal_pair(
             raise ChannelError(
                 f"refused: each paired submission must contain exactly one controller reveal marker {marker!r}"
             )
+        if config.project is not None:
+            _refuse_foreign_refs(item.refs, Path(config.project))
         prepared.append(
             RevealSubmission(item.sender, item.entry_type, _validate_entry_text(item.body, item.refs), item.refs)
         )
