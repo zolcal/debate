@@ -93,11 +93,6 @@ it auditable is enforced by the tool.
 
 ## Try it
 
-> **Note on versions.** The released package on PyPI is `0.3.1`. `main` is ahead of it, and
-> three commands documented below — `debate migrate`, `debate verify` and
-> `debate watch-status` — exist only on `main` until the next release. Install from source
-> if you want them.
-
 ```bash
 pip install debate        # Python 3.10+, stdlib only — or just vendor the two modules
 
@@ -132,6 +127,13 @@ agents receive the channel path and self-post with `--from`; it does not provide
 binding or context isolation.
 
 ### Brokered managed version 2
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/broker-dark.svg">
+    <img alt="A neutral controller sits between the channel and two reviewer seats. Each seat runs inside its own pinned read-only source export at a full 40-character commit, with its own HOME, temp and allowlisted environment, git unreachable, and no live channel path. The controller invokes each seat, schema-checks its typed result — which cannot name its own sender — binds the sender, and posts to the channel's two files on the seat's behalf; the seats never see the channel. A dumb cron watcher ticks the controller, and when nothing changed nothing runs. The case advances docket, sealed, paired reveal, deliberation, typed close (PASS, NO_PASS or ERROR) under one absolute whole-case deadline, with both first positions kept private until one atomic paired publish. The human supervisor sees every entry, may speak at any time, and is never a vote." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/broker-light.svg" width="820">
+  </picture>
+</p>
 
 Initialize the channel explicitly as brokered, then fill in
 [`watcher.brokered.example.json`](watcher.brokered.example.json). Party names are arbitrary;
@@ -376,8 +378,9 @@ in the wrong project's record, so nothing guesses.
 --root <folder>` renames one in place to the named layout — a pure rename, the record's
 bytes untouched (`debate verify` before and after proves it) — then prints the two edits
 you owe: the watcher's `state_path` stem and the scheduler unit name, which both take
-the channel's id. Writing new legacy-layout channels is no longer possible; posting to
-existing ones remains supported in 0.4 and becomes a documented deprecation in 0.5.
+the channel's id. Writing new legacy-layout channels is no longer possible, and posting
+to existing ones is deprecated as of 0.5 — it still works, `debate migrate` is the
+supported path forward, and no removal date is promised.
 
 ## What's enforced — and what isn't
 
@@ -460,8 +463,8 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
   does not have. Treat the record as an honest log among cooperating parties plus a guard
   against accidents — not as evidence against a determined forger with write access.
 - **Young.** Extracted from a working production setup, generalized, and tested — but
-  read the code before trusting it; it's about 2,300 lines including the CLI, with 320
-  tests as of this writing.
+  read the code before trusting it; it's about 4,900 lines including the CLI and the
+  broker, with 395 tests as of this writing.
 
 ## Where this comes from
 
@@ -498,9 +501,12 @@ and headless GLM reviewer; that append-only record remains under [`collab/`](col
 incident and 0.4 provenance, but its commandless-seat scheduler is retired. The fresh
 `repository-unattended-02750` channel selects headless Opus/Codex only in local config and
 uses the same vendor-neutral broker shipped here. Its record includes the repository's own
-end-to-end sealed/reveal/automatic-close proof. The final proof is MSG-11..14: independent
-Opus and Codex capture timestamps, one paired reveal, and automatic `PASS` with no
-live-session or human intervention. Earlier MSG-1..6 adapter-integration attempts remain
+end-to-end sealed/reveal/automatic-close proof. The first end-to-end proof is MSG-11..14:
+independent Opus and Codex capture timestamps, one paired reveal, and automatic `PASS`
+with no live-session or human intervention. The record has grown past it since — the same
+machinery's first production acts were gating this repository's own merge and the v0.5.0
+release itself, and those cases are entries in the same file. Earlier MSG-1..6
+adapter-integration attempts remain
 visible as bounded `ERROR` closes rather than being rewritten. The pinned profiles were
 Claude Code 2.1.223 /
 `claude-opus-5` high and Codex CLI 0.146.1 / `gpt-5.6-terra` high, both

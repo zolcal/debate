@@ -108,3 +108,38 @@ The general lesson, if there is one: in agent-to-agent systems, the interesting 
 not disobedience but **confident staleness** — and the fixes are boring, mechanical, and
 worth writing down: check, don't infer; isolate, don't share; append corrections, don't hope
 nobody noticed.
+
+## Epilogue — the fixes became machinery (v0.5)
+
+The three amendments above started life as prompt text and an idiom. As of 0.5's brokered
+mode, each has a harder home:
+
+1. **Git-verified claims** stayed cultural for what an agent *says* — no tool can force a
+   sentence to be true. But the surface for confident staleness shrank structurally: a
+   brokered seat works inside a pinned read-only export where the reviewed commit is the
+   only repository state there is — no mailbox history to repeat, no `git branch` to have
+   skipped, git deliberately unreachable — and its verdict is a typed, schema-checked
+   result carrying provenance hashes rather than free prose.
+2. **Shared-checkout discipline** stopped being discipline. Every seat gets its own
+   read-only export at a full 40-character commit, its own project-local HOME, temp and
+   build paths, an allowlisted environment, and a Git ceiling. The live tree the 02:01
+   session walked into no longer exists for an unattended seat to find.
+3. **Corrections are entries** is unchanged, and needs to be nothing more.
+
+The scoreboard's quieter column also got its mechanism. "The live session watches the
+doorbell" was a norm nobody enforced; in brokered mode a controller owns every turn under
+one absolute whole-case deadline and closes with a typed outcome — `PASS`, `NO_PASS`, or
+`ERROR` with the reason recorded — instead of going silent. And the machinery adds one
+protection this incident never surfaced: both seats' first positions are captured sealed
+and revealed as a pair, so neither can anchor its opening judgment on the other.
+
+Honesty about the boundary, one more time: this is strong protection against *accidental*
+contamination, not a claim that a same-user process is hostile-code safe. The isolation is
+advisory — read-only permissions, a clean environment, a Git ceiling, canary checks — and
+a sufficiently determined same-user process could still traverse to host paths its CLI
+sandbox permits. The claims above are about removing the paths an honest agent stumbles
+down, which is what this incident was.
+
+Fittingly, the machinery's first production acts were reviewing this repository itself:
+the merge that shipped it and the 0.5 release you are reading about both passed through
+sealed brokered cases in the repository's own channel record.

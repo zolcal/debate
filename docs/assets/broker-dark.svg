@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="620" viewBox="0 0 880 620" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="barrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#8b949e"/>
+    </marker>
+    <marker id="barrowAccent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#a371f7"/>
+    </marker>
+  </defs>
+
+  <!-- ===== the channel (top center) ===== -->
+  <rect x="310" y="20" width="260" height="118" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="440" y="44" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">the channel</text>
+  <text x="440" y="60" text-anchor="middle" font-size="11.5" fill="#8b949e">the same two files</text>
+  <rect x="330" y="68" width="220" height="28" rx="6" fill="#0d1117" stroke="#30363d"/>
+  <text x="440" y="87" text-anchor="middle" font-size="12.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#58a6ff">&lt;channel&gt;.channel.md</text>
+  <rect x="330" y="100" width="220" height="28" rx="6" fill="#0d1117" stroke="#30363d"/>
+  <text x="440" y="119" text-anchor="middle" font-size="12.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#58a6ff">&lt;channel&gt;.signal.json</text>
+
+  <!-- channel <-> controller -->
+  <line x1="410" y1="208" x2="410" y2="145" stroke="#8b949e" stroke-width="1.5" marker-end="url(#barrow)"/>
+  <text x="352" y="172" text-anchor="middle" font-size="11" fill="#8b949e">appends as the</text>
+  <text x="352" y="186" text-anchor="middle" font-size="11" fill="#8b949e">bound seat</text>
+  <line x1="470" y1="145" x2="470" y2="201" stroke="#8b949e" stroke-width="1.5" marker-end="url(#barrow)"/>
+  <text x="534" y="172" text-anchor="middle" font-size="11" fill="#8b949e">reads the doorbell</text>
+
+  <!-- ===== the controller (center) ===== -->
+  <rect x="300" y="208" width="280" height="92" rx="10" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
+  <text x="440" y="234" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">the controller</text>
+  <text x="440" y="252" text-anchor="middle" font-size="12" fill="#8b949e">neutral broker — owns every turn</text>
+  <text x="440" y="270" text-anchor="middle" font-size="11.5" fill="#8b949e">schema-checks each result, binds the sender,</text>
+  <text x="440" y="285" text-anchor="middle" font-size="11.5" fill="#8b949e">posts for the seats — they never see the channel</text>
+
+  <!-- ===== seat A (left, inside its export) ===== -->
+  <rect x="24" y="170" width="240" height="200" rx="10" fill="none" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="144" y="192" text-anchor="middle" font-size="11.5" font-style="italic" fill="#8b949e">pinned read-only source export</text>
+  <text x="144" y="207" text-anchor="middle" font-size="11" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#58a6ff">@ full 40-char sha</text>
+  <rect x="44" y="222" width="200" height="64" rx="10" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
+  <text x="144" y="248" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">seat A</text>
+  <text x="144" y="268" text-anchor="middle" font-size="12" fill="#8b949e">different vendor, on purpose</text>
+  <text x="144" y="316" text-anchor="middle" font-size="11" fill="#8b949e">own HOME · tmp · allowlisted env</text>
+  <text x="144" y="332" text-anchor="middle" font-size="11" fill="#8b949e">git unreachable · no live channel path</text>
+
+  <!-- ===== seat B (right, inside its export) ===== -->
+  <rect x="616" y="170" width="240" height="200" rx="10" fill="none" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="736" y="192" text-anchor="middle" font-size="11.5" font-style="italic" fill="#8b949e">pinned read-only source export</text>
+  <text x="736" y="207" text-anchor="middle" font-size="11" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#58a6ff">@ full 40-char sha</text>
+  <rect x="636" y="222" width="200" height="64" rx="10" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
+  <text x="736" y="248" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">seat B</text>
+  <text x="736" y="268" text-anchor="middle" font-size="12" fill="#8b949e">at least one seat author-independent</text>
+  <text x="736" y="316" text-anchor="middle" font-size="11" fill="#8b949e">own HOME · tmp · allowlisted env</text>
+  <text x="736" y="332" text-anchor="middle" font-size="11" fill="#8b949e">git unreachable · no live channel path</text>
+
+  <!-- controller <-> seat A -->
+  <path d="M 300 236 C 285 236 279 236 264 236" fill="none" stroke="#a371f7" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#barrowAccent)"/>
+  <text x="282" y="226" text-anchor="middle" font-size="10.5" fill="#a371f7">invokes</text>
+  <line x1="264" y1="272" x2="293" y2="272" stroke="#8b949e" stroke-width="1.5" marker-end="url(#barrow)"/>
+  <text x="281" y="290" text-anchor="middle" font-size="10.5" fill="#8b949e">result</text>
+
+  <!-- controller <-> seat B -->
+  <path d="M 580 236 C 595 236 601 236 616 236" fill="none" stroke="#a371f7" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#barrowAccent)"/>
+  <text x="598" y="226" text-anchor="middle" font-size="10.5" fill="#a371f7">invokes</text>
+  <line x1="616" y1="272" x2="587" y2="272" stroke="#8b949e" stroke-width="1.5" marker-end="url(#barrow)"/>
+  <text x="599" y="290" text-anchor="middle" font-size="10.5" fill="#8b949e">result</text>
+
+  <!-- ===== watcher ===== -->
+  <rect x="340" y="396" width="200" height="56" rx="10" fill="#1c1830" stroke="#a371f7" stroke-width="1.5"/>
+  <text x="440" y="420" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">watcher</text>
+  <text x="440" y="438" text-anchor="middle" font-size="12" fill="#8b949e">dumb cron, every ~60s</text>
+  <line x1="440" y1="396" x2="440" y2="307" stroke="#a371f7" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#barrowAccent)"/>
+  <text x="530" y="340" text-anchor="middle" font-size="11" fill="#a371f7">ticks the controller —</text>
+  <text x="530" y="355" text-anchor="middle" font-size="11" fill="#a371f7">nothing new, nothing runs</text>
+
+  <!-- result files note under seats -->
+  <text x="144" y="390" text-anchor="middle" font-size="10.5" fill="#8b949e">a result is schema-versioned JSON —</text>
+  <text x="144" y="405" text-anchor="middle" font-size="10.5" fill="#8b949e">a typed verdict that cannot name its sender</text>
+  <text x="736" y="390" text-anchor="middle" font-size="10.5" fill="#8b949e">stdout/stderr stay diagnostics;</text>
+  <text x="736" y="405" text-anchor="middle" font-size="10.5" fill="#8b949e">only the validated result is published</text>
+
+  <!-- ===== case lifecycle strip ===== -->
+  <text x="440" y="478" text-anchor="middle" font-size="11.5" font-style="italic" fill="#8b949e">the case lifecycle — one absolute whole-case deadline spans all of it</text>
+  <rect x="40" y="488" width="136" height="42" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="108" y="506" text-anchor="middle" font-size="12.5" font-weight="600" fill="#e6edf3">docket</text>
+  <text x="108" y="521" text-anchor="middle" font-size="10.5" fill="#8b949e">supervisor authors it</text>
+  <line x1="176" y1="509" x2="198" y2="509" stroke="#8b949e" stroke-width="1.5" marker-end="url(#barrow)"/>
+  <rect x="200" y="488" width="136" height="42" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="268" y="506" text-anchor="middle" font-size="12.5" font-weight="600" fill="#e6edf3">sealed</text>
+  <text x="268" y="521" text-anchor="middle" font-size="10.5" fill="#8b949e">private first positions</text>
+  <line x1="336" y1="509" x2="358" y2="509" stroke="#8b949e" stroke-width="1.5" marker-end="url(#barrow)"/>
+  <rect x="360" y="488" width="136" height="42" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="428" y="506" text-anchor="middle" font-size="12.5" font-weight="600" fill="#e6edf3">paired reveal</text>
+  <text x="428" y="521" text-anchor="middle" font-size="10.5" fill="#8b949e">one atomic publish</text>
+  <line x1="496" y1="509" x2="518" y2="509" stroke="#8b949e" stroke-width="1.5" marker-end="url(#barrow)"/>
+  <rect x="520" y="488" width="136" height="42" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="588" y="506" text-anchor="middle" font-size="12.5" font-weight="600" fill="#e6edf3">deliberation</text>
+  <text x="588" y="521" text-anchor="middle" font-size="10.5" fill="#8b949e">current thread only</text>
+  <line x1="656" y1="509" x2="678" y2="509" stroke="#8b949e" stroke-width="1.5" marker-end="url(#barrow)"/>
+  <rect x="680" y="488" width="160" height="42" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="760" y="506" text-anchor="middle" font-size="12.5" font-weight="600" fill="#e6edf3">typed close</text>
+  <text x="760" y="521" text-anchor="middle" font-size="10.5" fill="#8b949e">PASS · NO_PASS · ERROR</text>
+
+  <!-- ===== supervisor strip ===== -->
+  <rect x="40" y="560" width="800" height="40" rx="10" fill="#12261a" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="440" y="585" text-anchor="middle" font-size="13.5" fill="#e6edf3">
+    <tspan font-weight="600">human supervisor</tspan> — sees every entry, may speak at any time, is never a vote
+  </text>
+</svg>
