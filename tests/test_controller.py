@@ -792,6 +792,15 @@ def test_sealed_pair_completes_in_either_order_without_cross_anchoring(
         assert payload["phase"] == "sealed"
         assert "current_thread" not in payload
         assert "Controller-Sealed-Reveal" not in json.dumps(payload)
+    case = json.loads(
+        (broker.runtime_root / "cases" / "ordered-seal" / "case.json").read_text(encoding="utf-8")
+    )
+    entries = {entry.sender: entry for entry in channel.read_entries(root, name) if entry.sender in broker.profiles}
+    for party, submission in case["sealed_submissions"].items():
+        captured_at = submission["captured_at"]
+        assert datetime.fromisoformat(captured_at).tzinfo is not None
+        assert f"- captured-at: {captured_at}" in entries[party].body
+        assert case["latest_votes"][party]["captured_at"] == captured_at
 
 
 def test_restart_after_first_private_submission_does_not_repeat_or_expose_it(tmp_path: Path) -> None:

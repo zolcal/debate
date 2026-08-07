@@ -93,7 +93,8 @@ Types and their meanings:
 - Version 2 channel/case state advances through `docket`, `sealed`, `reveal`,
   `deliberation`, and `terminal`. Initial positions remain private in the project-local
   runtime until both are complete. `commit_reveal_pair` publishes both attributed entries
-  in one mailbox replacement under one writer lock, then replaces the signal. Recovery
+  with their individual private capture timestamps in one mailbox replacement under one
+  writer lock, then replaces the signal. Recovery
   repairs a lagging signal idempotently and never appends only one position.
 - Typed terminal intent is persisted before the close mailbox write. The recurring
   scheduler repairs an interrupted close signal only when the pending result/reason and

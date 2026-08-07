@@ -54,7 +54,8 @@ pinned source export, not channel history.
 
 1. snapshots the pinned commit and immutable docket into separate read-only exports;
 2. invokes both initial seats without an opponent transcript;
-3. publishes both sealed positions together under one writer lock;
+3. publishes both sealed positions and their private capture timestamps together under one
+   writer lock;
 4. supplies only the current thread during later deliberation;
 5. binds each structured result to its configured sender; and
 6. closes automatically as `PASS`, `NO_PASS`, or `ERROR`.

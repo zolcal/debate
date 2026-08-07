@@ -35,7 +35,8 @@ it.
 - Brokered cases now persist `docket`, `sealed`, `reveal`, `deliberation`, and `terminal`
   phases. The two initial typed positions remain private until `commit_reveal_pair`
   publishes both with one atomic mailbox replacement; restart recovery repairs the
-  doorbell without duplicating or exposing one side early. Typed-close intent is also
+  doorbell without duplicating or exposing one side early. Each reveal provenance block
+  records when that private initial submission was captured. Typed-close intent is also
   persisted so the recurring scheduler can repair its mailbox/signal crash boundary
   without treating unrelated record anomalies as controller traffic.
 - Version 2 verdicts carry `PASS` or `NO_PASS`. Matching party votes close automatically

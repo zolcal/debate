@@ -212,7 +212,8 @@ Every `verdict` result also carries a typed `decision` of `PASS` or `NO_PASS`:
 
 The case state advances through `docket` -> `sealed` -> `reveal` -> `deliberation` ->
 `terminal`. Both initial results are kept outside the shared record until they exist, then
-published by one atomic mailbox replacement. A crash after that replacement but before the
+published by one atomic mailbox replacement with each private capture timestamp recorded
+in its reveal provenance. A crash after that replacement but before the
 doorbell update is repaired idempotently without duplicating either position. After reveal,
 each fresh seat sees only the current thread. Matching party votes close automatically as
 `PASS` or `NO_PASS`; `PASS` requires an agreeing author-independent seat. A supervisor

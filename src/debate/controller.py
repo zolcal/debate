@@ -1185,12 +1185,14 @@ class BrokerController:
         evidence: dict[str, str | Path],
         phase: str,
         reveal_id: str | None = None,
+        captured_at: str | None = None,
     ) -> str:
         profile = self.config.profiles[party]
         appendix = f"\n\n{result.appendix_markdown}" if result.appendix_markdown else ""
         typed = f"\n\nController-Decision:\n- decision: {result.decision}" if result.decision else ""
         reveal = (
             f"\n\nController-Sealed-Reveal:\n- reveal-id: {reveal_id}\n- phase: sealed"
+            f"\n- captured-at: {captured_at}"
             if reveal_id is not None
             else ""
         )
@@ -1214,7 +1216,9 @@ class BrokerController:
         return result.body + appendix + typed + reveal + provenance
 
     @staticmethod
-    def _result_record(result: AdapterResult, evidence: dict[str, str | Path]) -> dict[str, object]:
+    def _result_record(
+        result: AdapterResult, evidence: dict[str, str | Path], captured_at: str
+    ) -> dict[str, object]:
         return {
             "result": {
                 "entry_type": result.entry_type,
@@ -1225,6 +1229,7 @@ class BrokerController:
                 "decision": result.decision,
             },
             "evidence": {key: str(value) for key, value in evidence.items()},
+            "captured_at": captured_at,
             "record_sha256": _canonical_hash(
                 {
                     "entry_type": result.entry_type,
@@ -1234,6 +1239,7 @@ class BrokerController:
                     "runtime_model": result.runtime_model,
                     "decision": result.decision,
                     "evidence": {key: str(value) for key, value in evidence.items()},
+                    "captured_at": captured_at,
                 }
             ),
         }
@@ -1297,7 +1303,8 @@ class BrokerController:
             )
         submissions = dict(state.get("sealed_submissions", {}))
         if party not in submissions:
-            submissions[party] = self._result_record(result, evidence)
+            captured_at = self._now().isoformat(timespec="seconds")
+            submissions[party] = self._result_record(result, evidence, captured_at)
             state.update({"phase": "sealed", "sealed_submissions": submissions})
             self._write_case(thread, state)
         missing = [seat for seat in self.config.profiles if seat not in submissions]
@@ -1511,6 +1518,15 @@ class BrokerController:
             if not isinstance(record, dict):
                 raise channel.ChannelError("refused: malformed private sealed submission")
             result, evidence = self._recorded_result(record)
+            captured_at = record.get("captured_at")
+            if not isinstance(captured_at, str):
+                raise channel.ChannelError("refused: sealed submission has no capture timestamp")
+            try:
+                captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+            except ValueError as error:
+                raise channel.ChannelError("refused: sealed submission has an invalid capture timestamp") from error
+            if captured.tzinfo is None:
+                raise channel.ChannelError("refused: sealed submission capture timestamp has no timezone")
             revealed.append(
                 channel.RevealSubmission(
                     sender=party,
@@ -1521,6 +1537,7 @@ class BrokerController:
                         evidence=evidence,
                         phase="sealed",
                         reveal_id=reveal_id,
+                        captured_at=captured_at,
                     ),
                     refs=result.refs,
                 )
@@ -1530,6 +1547,7 @@ class BrokerController:
                 "author_relationship": self.config.profiles[party].author_relationship,
                 "phase": "sealed",
                 "reveal_id": reveal_id,
+                "captured_at": captured_at,
             }
         deadline = self._deadline_from(state, thread)
         entry_ids = channel.commit_reveal_pair(
