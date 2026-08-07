@@ -364,3 +364,118 @@ Controller closed the managed case as PASS. Reason: party-vote-agreement. Superv
 Controller-Terminal:
 - terminal-result: PASS
 - close-reason: party-vote-agreement
+
+## MSG-15 | 2026-08-07T05:43:59+00:00 | from: owner | type: review-request | thread: slice4-amendment-84b1afd | refs: feature/unattended-slice4@84b1afdbe70a47d868477889b8f5ea3e175cbfb0
+
+Branch-gate amendment review: 6c0932c..84b1afd on feature/unattended-slice4 (PR #5). The approved Slice 4 base gained two CI-forced fix commits (strict-mypy types; Windows brokered-subprocess environment baseline). Docket file amendment-docket.md states the criteria; amendment.diff is the exact diff under review. Seats verify independently from the pinned read-only export at 84b1afd.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: bbe1cba8edd451546e8eb470f4fccb10f78935fad2ad2dccdce4d6b3b62b893a
+- source-ref: 84b1afdbe70a47d868477889b8f5ea3e175cbfb0
+- docket-revision-sha256: 96e6c7b0a9171afb7c904d5a29789dca75068a85704f6da72b7ea4653a6a4145
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-06-unattended-isolated-agent-pairs.md", "sha256": "781def93bc2a2ea57336c11c3e34b13fd36786375bf76533ef427038390ab6b9", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/amendment-docket.md", "sha256": "f3ca457fe4f64495584eaef3c1908537d74b814a9ec072c78fa512b931d55720", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/amendment.diff", "sha256": "19ff8bf42dc6e94c76ffeb9dab2bd007f28a5e36faf77b612c8274f0e0da917c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/amendment-watcher.json", "sha256": "bbe1cba8edd451546e8eb470f4fccb10f78935fad2ad2dccdce4d6b3b62b893a", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "822fa91a56590b21bca8405ddcc5f5de6114e6e90c5627ef60f71cdda14a8211", "opus": "193b03b69d2627716d740160227b7baa00a237e8bc0b3f6d745d218312d9ba5f"}
+
+## MSG-16 | 2026-08-07T05:47:37+00:00 | from: opus | type: verdict | thread: slice4-amendment-84b1afd | refs: -
+
+## Verification
+
+**Command run (exactly as docketed, in the pinned export root `.../exports/84b1afdbe70a47d868477889b8f5ea3e175cbfb0/opus`):**
+
+`python -m pytest -q`
+
+**Result:**
+
+```
+........................................................................ [ 18%]
+........................................................................ [ 36%]
+........................................................................ [ 54%]
+......................................................s................. [ 72%]
+........................................................................ [ 91%]
+...................................                                      [100%]
+394 passed, 1 skipped in 17.25s
+```
+
+Exit status clean; no prefixes, suffixes, pipes or env diagnostics were attached to the command. The suite includes the amended `test_source_export_is_complete_except_separated_state_and_git_is_unreachable`, which itself re-runs `pytest -q` inside the export under the hand-built probe env, so the amended baseline-env path is exercised, not just imported.
+
+## Hunk-by-hunk check of `amendment.diff` against the export
+
+All seven hunks are present in the export in their post-amendment final state; each was read in place, not just from the diff.
+
+1. `pyproject.toml:62` — `exclude = ["^build/", "^var/"]`. Regex is anchored at the relative-path root, so it hides only the broker runtime tree; `src/` and `tests/` remain in `mypy .`'s scope. Config-only, no runtime effect.
+2. `controller.py:463-465` (`_git`) — `stdout: bytes | str = proc.stdout; return stdout`. Pure annotation widening to the declared return type; identical object returned. No behavior change.
+3. `controller.py:668-682` — `_WINDOWS_BASELINE_ENVIRONMENT` / `_baseline_environment()`. Returns `{}` when `os.name != "nt"`, so POSIX behavior is byte-for-byte unchanged (which is why this hunk is inert under the run above and rests on inspection). The five keys (`SYSTEMROOT`, `SYSTEMDRIVE`, `COMSPEC`, `PATHEXT`, `WINDIR`) are OS-installation paths and command-resolution settings; none is an agent/tool/user-config variable, none appears in `_RESERVED_ENV` (`controller.py:38-58`), and none can smuggle credentials, HOME-rooted config, or `GIT_CONFIG_*` policy into the subprocess. The slice-2 isolation claim holds.
+4. `controller.py:683-685` (`_adapter_environment`) — baseline is seeded *first*, then `.update()` with the allowlist, then `profile.environment`, then the controller-owned block (`HOME`, `XDG_*`, `TMPDIR`/`TEMP`/`TMP`, `GIT_CEILING_DIRECTORIES`, …). Precedence among the pre-existing layers is unchanged and the baseline sits at the bottom, so it can never override a controller-owned or allowlisted value.
+5. `controller.py:1280` (`_recorded_result`) — `evidence: dict[str, str | Path]` annotation only; the comprehension still stringifies every value.
+6. `controller.py:1295-1298`, `1323-1326`, `1777-1780` — three `isinstance(..., dict)` guards on `sealed_submissions` / `latest_votes` replacing what was previously an incidental `TypeError` from `dict(non_mapping)`. These are fail-closed and consistent with the module's `refused: …` `ChannelError` convention; on well-formed state the code path is identical. This matches the described scope exactly — no other control flow moved.
+7. `watcher.py:801-820` — hoists `broker = config.broker` and adds a redundant `and broker is not None` at the `if`. `maybe_broker_commit` already required `broker is not None` and nothing between the two statements mutates it, so the added conjunct is a narrowing aid with no reachable behavior change; `BrokerController(broker)` receives the same object as `BrokerController(config.broker)`.
+8. `tests/test_controller.py:478` and `tests/test_watch_status.py:11,297-300` — the probe env gains the same baseline (needed for the nested Windows `sys.executable` launch), and the watcher config fixture is built with `json.dumps` instead of concatenation. The `json.dumps` form is strictly more correct: a Windows `tmp_path` backslash previously produced invalid JSON escapes. On POSIX both forms yield equivalent JSON, so the assertions under test are unchanged.
+
+## Non-blocking observation
+
+`COMSPEC` and `PATHEXT` are, strictly speaking, overridable in a Windows per-user environment block, unlike the purely machine-owned `SYSTEMROOT`/`SYSTEMDRIVE`/`WINDIR`. The values that could pass through are command-resolution settings, not agent or credential configuration, and they cannot reach `_RESERVED_ENV` territory, so I do not read this as weakening the isolation claim. Flagging it only so the record shows the distinction was considered rather than assumed.
+
+Both docket criteria are satisfied: the command passes fresh, and every hunk is correct with no behavior change beyond the described fail-closed guards.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 3a4ff37a4b4c59829fdbe8592c9e071a5f5f29b4ae2d50300e16d716e2166879
+- phase: sealed
+- captured-at: 2026-08-07T05:46:09+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: bbe1cba8edd451546e8eb470f4fccb10f78935fad2ad2dccdce4d6b3b62b893a
+- source-ref: 84b1afdbe70a47d868477889b8f5ea3e175cbfb0
+- source-manifest-sha256: 193b03b69d2627716d740160227b7baa00a237e8bc0b3f6d745d218312d9ba5f
+- docket-revision-sha256: 96e6c7b0a9171afb7c904d5a29789dca75068a85704f6da72b7ea4653a6a4145
+- input-sha256: be9914f09453024a263df86b37185e92417d3b3a04ef9c66b8fff5c5ccbb11fe
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-17 | 2026-08-07T05:47:37+00:00 | from: codex | type: verdict | thread: slice4-amendment-84b1afd | refs: -
+
+Inspected every amendment hunk against the pinned export. The Windows baseline is limited to the five stated machine environment keys and is empty on POSIX; the remaining changes are typing, fail-closed malformed-state guards, and Windows-safe test fixture/probe updates. Fresh verification command: `python -m pytest -q` — result: `394 passed, 1 skipped in 18.03s`.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 3a4ff37a4b4c59829fdbe8592c9e071a5f5f29b4ae2d50300e16d716e2166879
+- phase: sealed
+- captured-at: 2026-08-07T05:47:37+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: bbe1cba8edd451546e8eb470f4fccb10f78935fad2ad2dccdce4d6b3b62b893a
+- source-ref: 84b1afdbe70a47d868477889b8f5ea3e175cbfb0
+- source-manifest-sha256: 822fa91a56590b21bca8405ddcc5f5de6114e6e90c5627ef60f71cdda14a8211
+- docket-revision-sha256: 96e6c7b0a9171afb7c904d5a29789dca75068a85704f6da72b7ea4653a6a4145
+- input-sha256: bc679586e604e1553ae1daaaa3cb24e03c7452bd81e3840241722fb636b05d89
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-18 | 2026-08-07T05:47:37+00:00 | from: owner | type: close | thread: slice4-amendment-84b1afd | refs: -
+
+Controller closed the managed case as PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: PASS
+- close-reason: party-vote-agreement
