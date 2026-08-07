@@ -498,8 +498,16 @@ and headless GLM reviewer; that append-only record remains under [`collab/`](col
 incident and 0.4 provenance, but its commandless-seat scheduler is retired. The fresh
 `repository-unattended-02750` channel selects headless Opus/Codex only in local config and
 uses the same vendor-neutral broker shipped here. Its record includes the repository's own
-end-to-end sealed/reveal/automatic-close proof and the branch gates, each verdict citing
-the reviewer's own export run rather than author-pasted evidence.
+end-to-end sealed/reveal/automatic-close proof. The final proof is MSG-11..14: independent
+Opus and Codex capture timestamps, one paired reveal, and automatic `PASS` with no
+live-session or human intervention. Earlier MSG-1..6 adapter-integration attempts remain
+visible as bounded `ERROR` closes rather than being rewritten. The pinned profiles were
+Claude Code 2.1.223 /
+`claude-opus-5` high and Codex CLI 0.146.1 / `gpt-5.6-terra` high, both
+author-independent and subscription-authenticated; the final CLIs reported a `$0.355168`
+Opus usage-equivalent and 43,729 Codex tokens. Those numbers consume subscription quota and
+are operational evidence, not a promise of zero cost. Branch-gate verdicts separately cite
+the reviewer's own full export run rather than author-pasted evidence.
 
 A GLM + Kimi pairing works the same way anywhere (see
 [`examples/glm-kimi.md`](examples/glm-kimi.md) — both seats verified live), and a local

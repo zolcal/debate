@@ -51,6 +51,10 @@ it.
   `--channel`; the repository protocol reads each channel's persisted cap instead of
   declaring one root-wide number. The old commandless-seat timer is retired from active
   use rather than treated as a supported managed mode.
+- The repository's final brokered proof (MSG-11..14) records separate initial-capture
+  timestamps, atomically reveals both independently gathered positions, and closes `PASS`
+  automatically. Failed adapter setup attempts remain in the same append-only record as
+  bounded `ERROR` outcomes.
 
 ## v0.4.0 — 2026-08-05
 
