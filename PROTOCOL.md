@@ -53,8 +53,9 @@ Types and their meanings:
 - **A thread is opened by `review-request`, `question`, `info` — or a one-shot close
   correction.** `verdict` and `fix-report` are replies: with no thread open they are refused
   (supervisor exempt).
-- **Thread cap: [12] entries.** At the cap only `close` is accepted; the watcher escalates to
-  the supervisor. A thread that long means the agents are looping, not converging.
+- **Thread cap: [12] entries.** On managed version 1, at the cap only `close` is accepted
+  and the watcher escalates to the supervisor. On managed version 2, cap exhaustion closes
+  typed `NO_PASS` automatically. A thread that long means the agents are not converging.
 - Supervisor posts never flip the turn and are accepted at any time.
 - Normal lifecycle: `review-request → verdict → [fix-report → verdict …] → close`.
 - Corrections to the record are NEW entries (a `close`-typed post under a fresh slug opens
@@ -69,6 +70,9 @@ Types and their meanings:
 
 - One channel uses one state file and one scheduler unit. Name the unit
   `debate-watch-<state-file-stem>` so two channels cannot silently share a timer or state.
+- Every scheduled command and every pinned version-1 prompt names the channel explicitly:
+  `debate watch-once --root /absolute/project/collab --channel <id> --config /absolute/project/watcher.json`.
+  A multi-channel root is expected to refuse an unqualified command.
 - A recurring scheduler runs `debate watch-once` every [3] minutes. It is independent of
   any one `watch --until-close` process. It mirrors every new entry to [where your
   supervisor already looks], and invokes a party's pinned command only when ALL of: the

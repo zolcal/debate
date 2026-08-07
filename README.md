@@ -107,17 +107,17 @@ pip install debate        # Python 3.10+, stdlib only — or just vendor the two
 debate init --root ./collab --parties claude,glm --supervisor owner
 
 # The builder asks for a review:
-debate post --root ./collab --from claude --type review-request \
+debate post --root ./collab --channel myproject-48213 --from claude --type review-request \
     --thread feature-x --refs feature-x@abc123 \
     --body "Please review commit abc123: ..."
 
 # The reviewer answers (its own tool/app runs this after reading the thread):
-debate post --root ./collab --from glm --type verdict \
+debate post --root ./collab --channel myproject-48213 --from glm --type verdict \
     --thread feature-x --refs feature-x@abc123 \
     --body "APPROVE — verified: 27 tests pass at abc123."
 
 # Whoever acted last closes the thread:
-debate post --root ./collab --from claude --type close \
+debate post --root ./collab --channel myproject-48213 --from claude --type close \
     --thread feature-x --body "Merged. Closing."
 ```
 
@@ -159,11 +159,28 @@ debate broker-revise --root ./collab --channel <id> --config watcher.json \
 ```
 
 Each profile records its provider/model, reasoning setting, CLI version, authentication
-mode, cost mode, permission policy and relationship to the artifact author. Exactly one independent seat is
-the minimum two-agent topology: the other seat is honestly labeled an isolated
-author-affiliated self-review. Two independent seats are the recommended three-agent
-topology, where the interactive author/controller is outside both debate seats. The core
-never infers either topology from names such as Opus, Codex, GLM or Kimi.
+mode, cost mode, permission policy and relationship to the artifact author. Exactly one
+independent seat is the minimum two-agent topology: the interactive author's fresh
+headless seat is honestly labeled an isolated author-affiliated self-review, while the
+opponent is independent. The interactive session never fills a turn itself. Two
+independent seats are the recommended three-agent topology, where the interactive
+author/controller is outside both debate seats. The core never infers either topology from
+names such as Opus, Codex, GLM or Kimi.
+
+The model pair is configuration, not policy. A GPT-5.6 Sol author can, for example, use
+headless Opus 5 plus a smoke-approved GPT-5.6 Terra profile so neither reviewer is the
+interactive author. Another channel can use Opus/GLM, GLM/Kimi, or local models without a
+code change. A Kimi controller can oversee separate Opus/Codex and Opus/GLM channels, but
+each remains a two-seat debate with its own explicit channel id. Every example must record
+the author relationship and the requested and resolved model identities; changing any of
+those, the effort, permissions, authentication, or cost mode opens a fresh case.
+
+`adapter-doctor` prints every seat's authentication and cost mode before it invokes
+anything and explicitly reports that the check incurred no charge. Subscription seats
+have no per-call API line item but still consume plan quota; API seats are metered by their
+provider's current input/output-token prices; local seats consume host compute. Debate
+does not estimate a dollar total because CLI prompts, cache discounts and provider prices
+vary. Confirm the printed mode and the provider's current price before the first smoke.
 
 `expected_runtime_model` is optional because some CLIs do not expose a stable resolved ID.
 When omitted, Debate still records the returned runtime identity but cannot refuse silent
@@ -241,8 +258,8 @@ config file:
     "glm": ["glm-agent", "{prompt}"]
   },
   "prompts": {
-    "claude": "It is your turn on the review channel at ./collab. Read the open thread, act, post via debate, then stop.",
-    "glm": "It is your turn on the review channel at ./collab. Read the open thread, act, post via debate, then stop."
+    "claude": "It is your turn on ./collab --channel myproject-48213. Read only the open thread with `debate read --root ./collab --channel myproject-48213`, act, post with the same explicit channel, then stop.",
+    "glm": "It is your turn on ./collab --channel myproject-48213. Read only the open thread with `debate read --root ./collab --channel myproject-48213`, cite your own fresh evidence, post with the same explicit channel, then stop."
   },
   "debounce_seconds": { "claude": 0, "glm": 0 },
   "retry_seconds": 1800
@@ -260,7 +277,9 @@ with colliding tags and colliding unit names, and telling their watchers apart g
 reading `/proc` by hand — which is how a wrong-process kill happened here once.
 
 ```bash
-debate watch-once --root ./collab --config watcher.json   # cron this every 60s
+*/3 * * * * cd /absolute/path/to/project && debate watch-once \
+  --root /absolute/path/to/project/collab --channel myproject-48213 \
+  --config /absolute/path/to/project/watcher.json
 ```
 
 Agents run in the watcher's own working directory — `cd` to your project root before
@@ -283,7 +302,7 @@ Cron is for unattended operation. At the keyboard and just want the current revi
 to its close? Run the same watcher in the foreground:
 
 ```bash
-debate watch --root ./collab --config watcher.json --until-close
+debate watch --root ./collab --channel myproject-48213 --config watcher.json --until-close
 ```
 
 Same config, same safety rails — agents launch with stdin detached and a timeout
@@ -303,7 +322,7 @@ has been parked longer than an hour — put it wherever you already alert from.
 ### Is anything actually driving this channel?
 
 ```bash
-debate watch-status --root ./collab --config watcher.json
+debate watch-status --root ./collab --channel myproject-48213 --config watcher.json
 ```
 
 Reports whether a watcher holds the lock — naming the holder's pid and working directory —
@@ -473,12 +492,13 @@ description of the shape, not as a benchmark of anything. `debate` is the baton 
 two conductors, and the score everyone can read afterwards.
 
 The same shape fits whatever pair of ecosystems you already run. The origin above is one
-example, not the design — and the pairing has rotated since: **this repo's own channel now
-runs Claude Opus 5 (builder) ↔ GLM (reviewer)**, and its live record is committed under
-[`collab/`](collab/). What is there is the review trail of this project's own 0.4 work: a
-plan reviewed against the source before a line of it was executed, then four code branches
-gated one at a time, each verdict citing the reviewer's own checkout and its own test run.
-It is the protocol used in anger on the repo you are reading.
+example, not the design. This repo's historical channel used a human-driven Opus builder
+and headless GLM reviewer; that append-only record remains under [`collab/`](collab/) as
+incident and 0.4 provenance, but its commandless-seat scheduler is retired. The fresh
+`repository-unattended-02750` channel selects headless Opus/Codex only in local config and
+uses the same vendor-neutral broker shipped here. Its record includes the repository's own
+end-to-end sealed/reveal/automatic-close proof and the branch gates, each verdict citing
+the reviewer's own export run rather than author-pasted evidence.
 
 A GLM + Kimi pairing works the same way anywhere (see
 [`examples/glm-kimi.md`](examples/glm-kimi.md) — both seats verified live), and a local

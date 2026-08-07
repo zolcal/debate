@@ -83,8 +83,8 @@ boundary are the safety controls, same as any unattended seat:
     "kimi": ["kimi", "-p", "{prompt}"]
   },
   "prompts": {
-    "glm":  "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole mailbox file. Immediately before acting, verify `debate status --root collab` still shows a NON-EMPTY thread AND turn=='glm' — if not, exit without posting. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
-    "kimi": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab`. Immediately before acting, verify `debate status --root collab` still shows a NON-EMPTY thread AND turn=='kimi' — if not, exit without posting. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
+    "glm":  "Review channel ./collab --channel myproject-48213: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab --channel myproject-48213` — never the whole mailbox file. Immediately before acting, verify `debate status --root collab --channel myproject-48213` still shows a NON-EMPTY thread AND turn=='glm' — if not, exit without posting. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate worktree. Post via `debate post --root collab --channel myproject-48213`, then stop.",
+    "kimi": "Review channel ./collab --channel myproject-48213: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab --channel myproject-48213`. Immediately before acting, verify `debate status --root collab --channel myproject-48213` still shows a NON-EMPTY thread AND turn=='kimi' — if not, exit without posting. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run, never the author's pasted evidence. Post via `debate post --root collab --channel myproject-48213`, then stop."
   },
   "debounce_seconds": { "glm": 0, "kimi": 0 },
   "retry_seconds": 1800
@@ -99,7 +99,7 @@ boundary are the safety controls, same as any unattended seat:
 ## 3. Run it
 
 ```bash
-*/3 * * * *  cd /path/to/your-project && debate watch-once --root collab --config watcher.json
+*/3 * * * *  cd /path/to/your-project && debate watch-once --root collab --channel myproject-48213 --config watcher.json
 ```
 
 Route the tick's stdout wherever you already look.
@@ -118,3 +118,8 @@ on a dirty tree; one reply, then stop. Full incident provenance in `examples/cla
   slots in the same way: one argv, one pinned prompt.
 - CLI surfaces drift. Re-run the identity check and a one-line `kimi -p "Reply OK"` after
   upgrading either tool.
+- A Kimi interactive controller can drive two independent debates—for example one
+  Opus/Codex channel and one Opus/GLM channel—but each channel still has exactly two
+  headless seats, its own state/runtime and an explicit `--channel`. Kimi remains outside
+  both votes in that shape. If Kimi is itself a seat, record it as such in that channel's
+  adapter profile; never infer the relationship from the vendor name.

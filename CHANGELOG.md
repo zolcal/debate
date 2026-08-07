@@ -42,6 +42,14 @@ it.
   (a `PASS` requires an agreeing author-independent seat), the thread cap closes
   `NO_PASS`, and adapter or whole-case deadline failure closes `ERROR` with a separate
   `close_reason`. Supervisor entries never count as votes.
+- Migrated this repository's active guidance to a fresh cap-12 brokered channel while
+  preserving the historical Opus/GLM record. The local repository profile selects
+  headless Opus/Codex without making that pair a product default; examples document the
+  minimum two-agent and recommended three-agent topologies plus alternative pairs.
+- Every scheduler line and watcher prompt now addresses multi-channel roots with explicit
+  `--channel`; the repository protocol reads each channel's persisted cap instead of
+  declaring one root-wide number. The old commandless-seat timer is retired from active
+  use rather than treated as a supported managed mode.
 
 ## v0.4.0 — 2026-08-05
 

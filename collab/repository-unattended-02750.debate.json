@@ -1,0 +1,11 @@
+{
+  "parties": [
+    "opus",
+    "codex"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "repository-unattended-02750",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 2
+}
