@@ -463,7 +463,8 @@ def _git(repository_root: Path, args: list[str], *, binary: bool = False) -> byt
         raise channel.ChannelError(
             f"refused: git {' '.join(args)} failed in {repository_root}: {stderr.strip()}"
         )
-    return proc.stdout
+    stdout: bytes | str = proc.stdout
+    return stdout
 
 
 def _safe_member(name: str) -> PurePosixPath:
@@ -1261,7 +1262,7 @@ class BrokerController:
             )
         except KeyError as error:
             raise channel.ChannelError("refused: incomplete private sealed submission") from error
-        evidence = {str(key): str(value) for key, value in raw_evidence.items()}
+        evidence: dict[str, str | Path] = {str(key): str(value) for key, value in raw_evidence.items()}
         return result, evidence
 
     def capture_sealed(
@@ -1276,7 +1277,10 @@ class BrokerController:
     ) -> AdapterResult:
         """Capture one initial position privately; publish nothing."""
         state = self._load_case(thread)
-        submissions = dict(state.get("sealed_submissions", {}))
+        raw_submissions = state.get("sealed_submissions", {})
+        if not isinstance(raw_submissions, dict):
+            raise channel.ChannelError("refused: malformed sealed submissions state")
+        submissions = dict(raw_submissions)
         existing = submissions.get(party)
         if isinstance(existing, dict):
             return self._recorded_result(existing)[0]
@@ -1301,7 +1305,10 @@ class BrokerController:
                 f"refused: whole-case deadline expired during sealed invocation for {thread!r}",
                 close_reason="case-deadline-expired",
             )
-        submissions = dict(state.get("sealed_submissions", {}))
+        raw_submissions = state.get("sealed_submissions", {})
+        if not isinstance(raw_submissions, dict):
+            raise channel.ChannelError("refused: malformed sealed submissions state")
+        submissions = dict(raw_submissions)
         if party not in submissions:
             captured_at = self._now().isoformat(timespec="seconds")
             submissions[party] = self._result_record(result, evidence, captured_at)
@@ -1752,7 +1759,10 @@ class BrokerController:
         )
         state = self._load_case(thread)
         if result.decision is not None:
-            votes = dict(state.get("latest_votes", {}))
+            raw_votes = state.get("latest_votes", {})
+            if not isinstance(raw_votes, dict):
+                raise channel.ChannelError("refused: malformed deliberation votes state")
+            votes = dict(raw_votes)
             votes[party] = {
                 "decision": result.decision,
                 "author_relationship": profile.author_relationship,

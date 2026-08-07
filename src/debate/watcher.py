@@ -798,8 +798,9 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
             # markers distinguish those controller commits from an unknown
             # writer. Defer repair until this non-reentrant lock is released.
             thread = str(signal.get("thread", ""))
+            broker = config.broker
             maybe_broker_commit = (
-                config.broker is not None
+                broker is not None
                 and not doorbell_failure
                 and not mailbox_failure
                 and {anomaly.code for anomaly in anomalies} == {"mailbox-ahead-of-doorbell"}
@@ -807,9 +808,9 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
                 and bool(thread)
                 and f"{thread}:{seq}" not in set(state.get("escalated", []))
             )
-            if maybe_broker_commit:
+            if maybe_broker_commit and broker is not None:
                 try:
-                    kind = BrokerController(config.broker).pending_channel_commit(
+                    kind = BrokerController(broker).pending_channel_commit(
                         channel_root=config.channel_root,
                         channel_name=str(config.channel_name),
                         thread=thread,
