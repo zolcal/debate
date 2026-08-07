@@ -14,7 +14,7 @@ Every file except this contract carries the channel's name — the `<channel>-<N
 | File | Role | In version control? |
 |---|---|---|
 | `PROTOCOL.md` | this contract | yes |
-| `<channel>.debate.json` | channel config: parties, supervisor, thread cap, the project served | yes |
+| `<channel>.debate.json` | channel config: parties, supervisor, managed version, thread cap, the project served | yes |
 | `<channel>.channel.md` | append-only message log (the mailbox) | [your call — in-repo history is a feature] |
 | `<channel>.signal.json` | the doorbell — tiny, machine-parseable, watched by both sides | [usually no] |
 | `archive/` | closed threads relocated verbatim by `debate compact`, plus `<channel>-INDEX.md` | [same call as the mailbox] |
@@ -53,7 +53,7 @@ Types and their meanings:
 - **A thread is opened by `review-request`, `question`, `info` — or a one-shot close
   correction.** `verdict` and `fix-report` are replies: with no thread open they are refused
   (supervisor exempt).
-- **Thread cap: [8] entries.** At the cap only `close` is accepted; the watcher escalates to
+- **Thread cap: [12] entries.** At the cap only `close` is accepted; the watcher escalates to
   the supervisor. A thread that long means the agents are looping, not converging.
 - Supervisor posts never flip the turn and are accepted at any time.
 - Normal lifecycle: `review-request → verdict → [fix-report → verdict …] → close`.
@@ -73,8 +73,11 @@ Types and their meanings:
   `seq` (one timed retry after [30] minutes, then a supervisor escalation — never a loop).
 - Invocation prompts are **pinned in the watcher config** — fixed strings, never composed at
   runtime.
-- A live human-driven session answers its own doorbell; the watcher's trigger is the fallback.
-  Recommended debounce for a human-driven party: [10] minutes.
+- A managed channel has `managed_version: 1`, one command for each of its exactly two
+  parties, and normally zero debounce. A missing command or a turnless open thread is
+  `INVALID`, exits nonzero under `watch-status`, and is never delegated to a live human.
+- A config without `managed_version` is legacy/manual history. It stays readable but must
+  be reconfigured before it can be activated as managed unattended operation.
 
 ## 5. Constraints on unattended sessions
 

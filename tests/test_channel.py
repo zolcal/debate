@@ -28,6 +28,23 @@ def test_init_creates_config_mailbox_and_fresh_doorbell(root: Path) -> None:
     assert read_entries(root) == []
 
 
+def test_default_thread_cap_is_twelve_and_fieldless_config_falls_back_to_twelve(tmp_path: Path) -> None:
+    config = init_channel(tmp_path, ("alice", "bob"), "owner")
+    assert config.thread_cap == 12
+
+    raw = json.loads((tmp_path / "debate.json").read_text(encoding="utf-8"))
+    raw.pop("thread_cap")
+    (tmp_path / "debate.json").write_text(json.dumps(raw), encoding="utf-8")
+
+    assert channel.load_config(tmp_path).thread_cap == 12
+
+
+def test_explicit_historical_thread_cap_is_preserved(tmp_path: Path) -> None:
+    init_channel(tmp_path, ("alice", "bob"), "owner", thread_cap=8)
+
+    assert channel.load_config(tmp_path).thread_cap == 8
+
+
 def test_init_refuses_double_init(tmp_path: Path) -> None:
     init_channel(tmp_path, ("alice", "bob"), "owner")
 

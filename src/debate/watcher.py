@@ -12,9 +12,9 @@ Design rules, each one paid for in production (see docs/case-study):
   invocation on an empty mailbox.
 - **Once per seq.** An invocation that produced no reply is retried once
   after ``retry_seconds``, then escalated to the supervisor — never looped.
-- **Debounce.** A live human-driven session may be about to answer; the
-  watcher waits ``debounce_seconds`` of unchanged turn before firing, and
-  treats its own trigger as a *fallback*, not the primary path.
+- **Managed pairs drive every turn.** Newly named channels require commands
+  for both parties and normally use zero debounce. Legacy/manual channels may
+  retain a debounce, but cannot be mistaken for managed unattended operation.
 - **Fixed prompts.** The command and prompt for each party are pinned in
   config — the watcher never composes free-form instructions.
 - **State lives outside the channel.** The watcher's memory (last seen seq,
@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from debate.channel import ChannelError
+from debate.channel import ChannelError, load_config
 
 # Windows: suppress the console window a scheduled invocation would flash.
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -56,8 +56,9 @@ class WatcherConfig:
 
     ``commands`` maps party name -> argv list. The placeholder ``{prompt}``
     in any argv element is replaced with that party's pinned prompt from
-    ``prompts``. Parties without a command are never invoked (a human-driven
-    party can simply have no entry).
+    ``prompts``. Legacy channels may omit a command for a human-driven party.
+    Managed channels require commands for both recorded parties and report an
+    invalid configuration instead of silently waiting for a live session.
     """
 
     channel_root: Path
@@ -68,8 +69,24 @@ class WatcherConfig:
     retry_seconds: int = 30 * 60
     timeout_seconds: int = 30 * 60
     channel_name: str | None = None  # instance id; None = legacy layout
+    managed_version: int | None = None
+    parties: tuple[str, str] | None = None
 
     def __post_init__(self) -> None:
+        # Library callers must not be able to accidentally treat a named
+        # managed channel as legacy merely by omitting the duplicated watcher
+        # fields. Bind from the channel record whenever it exists; an absent
+        # record is still allowed for pure decision tests and pre-init config.
+        if self.managed_version is None or self.parties is None:
+            try:
+                channel_config = load_config(self.channel_root, self.channel_name)
+            except FileNotFoundError:
+                pass
+            else:
+                if self.managed_version is None:
+                    object.__setattr__(self, "managed_version", channel_config.managed_version)
+                if self.parties is None:
+                    object.__setattr__(self, "parties", channel_config.parties)
         state = self.state_path.resolve()
         root = self.channel_root.resolve()
         if state == root or state.is_relative_to(root):
@@ -80,6 +97,34 @@ class WatcherConfig:
         for party, argv in self.commands.items():
             if not all(isinstance(part, str) for part in argv):
                 raise ChannelError(f"refused: command for {party!r} has non-string elements: {argv!r}")
+        if isinstance(self.managed_version, bool) or self.managed_version not in (None, 1):
+            raise ChannelError(
+                f"refused: unsupported managed_version {self.managed_version!r}; this release supports only 1"
+            )
+        if self.managed_version is not None and self.parties is None:
+            raise ChannelError("refused: a managed watcher must be bound to exactly two channel parties")
+
+    def managed_problem(self) -> str | None:
+        """Return the fail-closed configuration problem for a managed pair.
+
+        Kept pure so `decide()` and `status()` share exactly one definition of
+        validity. A legacy channel has no managed contract and returns None.
+        """
+        if self.managed_version is None:
+            return None
+        assert self.parties is not None
+        expected = set(self.parties)
+        configured = set(self.commands)
+        missing = sorted(expected - configured)
+        extra = sorted(configured - expected)
+        if missing:
+            return f"missing adapter command for managed parties: {', '.join(missing)}"
+        if extra:
+            return f"commands configured for non-party names: {', '.join(extra)}"
+        empty = sorted(party for party in expected if not self.commands.get(party))
+        if empty:
+            return f"empty adapter command for managed parties: {', '.join(empty)}"
+        return None
 
     def command_for(self, party: str) -> list[str] | None:
         """Build the argv for a party, expanding placeholders in ONE fixed order.
@@ -123,11 +168,27 @@ def decide(
     thread = str(signal.get("thread", ""))
     seq = int(signal.get("seq", 0))
 
+    problem = config.managed_problem()
+    if problem is not None:
+        return Decision(None, f"invalid managed channel: {problem}", "invalid managed configuration")
+
     if not thread:
         return Decision(None, None, "no open thread")
     if not turn:
+        if config.managed_version is not None:
+            return Decision(
+                None,
+                f"invalid managed channel: open thread {thread!r} has no party turn",
+                "invalid managed turnless thread",
+            )
         return Decision(None, None, "no turn set")
     if config.command_for(turn) is None:
+        if config.managed_version is not None:
+            return Decision(
+                None,
+                f"invalid managed channel: no adapter command for turn {turn!r}",
+                "invalid managed command",
+            )
         return Decision(None, None, f"no command configured for {turn!r}")
 
     updated_at = _parse_stamp(str(signal.get("updated_at", "")))
@@ -187,23 +248,36 @@ def status(
 ) -> WatchStatus:
     """Pure verdict core: no I/O, no clock reads — the same rule as ``decide()``.
 
-    Verdict order is deliberate. ESCALATED outranks everything (a human is
-    already owed an answer); MANUAL outranks staleness (a party with no
-    configured command is answered by a live session, so "the watcher did not
-    fire" is the design, not a fault). Only then do the timing verdicts apply.
+    Verdict order is deliberate. A malformed managed pair is INVALID before
+    any healthy verdict can be returned. ESCALATED then outranks timing, while
+    MANUAL remains only for explicitly legacy human-driven channels.
     """
     thread = str(signal.get("thread", ""))
     turn = str(signal.get("turn", ""))
     seq = int(signal.get("seq", 0))
     holder = _holder_note(lock)
 
+    problem = config.managed_problem()
+    if problem is not None:
+        return WatchStatus("INVALID", f"managed channel configuration is invalid: {problem}{holder}")
+
     if not thread:
         return WatchStatus("IDLE", "no open thread; nothing is waiting to be driven")
     if f"{thread}:{seq}" in set(state.get("escalated", [])):
         return WatchStatus("ESCALATED", f"seq {seq} escalated on {thread!r}; supervisor action required{holder}")
     if not turn:
+        if config.managed_version is not None:
+            return WatchStatus(
+                "INVALID",
+                f"managed thread {thread!r} has no party turn; no adapter can drive it{holder}",
+            )
         return WatchStatus("MANUAL", f"thread {thread!r} has no turn (supervisor opener); no seat is due{holder}")
     if config.command_for(turn) is None:
+        if config.managed_version is not None:
+            return WatchStatus(
+                "INVALID",
+                f"managed turn {turn!r} has no adapter command; the channel cannot be driven{holder}",
+            )
         return WatchStatus(
             "MANUAL",
             f"turn {turn!r} has no command configured; a live session answers this seat, "

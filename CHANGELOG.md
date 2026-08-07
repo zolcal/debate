@@ -6,6 +6,18 @@ Every release from v0.2.0 onward went through this project's own review channel 
 record is under [`collab/`](collab/), and the message numbers cited below are entries in
 it.
 
+## Unreleased
+
+### Changed
+
+- Newly named channels are `managed_version: 1`, default to a 12-entry thread cap,
+  and require watcher commands for both arbitrary party names. Existing explicit caps
+  remain unchanged; configs without the managed marker remain readable as legacy/manual
+  history.
+- Managed missing-command and turnless-open states are `INVALID`, never healthy
+  `MANUAL`; `watch-status` returns the shared needs-attention exit code. Both headless
+  seats default to zero debounce in the shipped examples.
+
 ## v0.4.0 — 2026-08-05
 
 **A channel now knows its own name, and which project it serves.** The headline is that

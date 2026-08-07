@@ -65,6 +65,20 @@ def test_a_valid_config_still_loads(tmp_path: Path) -> None:
     assert config.retry_seconds == 1800
 
 
+def test_named_managed_channel_binds_both_arbitrary_party_commands(tmp_path: Path) -> None:
+    root = tmp_path / "ch"
+    channel.init_channel(root, parties=("kimi", "glm"), supervisor="owner", name="pair-11111")
+    raw = valid_config(tmp_path)
+    raw["commands"] = {"kimi": ["kimi", "-p"], "glm": ["glm-agent"]}
+    path = write_config(tmp_path, raw)
+
+    config = _watcher_config(root, path, "pair-11111")
+
+    assert config.managed_version == 1
+    assert config.parties == ("kimi", "glm")
+    assert config.managed_problem() is None
+
+
 def test_the_shipped_example_config_still_loads(tmp_path: Path) -> None:
     """The repo's own watcher.example.json must survive the new validation.
 
@@ -74,11 +88,13 @@ def test_the_shipped_example_config_still_loads(tmp_path: Path) -> None:
     example = Path(__file__).resolve().parent.parent / "watcher.example.json"
     if not example.exists():
         pytest.skip("no example config in this checkout")
-    root = make_channel(tmp_path)
+    root = tmp_path / "ch"
+    channel.init_channel(root, parties=("claude", "glm"), supervisor="owner", name="example-11111")
 
-    config = _watcher_config(root, example)
+    config = _watcher_config(root, example, "example-11111")
 
     assert config.prompts, "the example must still yield prompts"
+    assert config.managed_problem() is None
 
 
 def test_missing_config_file_refuses(tmp_path: Path) -> None:

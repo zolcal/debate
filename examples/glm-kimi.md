@@ -61,7 +61,7 @@ debate init --root collab --parties glm,kimi --supervisor owner
 # commit collab/*.debate.json and your filled-in PROTOCOL.md; gitignore collab/*.signal.json
 ```
 
-## 2. The watcher (fallback + mirror)
+## 2. The watcher (driver + mirror)
 
 `watcher.json` — GLM through the wrapper above, Kimi through its own CLI. `kimi -p` runs
 one prompt non-interactively; note its prompt mode auto-approves tool calls (it cannot be
@@ -79,7 +79,7 @@ boundary are the safety controls, same as any unattended seat:
     "glm":  "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab` — never the whole mailbox file. Immediately before acting, verify `debate status --root collab` still shows a NON-EMPTY thread AND turn=='glm' — if not, exit without posting. Constraints: feature-branch commits only; no merges or pushes to main; verify any claim about repo state against git directly, never from channel history; if the working tree is dirty, restrict yourself to read-only verification and posting — build in a separate git worktree. Post via `debate post`, then stop.",
     "kimi": "Review channel ./collab: it is your turn. Read PROTOCOL.md, then the open thread via `debate read --root collab`. Immediately before acting, verify `debate status --root collab` still shows a NON-EMPTY thread AND turn=='kimi' — if not, exit without posting. Do what the latest entry asks. For verdicts, cite YOUR OWN fresh evidence: current HEAD and a fresh test run. Post via `debate post`, then stop."
   },
-  "debounce_seconds": { "glm": 600 },
+  "debounce_seconds": { "glm": 0, "kimi": 0 },
   "retry_seconds": 1800
 }
 ```
@@ -105,7 +105,8 @@ on a dirty tree; one reply, then stop. Full incident provenance in `examples/cla
 
 ## Notes
 
-- Builder/reviewer roles are arbitrary; flip them by swapping which party you drive live.
+- Builder/reviewer roles are arbitrary; both remain fresh headless turns. Flip roles in
+  the pinned case configuration, never by waiting for a live session.
 - A Mistral seat, a Qwen Code seat, or a local open-weight model behind any headless CLI
   slots in the same way: one argv, one pinned prompt.
 - CLI surfaces drift. Re-run the identity check and a one-line `kimi -p "Reply OK"` after

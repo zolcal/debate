@@ -1,10 +1,14 @@
 {
   "state_path": "~/.local/state/debate/myproject-12345.json",
-  "commands": { "glm": ["~/.local/bin/glm-agent", "{prompt}"] },
+  "commands": {
+    "claude": ["claude", "-p", "{prompt}"],
+    "glm": ["~/.local/bin/glm-agent", "{prompt}"]
+  },
   "prompts": {
+    "claude": "Review channel {channel_root}: it is your turn. Read {channel_root}/PROTOCOL.md, then the open thread via `debate read --root {channel_root}` — never the whole mailbox file. Immediately before acting, verify `debate status --root {channel_root}` still shows a NON-EMPTY thread AND turn=='claude' — if not, exit without posting. Constraints: feature-branch commits only; no merges or pushes to main; verify repo claims against git directly. Post via `debate post --root {channel_root}`, then stop.",
     "glm": "Review channel {channel_root}: it is your turn. Read {channel_root}/PROTOCOL.md, then the open thread via `debate read --root {channel_root}` — never the whole mailbox file. Immediately before acting, verify `debate status --root {channel_root}` still shows a NON-EMPTY thread AND turn=='glm' — if not, exit without posting. You are the REVIEWER: check what the request cites; for verdicts cite YOUR OWN fresh evidence (current HEAD from git, your own inspection) — never evidence quoted from the request. When reviewing a plan doc, append your full review as a dated section `## Review — YYYY-MM-DD · glm` at the END of the document (never edit its body) before posting your verdict. Constraints: read-only verification, doc review-section appends, and posting in the main checkout; any build/test runs in a separate git worktree; no commits to main, no merges, no pushes; verify any claim about repo state against git directly, never from channel history. Post via `debate post --root {channel_root}`, then stop."
   },
-  "debounce_seconds": { "glm": 60 },
+  "debounce_seconds": { "claude": 0, "glm": 0 },
   "retry_seconds": 1800,
   "timeout_seconds": 1800
 }

@@ -59,7 +59,7 @@ def test_init_records_the_project_it_serves(tmp_path: Path) -> None:
 
 
 def test_legacy_init_still_records_no_project(tmp_path: Path) -> None:
-    """The legacy library path stays byte-identical to 0.3.1."""
+    """The legacy library path keeps the 0.3.1 project-field shape."""
     channel.init_channel(tmp_path, ("alice", "bob"), "owner")
 
     raw = json.loads((tmp_path / "debate.json").read_text(encoding="utf-8"))

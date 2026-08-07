@@ -50,6 +50,7 @@ CONFIG_NAME = "debate.json"
 CHANNEL_NAME = "CHANNEL.md"
 SIGNAL_NAME = "signal.json"
 LOCK_NAME = ".lock"
+MANAGED_VERSION = 1
 
 # Writers (post, compact) serialize on a transient lock file. A holder that
 # crashed is assumed dead after the stale window — both operations complete
@@ -107,9 +108,10 @@ class ChannelConfig:
 
     parties: tuple[str, str]
     supervisor: str
-    thread_cap: int = 8
+    thread_cap: int = 12
     name: str | None = None
     project: str | None = None
+    managed_version: int | None = None
 
     def __post_init__(self) -> None:
         names = (*self.parties, self.supervisor)
@@ -120,6 +122,11 @@ class ChannelConfig:
                 raise ChannelError(f"invalid party name {name!r} (lowercase alphanumerics and dashes)")
         if self.thread_cap < 2:
             raise ChannelError("thread_cap must be >= 2 (a request and a reply)")
+        if isinstance(self.managed_version, bool) or self.managed_version not in (None, MANAGED_VERSION):
+            raise ChannelError(
+                f"unsupported managed_version {self.managed_version!r}; "
+                f"this release supports only {MANAGED_VERSION}"
+            )
 
     def other(self, party: str) -> str:
         a, b = self.parties
@@ -311,21 +318,32 @@ def init_channel(
     root: Path,
     parties: tuple[str, str],
     supervisor: str,
-    thread_cap: int = 8,
+    thread_cap: int = 12,
     name: str | None = None,
+    managed_version: int | None = None,
 ) -> ChannelConfig:
     """Create a channel: config + empty mailbox + fresh doorbell.
 
     With ``name`` the files carry the id prefix (``<name>.debate.json``,
     ``<name>.channel.md``, ``<name>.signal.json``), so several channels can
-    coexist in one folder. Without it, the legacy 0.3.1 layout is written
-    unchanged — existing library callers keep their exact behavior.
+    coexist in one folder. Without it, the legacy 0.3.1 filenames and absent
+    managed marker are preserved; the corrected default cap is 12 everywhere.
     """
     if name is not None and not _SLUG_RE.fullmatch(name):
         raise ChannelError(f"invalid channel name {name!r} (lowercase alphanumerics and dashes)")
     project = _derived_project(root) if name is not None else None
+    # Every newly named channel is managed. The unnamed library path exists
+    # only for 0.3.x compatibility; migration preserves its absent marker so
+    # an old human-driven channel is never silently reclassified.
+    if name is not None and managed_version is None:
+        managed_version = MANAGED_VERSION
     config = ChannelConfig(
-        parties=parties, supervisor=supervisor, thread_cap=thread_cap, name=name, project=project
+        parties=parties,
+        supervisor=supervisor,
+        thread_cap=thread_cap,
+        name=name,
+        project=project,
+        managed_version=managed_version,
     )
     root.mkdir(parents=True, exist_ok=True)
     config_path = _config_path(root, name)
@@ -338,10 +356,11 @@ def init_channel(
         "thread_cap": config.thread_cap,
     }
     if name is not None:
-        # A named channel records the project it serves; the legacy library
-        # path stays byte-identical to 0.3.1 and records nothing new.
+        # A named channel records the project and managed version it serves;
+        # the legacy library path keeps the old shape and records neither.
         payload["name"] = name
         payload["project"] = project
+        payload["managed_version"] = config.managed_version
     _atomic_write(config_path, json.dumps(payload, indent=2))
     mailbox_path(root, name).touch()
     _atomic_write(_signal_path(root, name), json.dumps(_fresh_signal(), indent=2))
@@ -361,12 +380,21 @@ def load_config(root: Path, name: str | None = None) -> ChannelConfig:
             f"which disagrees with its filename; fix the config before using this channel"
         )
     project = raw.get("project")
+    managed_version = raw.get("managed_version")
+    if isinstance(managed_version, bool) or (
+        managed_version is not None and not isinstance(managed_version, int)
+    ):
+        raise ChannelError(
+            f"refused: {_config_path(root, name).name} records invalid "
+            f"managed_version {managed_version!r}"
+        )
     return ChannelConfig(
         parties=(str(parties[0]), str(parties[1])),
         supervisor=str(raw["supervisor"]),
-        thread_cap=int(raw.get("thread_cap", 8)),
+        thread_cap=int(raw.get("thread_cap", 12)),
         name=name,
         project=str(project) if project is not None else None,
+        managed_version=managed_version,
     )
 
 

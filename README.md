@@ -52,7 +52,7 @@ mailbox is the two files above. Channels created by 0.3.x use the older fixed fi
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-dark.svg">
-    <img alt="The channel is two files in a shared directory: an append-only record that acts as the hansard, and a doorbell holding sequence number, whose turn it is, and which thread is open. A builder agent and a reviewer agent — deliberately from different vendors — each post and read through one writer that enforces turns, one open thread at a time, and message caps. A dumb cron watcher polls the doorbell every minute, prints new entries, and wakes whichever agent's turn it is with a pinned, debounced prompt. The human supervisor sees every entry and owns the merges, never acting as courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="820">
+    <img alt="The channel is two files in a shared directory: an append-only record that acts as the hansard, and a doorbell holding sequence number, whose turn it is, and which thread is open. A builder agent and a reviewer agent — deliberately from different vendors — each post and read through one writer that enforces turns, one open thread at a time, and message caps. A dumb cron watcher polls the doorbell every minute, prints new entries, and wakes whichever headless agent's turn it is with a pinned, zero-debounce prompt. The human supervisor sees every entry and owns the merges, never acting as courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="820">
   </picture>
 </p>
 
@@ -99,8 +99,9 @@ it auditable is enforced by the tool.
 ```bash
 pip install debate        # Python 3.10+, stdlib only — or just vendor the two modules
 
-# Create the mailbox: two agents named claude and glm, plus you as supervisor.
+# Create a managed mailbox: two headless agents named claude and glm, plus you as supervisor.
 # Prints the generated channel id, e.g. 'myproject-48213' (--label overrides the prefix).
+# New channels record managed_version 1 and default to a 12-entry thread cap.
 debate init --root ./collab --parties claude,glm --supervisor owner
 
 # The builder asks for a review:
@@ -132,9 +133,15 @@ config file:
 ```json
 {
   "state_path": "/somewhere/outside/the/channel/watcher-state-myproject.json",
-  "commands": { "claude": ["claude", "-p", "{prompt}"] },
-  "prompts":  { "claude": "It is your turn on the review channel at ./collab. Read the open thread, act, post via debate, then stop." },
-  "debounce_seconds": { "claude": 600 },
+  "commands": {
+    "claude": ["claude", "-p", "{prompt}"],
+    "glm": ["glm-agent", "{prompt}"]
+  },
+  "prompts": {
+    "claude": "It is your turn on the review channel at ./collab. Read the open thread, act, post via debate, then stop.",
+    "glm": "It is your turn on the review channel at ./collab. Read the open thread, act, post via debate, then stop."
+  },
+  "debounce_seconds": { "claude": 0, "glm": 0 },
   "retry_seconds": 1800
 }
 ```
@@ -158,10 +165,12 @@ Agents run in the watcher's own working directory — `cd` to your project root 
 "Start in" explicitly, or relative paths in your pinned prompts will resolve somewhere
 surprising.
 
-When nothing changed, nothing runs — no model is invoked, no tokens are spent. A party with
-no `commands` entry is never started automatically; that's how a human-driven side works
-(the watcher waits `debounce_seconds` first, so a live session gets the chance to answer
-before the machinery steps in).
+When nothing changed, nothing runs — no model is invoked, no tokens are spent. A managed
+channel requires one command for each of its two recorded parties. If either is absent,
+or an open managed thread has no party turn, `watch-status` reports **INVALID** and exits
+4; the watcher never represents that state as healthy or waits for a live human session.
+Configs without `managed_version` remain readable as legacy/manual history but must be
+reconfigured before managed unattended use. Headless seats normally use zero debounce.
 
 ### Running to completion
 
@@ -275,8 +284,8 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
 2. **Invoke once per doorbell change** — an agent that produced no reply gets one timed
    retry, then the human is pinged. Two agents in a refusal loop would burn money forever;
    the cap is the brake.
-3. **Wait before waking an agent** — a human may be mid-reply; the fallback should behave
-   like a fallback.
+3. **Drive every managed turn** — both parties have headless commands and normally zero
+   debounce; a missing command is INVALID, never a human fallback.
 4. **The watcher's memory lives outside the shared folder** — its state file is not part of
    the record and never collides with a fresh clone.
 5. **The supervisor can speak at any time without taking a turn** — the human interjecting

@@ -69,7 +69,23 @@ def test_every_status_verdict_detail_is_ascii(tmp_path: Path) -> None:
             seen.add(result.verdict)
             _assert_ascii(f"{result.verdict}: {result.detail}", f"verdict {result.verdict}")
 
-    assert seen == {"IDLE", "DRIVING", "STALE", "MANUAL", "INVOKED", "ESCALATED"}, seen
+    invalid = status(
+        {"seq": 1, "turn": "alice", "thread": "t", "updated_at": "2026-08-03T09:00:00+00:00"},
+        {},
+        WatcherConfig(
+            channel_root=root,
+            state_path=tmp_path / "managed-state.json",
+            commands={"bob": ["echo"]},
+            managed_version=1,
+            parties=("bob", "alice"),
+        ),
+        NOW,
+        LockState(False, None, "", None),
+    )
+    seen.add(invalid.verdict)
+    _assert_ascii(f"{invalid.verdict}: {invalid.detail}", "verdict INVALID")
+
+    assert seen == {"IDLE", "DRIVING", "STALE", "MANUAL", "INVOKED", "ESCALATED", "INVALID"}, seen
 
 
 def test_refusal_messages_are_ascii(tmp_path: Path) -> None:

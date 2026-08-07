@@ -119,6 +119,7 @@ def _watcher_config(root: Path, config_path: Path, channel_name: str | None = No
             )
         commands[party] = list(argv)
 
+    channel_config = channel.load_config(root, channel_name)
     return WatcherConfig(
         channel_root=root,
         channel_name=channel_name,
@@ -131,12 +132,14 @@ def _watcher_config(root: Path, config_path: Path, channel_name: str | None = No
         },
         retry_seconds=_seconds(raw, "retry_seconds", 1800, config_path),
         timeout_seconds=_seconds(raw, "timeout_seconds", 1800, config_path),
+        managed_version=channel_config.managed_version,
+        parties=channel_config.parties,
     )
 
 
 # Verdicts that mean "a human should look now". Exit 4 matches `watch()`'s
 # escalation code, so an alerting scheduler treats both the same way.
-_NEEDS_ATTENTION = ("STALE", "ESCALATED")
+_NEEDS_ATTENTION = ("STALE", "ESCALATED", "INVALID")
 
 
 def _watch_status_report(root: Path, config_path: Path, grace: int, channel_name: str | None = None) -> int:
@@ -166,7 +169,12 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--root", type=Path, default=Path("."))
     p_init.add_argument("--parties", required=True, help="two comma-separated party names, e.g. claude,glm")
     p_init.add_argument("--supervisor", default="owner")
-    p_init.add_argument("--thread-cap", type=int, default=8)
+    p_init.add_argument(
+        "--thread-cap",
+        type=int,
+        default=12,
+        help="maximum entries in one thread (default: 12; explicit historical caps are preserved)",
+    )
     p_init.add_argument(
         "--label",
         default=None,
@@ -360,7 +368,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "migrate":
             channel_id = channel.migrate_channel(args.root, label=args.label)
             root_shown = args.root.resolve()
+            migrated_path = args.root / f"{channel_id}.debate.json"
+            migrated_raw = json.loads(migrated_path.read_text(encoding="utf-8"))
+            migrated_config = channel.load_config(args.root, channel_id)
+            cap_source = "explicit legacy config" if "thread_cap" in migrated_raw else "default (field absent)"
             print(f"migrated legacy channel at {root_shown} -> {channel_id!r}")
+            print(f"thread cap: {migrated_config.thread_cap} from {cap_source}")
             print("")
             print("The operator owes two edits before the next watcher tick:")
             print(f"  1. watcher config: rename the state_path file stem to {channel_id!r}")

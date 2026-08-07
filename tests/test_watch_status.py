@@ -142,6 +142,34 @@ def test_human_driven_turn_is_manual_never_stale(tmp_path: Path) -> None:
     assert "no command configured" in result.detail
 
 
+def test_managed_missing_command_is_invalid_not_manual(tmp_path: Path) -> None:
+    cfg = config(
+        tmp_path,
+        commands={"opus": ["agent"]},
+        managed_version=1,
+        parties=("opus", "codex"),
+    )
+
+    result = status(signal(turn="codex"), {}, cfg, NOW, FREE_LOCK)
+
+    assert result.verdict == "INVALID"
+    assert "missing adapter command" in result.detail
+
+
+def test_managed_turnless_open_thread_is_invalid(tmp_path: Path) -> None:
+    cfg = config(
+        tmp_path,
+        commands={"opus": ["agent-a"], "codex": ["agent-b"]},
+        managed_version=1,
+        parties=("opus", "codex"),
+    )
+
+    result = status(signal(turn=""), {}, cfg, NOW, FREE_LOCK)
+
+    assert result.verdict == "INVALID"
+    assert "no party turn" in result.detail
+
+
 def test_stale_verdict_names_the_lock_holder_when_one_is_live(tmp_path: Path) -> None:
     """During an incident the next question is always 'whose watcher is that?'.
     The pid is only quoted because the PROBE proved it live."""
@@ -255,6 +283,37 @@ def test_cli_watch_status_creates_no_files(tmp_path: Path, capsys: "pytest.Captu
     assert code == 0, "a channel with no open thread is IDLE, which is healthy"
     assert not state_path.exists(), "watch-status must never create the state file"
     assert not (tmp_path / "absent-state.json.lock").exists(), "watch-status must never create the lock file"
+
+
+def test_cli_managed_missing_command_reports_invalid_with_attention_exit(
+    tmp_path: Path, capsys: "pytest.CaptureFixture[str]"
+) -> None:
+    from debate import channel
+
+    root = tmp_path / "chan"
+    channel.init_channel(root, ("alpha", "beta"), "owner", name="managed-11111")
+    config_path = tmp_path / "watcher.json"
+    config_path.write_text(
+        '{"state_path":"' + str(tmp_path / "state.json") + '","commands":{"alpha":["echo"]}}',
+        encoding="utf-8",
+    )
+
+    code = main(
+        [
+            "watch-status",
+            "--root",
+            str(root),
+            "--channel",
+            "managed-11111",
+            "--config",
+            str(config_path),
+        ]
+    )
+
+    assert code == 4
+    output = capsys.readouterr().out
+    assert "INVALID" in output
+    assert "beta" in output
 
 
 def test_report_says_how_many_invocations_it_hid(tmp_path: Path) -> None:
