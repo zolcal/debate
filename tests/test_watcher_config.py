@@ -94,6 +94,9 @@ def test_the_shipped_example_config_still_loads(tmp_path: Path) -> None:
     config = _watcher_config(root, example, "example-11111")
 
     assert config.prompts, "the example must still yield prompts"
+    assert all(
+        f"--channel {config.state_path.stem}" in prompt for prompt in config.prompts.values()
+    ), "the state stem must identify the channel in every pinned prompt"
     assert config.managed_problem() is None
 
 

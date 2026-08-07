@@ -1,5 +1,5 @@
 {
-  "state_path": "/absolute/project/var/debate/myproject-12345/watcher-state.json",
+  "state_path": "/absolute/project/var/debate/myproject-12345/myproject-12345.json",
   "commands": {
     "claude": ["/absolute/path/to/claude", "-p", "{prompt}"],
     "glm": ["/absolute/path/to/glm-agent", "{prompt}"]
