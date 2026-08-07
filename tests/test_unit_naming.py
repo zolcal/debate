@@ -49,7 +49,7 @@ def test_the_unit_name_tracks_the_state_stem_not_the_channel_name(tmp_path: Path
 def test_protocol_states_the_one_channel_one_state_one_unit_rule() -> None:
     """The rule was a comment inside the unit file it described — invisible to
     anyone setting up the second channel."""
-    protocol = (REPO_ROOT / "collab" / "PROTOCOL.md").read_text(encoding="utf-8")
+    protocol = (REPO_ROOT / "PROTOCOL.md").read_text(encoding="utf-8")
 
     assert "one state file" in protocol.lower()
     assert "debate-watch-" in protocol, "the unit-naming convention must be written down"

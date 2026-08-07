@@ -1,10 +1,15 @@
 # Wiring a non-duopoly pairing: GLM + Kimi
 
-Two model backends, neither Anthropic nor OpenAI: GLM (Zhipu) as the builder, Kimi
+This is a managed-version 1 compatibility example using two model backends, neither
+Anthropic nor OpenAI: GLM (Zhipu) as the builder, Kimi
 (Moonshot) as the reviewer — coordinating through the same two-file mailbox as any other
 pairing. (GLM's documented harness is Claude Code; the *backend* is what escapes the
 duopoly, and the identity check below proves which backend answered.) The tool is
 vendor-neutral; only the `commands` and `prompts` in the watcher change.
+
+For a new isolated gate, wrap these CLIs as managed-version 2 structured adapters as
+described in the README. The version 1 permissions below expose the live Debate CLI and
+therefore do not prove sender binding or sealed context isolation.
 
 ## 0. The GLM seat: a wrapper, and why
 

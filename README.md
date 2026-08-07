@@ -56,8 +56,9 @@ mailbox is the two files above. Channels created by 0.3.x use the older fixed fi
   </picture>
 </p>
 
-One command-line tool, `debate post`, is the only thing that writes to either file — and it
-*enforces* the rules instead of politely asking: you can't post out of turn, you can't open
+One channel writer is the only code that writes to either file — whether called by the
+legacy `debate post` surface or the brokered controller — and it *enforces* the rules
+instead of politely asking: you can't post out of turn, you can't open
 a second discussion while one is open, and a runaway back-and-forth gets cut off by a
 message cap. A small scheduled job wakes whichever agent the doorbell points at. No server,
 no message broker, no API keys, no framework to adopt.
@@ -124,6 +125,71 @@ protocol.
 
 ## Running it unattended
 
+There are two recorded managed versions. **Version 2 is the brokered path for new isolated
+gates.** Version 1 is retained so existing two-command channels keep working, but those
+agents receive the channel path and self-post with `--from`; it does not provide sender
+binding or context isolation.
+
+### Brokered managed version 2
+
+Initialize the channel explicitly as brokered, then fill in
+[`watcher.brokered.example.json`](watcher.brokered.example.json). Party names are arbitrary;
+the two `adapters` keys must exactly match the addressed channel.
+
+```bash
+debate init --root ./collab --parties party-a,party-b --supervisor owner --brokered
+
+# Use the generated id and a full, already-existing 40-character commit SHA in the config.
+# This validates topology, cost mode, profile hashes and timing without invoking a model.
+debate adapter-doctor --root ./collab --channel <id> --config watcher.json
+
+# The controller snapshots the case, posts a neutral supervisor docket, and assigns a seat.
+debate broker-open --root ./collab --channel <id> --config watcher.json \
+  --thread feature-x --first-seat party-b --refs feature-x@<sha> \
+  --body-file review-docket.md
+
+debate watch-once --root ./collab --channel <id> --config watcher.json
+
+# After a fix, update source_ref/docket files in the config and snapshot them before
+# another seat runs. This supervisor entry does not steal or change the party turn.
+debate broker-revise --root ./collab --channel <id> --config watcher.json \
+  --thread feature-x --refs feature-x@<new-sha> --body "Revision ready after fixes."
+```
+
+Each profile records its provider/model, reasoning setting, CLI version, authentication
+mode, cost mode,
+permission policy and relationship to the artifact author. Exactly one independent seat is
+the minimum two-agent topology: the other seat is honestly labeled an isolated
+author-affiliated self-review. Two independent seats are the recommended three-agent
+topology, where the interactive author/controller is outside both debate seats. The core
+never infers either topology from names such as Opus, Codex, GLM or Kimi.
+
+Before the neutral docket is posted, the controller creates two separate read-only exports
+of the complete tracked repository at the pinned commit. `collab/`, `var/` and `.git` are
+separated; tracked project settings stay present as evidence but live settings sources are
+refused. Each seat gets a clean project-local HOME/cache/temp area, an allowlisted
+environment, a Git discovery ceiling, the immutable docket revision, and a controller-owned
+result path. Gitignored cited files such as a plan or `watcher.json` are materialized and
+hashed separately. Stdout/stderr are diagnostics only; the result must be schema-versioned
+JSON, may not contain `sender`, and is posted under the bound seat by the controller.
+`broker-revise` maintains a content-addressed revision chain and blocks invocation if a
+revision was only half-recorded; verdict provenance therefore never points only at a mutable
+gitignored filename.
+
+The runtime lives below `<project>/var/debate/<channel>/`, never `.pytest_cache` or another
+tool cache. `adapter-doctor` prints the unconstrained schedule estimate and the enforced
+whole-case deadline from the same timing calculation; adapter timeouts above 60 minutes or
+an absent deadline are refused. It also prints `cost_mode` before any future smoke can spend
+money.
+
+This is strong protection against accidental contamination, not a claim that a same-user
+process is hostile-code safe. Read-only permissions, a clean environment, Git ceiling and
+canaries are mechanically checked; an `isolation_mode: advisory` profile can still read an
+absolute host path if the selected CLI/tool sandbox permits it. Use `os-enforced` only when
+an external sandbox actually denies those reads.
+
+### Managed version 1 compatibility
+
 `debate watch-once` is one tick of a deliberately simple watcher. Put it on a schedule
 (cron, every minute): it checks the doorbell, prints any new messages to stdout —
 route that wherever you already look, a log file or a chat gateway — and, if it's an
@@ -166,11 +232,13 @@ Agents run in the watcher's own working directory — `cd` to your project root 
 surprising.
 
 When nothing changed, nothing runs — no model is invoked, no tokens are spent. A managed
-channel requires one command for each of its two recorded parties. If either is absent,
+version 1 channel requires one command for each of its two recorded parties. If either is absent,
 or an open managed thread has no party turn, `watch-status` reports **INVALID** and exits
 4; the watcher never represents that state as healthy or waits for a live human session.
 Configs without `managed_version` remain readable as legacy/manual history but must be
-reconfigured before managed unattended use. Headless seats normally use zero debounce.
+reconfigured before managed unattended use. Managed version 2 instead requires exactly two
+brokered adapter profiles and refuses direct party posts. Headless seats normally use zero
+debounce.
 
 ### Running to completion
 
@@ -263,6 +331,10 @@ Be precise about what this tool guarantees, especially before running agents una
   (the mailbox entry always lands before the doorbell rings, so a watcher can never read a
   half-written message). An agent that breaks these rules gets its post *refused*, not a
   warning.
+- **Broker-enforced for managed version 2:** exact party/profile binding, at least one
+  author-independent seat, a full pinned source export with no reachable parent Git store,
+  immutable docket/profile/config hashes, clean environment and project-local runtime,
+  controller-owned sender, and schema-validated result files.
 - **Advisory, soft:** everything an agent does *outside* the mailbox. "Don't push to main",
   "don't touch the config" — if those live in a prompt, you are trusting the model to
   comply. The tool can force *when* an agent speaks. It cannot force what the agent says to
@@ -292,6 +364,8 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
    never breaks the agents' alternation.
 6. **The mailbox is the record** — if it didn't happen in the channel file, it didn't
    happen. Corrections are new messages, never edits.
+7. **A brokered seat never self-posts** — it receives no live channel path; the controller
+   validates its result file and derives the sender from the configured seat.
 
 ## Why not just…
 

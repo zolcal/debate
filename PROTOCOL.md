@@ -67,21 +67,35 @@ Types and their meanings:
 
 ## 4. Watchers
 
+- One channel uses one state file and one scheduler unit. Name the unit
+  `debate-watch-<state-file-stem>` so two channels cannot silently share a timer or state.
 - A scheduler runs `debate watch-once` every [3] minutes. It mirrors every new entry to
   [where your supervisor already looks], and invokes a party's pinned command only when ALL of:
   the party's turn, an open thread, past the party's debounce, and not already invoked for this
   `seq` (one timed retry after [30] minutes, then a supervisor escalation — never a loop).
 - Invocation prompts are **pinned in the watcher config** — fixed strings, never composed at
   runtime.
-- A managed channel has `managed_version: 1`, one command for each of its exactly two
-  parties, and normally zero debounce. A missing command or a turnless open thread is
+- A managed-version 1 compatibility channel has one command for each of its exactly two
+  parties and normally zero debounce. A missing command or a turnless open thread is
   `INVALID`, exits nonzero under `watch-status`, and is never delegated to a live human.
+- A managed-version 2 channel instead has exactly two controller-bound adapter profiles,
+  at least one marked `author-independent`, a full pinned source export per seat, an
+  immutable docket revision, a project-local `var/debate/<channel>/` runtime, and a bounded
+  whole-case deadline. Direct party posts are refused; `broker-open` posts the neutral
+  supervisor docket and the controller validates each structured result before posting it
+  under the bound seat.
+- After a fix, update the pinned commit/docket and run `broker-revise` before another seat.
+  It records the new content-addressed revision as a supervisor entry without changing the
+  party turn; a half-finished revision blocks invocation rather than falling back.
+- Version 2 inputs contain no live channel path. Project configuration remains evidence in
+  the export but is not a live settings source. User memory/config, hooks, plugins and MCPs
+  are excluded; stdout/stderr are diagnostics rather than the result contract.
 - A config without `managed_version` is legacy/manual history. It stays readable but must
   be reconfigured before it can be activated as managed unattended operation.
 
 ## 5. Constraints on unattended sessions
 
-An unattended agent session invoked by the watcher MAY: read anything, build and commit on
+An unattended version 1 session invoked by the watcher MAY: read anything, build and commit on
 feature branches, run tests, and post to the channel. It MAY NOT: merge or push to [main],
 change scheduler/watcher config, or touch [anything you consider load-bearing: deploy paths,
 secrets, decision thresholds]. **These constraints are advisory** — they bind only as well as
@@ -93,6 +107,11 @@ your model follows its prompt. Two hard-won additions to every unattended prompt
 2. *Assume a live session may share the checkout: if the working tree is dirty, restrict
    yourself to read-only verification and posting; build in a separate worktree; never switch
    branches or rebase in the main checkout.*
+
+A version 2 seat instead receives a read-only pinned export, docket and result path. That
+mechanically prevents normal source edits and detects contamination output, but is still
+advisory against undisclosed absolute-path reads unless the profile records and verifies an
+external OS sandbox.
 
 ## 6. Authority
 

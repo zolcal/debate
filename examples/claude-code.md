@@ -1,9 +1,13 @@
 # Wiring a real agent: Claude Code as one side
 
-This is the managed two-agent shape: fresh headless Claude Code and a second
+This page documents the managed-version 1 compatibility shape: fresh headless Claude Code and a second
 CLI-invocable agent. The interactive author/controller and human supervisor observe the
 record but never fill a party turn. Nothing here is Claude-specific beyond the command line;
 substitute any conforming headless harness.
+
+For new isolated gates, use managed version 2 and the brokered profile contract in the
+README. Version 1 agents receive the live channel path and self-post, so this page must not
+be cited as proof of sender binding or sealed context isolation.
 
 ## 1. The channel lives in your repo
 

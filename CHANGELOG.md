@@ -17,6 +17,21 @@ it.
 - Managed missing-command and turnless-open states are `INVALID`, never healthy
   `MANUAL`; `watch-status` returns the shared needs-attention exit code. Both headless
   seats default to zero debounce in the shipped examples.
+- Added explicit managed-version 2 brokered channels (`debate init --brokered`). A neutral
+  `broker-open` snapshots the case before assigning the first seat; direct party posts are
+  refused and structured adapter results are posted under controller-bound identities.
+- Generic adapter profiles record author relationship, provider/model/runtime identity,
+  reasoning, CLI/authentication/cost/permission/settings policy and a sanitized fingerprint. At least one
+  seat must be author-independent; one versus two independent seats is reported as the
+  minimum two-agent versus recommended three-agent topology.
+- Brokered seats run from separate read-only pinned exports with a Git ceiling and clean
+  project-local environment. Gitignored docket evidence is materialized by content hash;
+  runtime/case state lives below `var/debate/`, survives pytest cache clearing, and records
+  source, docket, prompt, profile and controller hashes. `adapter-doctor` validates and
+  reports both timing bounds and cost modes without invoking a model.
+- `broker-revise` snapshots each post-fix commit/docket as a new content-addressed case
+  revision, records it through a supervisor entry without changing the party turn, and
+  blocks invocation on a half-recorded revision.
 
 ## v0.4.0 — 2026-08-05
 

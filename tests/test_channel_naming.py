@@ -118,11 +118,24 @@ def test_unknown_or_malformed_managed_version_refuses(tmp_path: Path) -> None:
     path = tmp_path / "alpha-11111.debate.json"
     raw = json.loads(path.read_text(encoding="utf-8"))
 
-    for value in (2, True, "1"):
+    for value in (3, True, "1"):
         raw["managed_version"] = value
         path.write_text(json.dumps(raw), encoding="utf-8")
         with pytest.raises(ChannelError, match="managed_version"):
             channel.load_config(tmp_path, name="alpha-11111")
+
+
+def test_brokered_managed_version_two_is_explicit_and_supported(tmp_path: Path) -> None:
+    config = channel.init_channel(
+        tmp_path,
+        ("alice", "bob"),
+        "owner",
+        name="alpha-11111",
+        managed_version=channel.BROKERED_MANAGED_VERSION,
+    )
+
+    assert config.managed_version == 2
+    assert channel.load_config(tmp_path, name="alpha-11111").managed_version == 2
 
 
 def test_named_channel_round_trips_config_signal_and_post(tmp_path: Path) -> None:

@@ -183,6 +183,23 @@ def test_managed_pair_refuses_zero_or_more_than_two_bindings(tmp_path: Path) -> 
         assert decision.escalate is not None
 
 
+def test_brokered_version_two_without_profiles_fails_closed_even_with_direct_commands(
+    tmp_path: Path,
+) -> None:
+    cfg = config(
+        tmp_path,
+        commands={"opus": ["agent-a"], "codex": ["agent-b"]},
+        managed_version=2,
+        parties=("opus", "codex"),
+    )
+
+    decision = decide(signal(turn="opus"), {}, cfg, NOW)
+
+    assert decision.invoke is None
+    assert decision.escalate is not None
+    assert "managed-version 2" in decision.escalate
+
+
 def test_watcher_auto_binds_the_managed_contract_from_a_named_channel(tmp_path: Path) -> None:
     root = tmp_path / "collab"
     init_channel(root, ("opus", "codex"), "owner", name="managed-11111")

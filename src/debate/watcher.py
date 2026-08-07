@@ -12,11 +12,12 @@ Design rules, each one paid for in production (see docs/case-study):
   invocation on an empty mailbox.
 - **Once per seq.** An invocation that produced no reply is retried once
   after ``retry_seconds``, then escalated to the supervisor — never looped.
-- **Managed pairs drive every turn.** Newly named channels require commands
-  for both parties and normally use zero debounce. Legacy/manual channels may
-  retain a debounce, but cannot be mistaken for managed unattended operation.
-- **Fixed prompts.** The command and prompt for each party are pinned in
-  config — the watcher never composes free-form instructions.
+- **Managed pairs drive every turn.** Version 1 requires direct commands for
+  both parties. Version 2 requires controller-bound adapter profiles. Both
+  normally use zero debounce; neither can become a live-session fallback.
+- **Brokered inputs.** Version 2 centrally renders phase-limited input and
+  validates a result file; the seat receives no live channel path and never
+  selects its sender. Version 1 fixed prompts remain compatibility behavior.
 - **State lives outside the channel.** The watcher's memory (last seen seq,
   invocation counts) must not pollute the shared channel directory. Enforced
   at config construction: a ``state_path`` that resolves inside
@@ -35,7 +36,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from debate.channel import ChannelError, load_config
+from debate.channel import BROKERED_MANAGED_VERSION, MANAGED_VERSION, ChannelError, load_config
+from debate.controller import AdapterError, BrokerConfig, BrokerController
 
 # Windows: suppress the console window a scheduled invocation would flash.
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -52,13 +54,14 @@ _LOCK_BYTE_OFFSET = 1 << 16  # 65536 - orders of magnitude past a 3-line note
 
 @dataclass(frozen=True)
 class WatcherConfig:
-    """Per-party invocation commands plus timing knobs.
+    """Per-party direct commands or a brokered controller, plus timing knobs.
 
     ``commands`` maps party name -> argv list. The placeholder ``{prompt}``
     in any argv element is replaced with that party's pinned prompt from
     ``prompts``. Legacy channels may omit a command for a human-driven party.
-    Managed channels require commands for both recorded parties and report an
-    invalid configuration instead of silently waiting for a live session.
+    Managed version 1 requires commands for both recorded parties. Managed
+    version 2 requires exactly two brokered profiles. Both report an invalid
+    configuration instead of silently waiting for a live session.
     """
 
     channel_root: Path
@@ -71,6 +74,7 @@ class WatcherConfig:
     channel_name: str | None = None  # instance id; None = legacy layout
     managed_version: int | None = None
     parties: tuple[str, str] | None = None
+    broker: BrokerConfig | None = None
 
     def __post_init__(self) -> None:
         # Library callers must not be able to accidentally treat a named
@@ -100,12 +104,33 @@ class WatcherConfig:
         for party, argv in self.commands.items():
             if not all(isinstance(part, str) for part in argv):
                 raise ChannelError(f"refused: command for {party!r} has non-string elements: {argv!r}")
-        if isinstance(self.managed_version, bool) or self.managed_version not in (None, 1):
+        if isinstance(self.managed_version, bool) or self.managed_version not in (
+            None,
+            MANAGED_VERSION,
+            BROKERED_MANAGED_VERSION,
+        ):
             raise ChannelError(
-                f"refused: unsupported managed_version {self.managed_version!r}; this release supports only 1"
+                f"refused: unsupported managed_version {self.managed_version!r}; this release supports 1 and 2"
             )
         if self.managed_version is not None and self.parties is None:
             raise ChannelError("refused: a managed watcher must be bound to exactly two channel parties")
+        if self.broker is not None:
+            if self.managed_version != BROKERED_MANAGED_VERSION or self.channel_name is None or self.parties is None:
+                raise ChannelError("refused: brokered adapters require a named managed-version 2 channel")
+            if set(self.broker.profiles) != set(self.parties):
+                raise ChannelError(
+                    "refused: brokered adapter names must exactly match the two channel parties"
+                )
+            if self.commands:
+                raise ChannelError(
+                    "refused: do not mix direct commands with brokered adapter profiles"
+                )
+            runtime = self.broker.runtime_root.resolve()
+            state = self.state_path.resolve()
+            if not state.is_relative_to(runtime):
+                raise ChannelError(
+                    f"refused: brokered watcher state {state} must live below runtime_root {runtime}"
+                )
 
     def managed_problem(self) -> str | None:
         """Return the fail-closed configuration problem for a managed pair.
@@ -117,6 +142,18 @@ class WatcherConfig:
             return None
         assert self.parties is not None
         expected = set(self.parties)
+        if self.managed_version == BROKERED_MANAGED_VERSION and self.broker is None:
+            return "managed-version 2 requires two brokered adapter profiles"
+        if self.broker is not None:
+            configured_profiles = set(self.broker.profiles)
+            if configured_profiles != expected:
+                missing = sorted(expected - configured_profiles)
+                extra = sorted(configured_profiles - expected)
+                return (
+                    "brokered adapter bindings do not match channel parties "
+                    f"(missing={missing}, extra={extra})"
+                )
+            return None
         configured = set(self.commands)
         missing = sorted(expected - configured)
         extra = sorted(configured - expected)
@@ -128,6 +165,11 @@ class WatcherConfig:
         if empty:
             return f"empty adapter command for managed parties: {', '.join(empty)}"
         return None
+
+    def has_adapter(self, party: str) -> bool:
+        if self.broker is not None:
+            return party in self.broker.profiles
+        return self.command_for(party) is not None
 
     def command_for(self, party: str) -> list[str] | None:
         """Build the argv for a party, expanding placeholders in ONE fixed order.
@@ -185,7 +227,7 @@ def decide(
                 "invalid managed turnless thread",
             )
         return Decision(None, None, "no turn set")
-    if config.command_for(turn) is None:
+    if not config.has_adapter(turn):
         if config.managed_version is not None:
             return Decision(
                 None,
@@ -275,7 +317,7 @@ def status(
                 f"managed thread {thread!r} has no party turn; no adapter can drive it{holder}",
             )
         return WatchStatus("MANUAL", f"thread {thread!r} has no turn (supervisor opener); no seat is due{holder}")
-    if config.command_for(turn) is None:
+    if not config.has_adapter(turn):
         if config.managed_version is not None:
             return WatchStatus(
                 "INVALID",
@@ -762,9 +804,62 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
             output.append(f"STUCK: seq {seq} escalated; supervisor action required")
         _save_state(config.state_path, state)  # recorded before the expensive child
 
-    if decision.invoke:
+    if decision.invoke and config.broker is not None:
+        assert config.channel_name is not None  # brokered configs are named-only
+        attempt = int(dict(state.get("invocations", {}))[str(seq)]["count"])
+        transcript = [
+            {
+                "id": f"MSG-{entry.seq}",
+                "sender": entry.sender,
+                "type": entry.entry_type,
+                "refs": entry.refs,
+                "body": entry.body,
+            }
+            for entry in entries
+            if entry.thread == str(signal.get("thread", ""))
+        ]
+        try:
+            outcome = BrokerController(config.broker).invoke_and_post(
+                channel_root=config.channel_root,
+                channel_name=config.channel_name,
+                party=decision.invoke,
+                thread=str(signal.get("thread", "")),
+                sequence=seq,
+                attempt=attempt,
+                transcript=transcript,
+            )
+        except AdapterError as error:
+            if error.retryable:
+                output.append(f"invoked {decision.invoke} for seq {seq}: {error}")
+            else:
+                output.append(f"broker refused {decision.invoke} for seq {seq}: {error}")
+                output.append(
+                    f"ESCALATE: adapter profile for {decision.invoke!r} was rejected on "
+                    f"thread {signal.get('thread')!r}; inspect the project-local case diagnostics"
+                )
+                state = record_escalation(state, str(signal.get("thread", "")), seq)
+        except ChannelError as error:
+            output.append(f"broker refused {decision.invoke} for seq {seq}: {error}")
+            output.append(
+                f"ESCALATE: brokered case for {decision.invoke!r} cannot proceed on "
+                f"thread {signal.get('thread')!r}"
+            )
+            state = record_escalation(state, str(signal.get("thread", "")), seq)
+        else:
+            output.append(
+                f"brokered {outcome.party} for seq {seq}: {outcome.entry_id}, "
+                f"profile {outcome.profile_sha256}, runtime model {outcome.runtime_model}"
+            )
+
+        refreshed = channel.read_entries(config.channel_root, config.channel_name)
+        output.extend(new_entry_lines(refreshed, int(state.get("last_mirrored_seq", 0))))
+        state["last_mirrored_seq"] = max(
+            [int(state.get("last_mirrored_seq", 0)), *[e.seq for e in refreshed]]
+        )
+
+    elif decision.invoke:
         argv = config.command_for(decision.invoke)
-        assert argv is not None  # decide() only returns invocable parties
+        assert argv is not None  # decide() only returns invocable legacy/direct parties
         try:
             # No cwd override: the agent runs where the watcher runs. The
             # documented pattern is `cd <project> && debate watch-once --root

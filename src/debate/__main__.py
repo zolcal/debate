@@ -1,14 +1,16 @@
-"""CLI: ``python -m debate <init|post|status|read|compact|watch-once>``.
+"""CLI: ``python -m debate <init|post|broker-open|watch-once|status|read|compact>``.
 
 Deliberately stdlib-only and deliberately small: the protocol is the
-product; this is just a convenient way to speak it from a shell. Agents post
-through ``post`` (never by editing the channel files), humans check
-``status``, and any scheduler runs ``watch-once`` every 60s.
+product; this is just a convenient way to speak it from a shell. Version 1
+agents post through ``post``; version 2 adapters return a controller-owned
+result file and never self-post. Humans check ``status``, and any scheduler
+runs ``watch-once`` every 60s.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -16,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from debate import channel
+from debate.controller import AdapterProfile, BrokerConfig, BrokerController, TimingPolicy, doctor_lines
 from debate.watcher import WatcherConfig, read_status, run_once, watch
 
 
@@ -120,6 +123,54 @@ def _watcher_config(root: Path, config_path: Path, channel_name: str | None = No
         commands[party] = list(argv)
 
     channel_config = channel.load_config(root, channel_name)
+    broker: BrokerConfig | None = None
+    adapter_raw = _mapping(raw, "adapters", config_path)
+    if adapter_raw:
+        if channel_config.name is None or channel_config.project is None:
+            raise channel.ChannelError("refused: brokered adapters require a named project-bound channel")
+        for required in ("runtime_root", "source_ref", "whole_case_timeout_seconds"):
+            if required not in raw:
+                raise channel.ChannelError(
+                    f"refused: brokered watcher config {config_path} has no {required!r}"
+                )
+        profiles = {
+            str(party): AdapterProfile.from_mapping(str(party), profile)
+            for party, profile in adapter_raw.items()
+        }
+        if set(profiles) != set(channel_config.parties):
+            raise channel.ChannelError(
+                "refused: adapter profile names must exactly match the addressed channel parties"
+            )
+        docket_files_raw = raw.get("docket_files", [])
+        if not isinstance(docket_files_raw, list) or not all(
+            isinstance(item, str) for item in docket_files_raw
+        ):
+            raise channel.ChannelError(f"refused: {config_path}: 'docket_files' must be a list of paths")
+        canaries_raw = raw.get("contamination_canaries", {})
+        if not isinstance(canaries_raw, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in canaries_raw.items()
+        ):
+            raise channel.ChannelError(
+                f"refused: {config_path}: 'contamination_canaries' must map labels to strings"
+            )
+        ordered_profiles = (profiles[channel_config.parties[0]], profiles[channel_config.parties[1]])
+        timing = TimingPolicy(
+            thread_cap=channel_config.thread_cap,
+            scheduler_interval_seconds=_seconds(raw, "scheduler_interval_seconds", 60, config_path),
+            retry_seconds=_seconds(raw, "retry_seconds", 1800, config_path),
+            whole_case_timeout_seconds=_seconds(raw, "whole_case_timeout_seconds", 0, config_path),
+            profiles=ordered_profiles,
+        )
+        broker = BrokerConfig(
+            repository_root=Path(channel_config.project),
+            runtime_root=Path(str(raw["runtime_root"])).expanduser(),
+            source_ref=str(raw["source_ref"]),
+            profiles=profiles,
+            timing=timing,
+            config_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            docket_files=tuple(docket_files_raw),
+            contamination_canaries={str(key): str(value) for key, value in canaries_raw.items()},
+        )
     return WatcherConfig(
         channel_root=root,
         channel_name=channel_name,
@@ -134,6 +185,7 @@ def _watcher_config(root: Path, config_path: Path, channel_name: str | None = No
         timeout_seconds=_seconds(raw, "timeout_seconds", 1800, config_path),
         managed_version=channel_config.managed_version,
         parties=channel_config.parties,
+        broker=broker,
     )
 
 
@@ -180,6 +232,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="human-readable half of the generated channel id <label>-<NNNNN> "
         "(default: the enclosing repo's directory name)",
+    )
+    p_init.add_argument(
+        "--brokered",
+        action="store_true",
+        help="initialize managed-version 2: party entries must come through controller-bound adapters",
     )
 
     p_post = sub.add_parser("post", help="append an entry and bump the doorbell")
@@ -262,6 +319,41 @@ def main(argv: list[str] | None = None) -> int:
     p_watchloop.add_argument("--until-close", action="store_true", help="exit 0 when no thread is open")
     p_watchloop.add_argument("--max-ticks", type=_positive_int, default=None)
 
+    p_doctor = sub.add_parser(
+        "adapter-doctor",
+        help="validate brokered profiles, topology, cost mode, runtime placement, and timing without invocation",
+    )
+    p_doctor.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_doctor)
+    p_doctor.add_argument("--config", type=Path, required=True, help="brokered watcher config JSON")
+
+    p_broker_open = sub.add_parser(
+        "broker-open",
+        help="snapshot and open a neutral brokered review case; the supervisor authors the docket",
+    )
+    p_broker_open.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_broker_open)
+    p_broker_open.add_argument("--config", type=Path, required=True, help="brokered watcher config JSON")
+    p_broker_open.add_argument("--thread", required=True)
+    p_broker_open.add_argument("--first-seat", required=True)
+    p_broker_open.add_argument("--refs", default="")
+    broker_body = p_broker_open.add_mutually_exclusive_group(required=True)
+    broker_body.add_argument("--body")
+    broker_body.add_argument("--body-file", type=Path)
+
+    p_broker_revise = sub.add_parser(
+        "broker-revise",
+        help="snapshot and record a new artifact/docket revision without changing the party turn",
+    )
+    p_broker_revise.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_broker_revise)
+    p_broker_revise.add_argument("--config", type=Path, required=True, help="updated brokered watcher config JSON")
+    p_broker_revise.add_argument("--thread", required=True)
+    p_broker_revise.add_argument("--refs", default="")
+    revise_body = p_broker_revise.add_mutually_exclusive_group(required=True)
+    revise_body.add_argument("--body")
+    revise_body.add_argument("--body-file", type=Path)
+
     args = parser.parse_args(argv)
 
     try:
@@ -277,7 +369,15 @@ def main(argv: list[str] | None = None) -> int:
             if len(parties) != 2:
                 raise channel.ChannelError(f"--parties needs exactly two names, got {parties}")
             channel_id = channel.generate_channel_id(args.root, label=args.label)
-            channel.init_channel(args.root, (parties[0], parties[1]), args.supervisor, args.thread_cap, name=channel_id)
+            managed_version = channel.BROKERED_MANAGED_VERSION if args.brokered else channel.MANAGED_VERSION
+            channel.init_channel(
+                args.root,
+                (parties[0], parties[1]),
+                args.supervisor,
+                args.thread_cap,
+                name=channel_id,
+                managed_version=managed_version,
+            )
             print(
                 f"initialized channel {channel_id!r} at {args.root} "
                 f"(parties {parties[0]!r}/{parties[1]!r}, supervisor {args.supervisor!r})"
@@ -392,6 +492,39 @@ def main(argv: list[str] | None = None) -> int:
                 print(line)
         elif args.command == "watch-status":
             return _watch_status_report(args.root, args.config, args.grace, name)
+        elif args.command == "adapter-doctor":
+            config = _watcher_config(args.root, args.config, name)
+            if config.broker is None:
+                raise channel.ChannelError("refused: adapter-doctor requires an 'adapters' configuration")
+            for line in doctor_lines(config.broker):
+                print(line)
+        elif args.command == "broker-open":
+            config = _watcher_config(args.root, args.config, name)
+            if config.broker is None or name is None:
+                raise channel.ChannelError("refused: broker-open requires a named brokered channel")
+            text = args.body if args.body is not None else args.body_file.read_text(encoding="utf-8")
+            entry_id = BrokerController(config.broker).open_case(
+                channel_root=args.root,
+                channel_name=name,
+                thread=args.thread,
+                first_party=args.first_seat,
+                body=text,
+                refs=args.refs,
+            )
+            print(f"opened brokered case as {entry_id}; first seat {args.first_seat!r}")
+        elif args.command == "broker-revise":
+            config = _watcher_config(args.root, args.config, name)
+            if config.broker is None or name is None:
+                raise channel.ChannelError("refused: broker-revise requires a named brokered channel")
+            text = args.body if args.body is not None else args.body_file.read_text(encoding="utf-8")
+            entry_id = BrokerController(config.broker).revise_case(
+                channel_root=args.root,
+                channel_name=name,
+                thread=args.thread,
+                body=text,
+                refs=args.refs,
+            )
+            print(f"recorded brokered artifact revision as {entry_id}; party turn unchanged")
         elif args.command == "watch":
             try:
                 return watch(

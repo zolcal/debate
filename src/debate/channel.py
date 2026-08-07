@@ -7,7 +7,8 @@ different machines-in-principle) exchange messages through two files:
 - ``signal.json`` — the doorbell: tiny, machine-parseable, cheap to poll.
 
 Everything a watcher needs is in the doorbell; everything a human auditor
-needs is in the mailbox. All writes go through :func:`post` — the single
+needs is in the mailbox. All writes go through :func:`post` — called directly
+for legacy/version 1 channels and only by the controller for version 2 — the single
 place the protocol is *enforced* rather than requested:
 
 - **Turn alternation** binds within an open thread. An out-of-turn post is
@@ -51,6 +52,8 @@ CHANNEL_NAME = "CHANNEL.md"
 SIGNAL_NAME = "signal.json"
 LOCK_NAME = ".lock"
 MANAGED_VERSION = 1
+BROKERED_MANAGED_VERSION = 2
+SUPPORTED_MANAGED_VERSIONS = (MANAGED_VERSION, BROKERED_MANAGED_VERSION)
 
 # Writers (post, compact) serialize on a transient lock file. A holder that
 # crashed is assumed dead after the stale window — both operations complete
@@ -122,10 +125,10 @@ class ChannelConfig:
                 raise ChannelError(f"invalid party name {name!r} (lowercase alphanumerics and dashes)")
         if self.thread_cap < 2:
             raise ChannelError("thread_cap must be >= 2 (a request and a reply)")
-        if isinstance(self.managed_version, bool) or self.managed_version not in (None, MANAGED_VERSION):
+        if isinstance(self.managed_version, bool) or self.managed_version not in (None, *SUPPORTED_MANAGED_VERSIONS):
             raise ChannelError(
                 f"unsupported managed_version {self.managed_version!r}; "
-                f"this release supports only {MANAGED_VERSION}"
+                f"this release supports {SUPPORTED_MANAGED_VERSIONS}"
             )
 
     def other(self, party: str) -> str:
@@ -523,6 +526,8 @@ def post(
     refs: str = "",
     force: bool = False,
     name: str | None = None,
+    _brokered: bool = False,
+    _initial_turn: str | None = None,
 ) -> str:
     """Validate against the protocol, append the entry, bump the doorbell.
 
@@ -537,6 +542,22 @@ def post(
         raise ChannelError(f"refused: unknown entry type {entry_type!r} (one of {ENTRY_TYPES})")
     if sender != config.supervisor and sender not in config.parties:
         raise ChannelError(f"refused: unknown sender {sender!r} (parties {config.parties}, supervisor {config.supervisor!r})")
+    if config.managed_version == BROKERED_MANAGED_VERSION and sender in config.parties and not _brokered:
+        raise ChannelError(
+            "refused: managed party entries are controller-brokered; the adapter may not "
+            "self-assert --from or post directly"
+        )
+    if _initial_turn is not None:
+        if (
+            config.managed_version != BROKERED_MANAGED_VERSION
+            or sender != config.supervisor
+            or entry_type != "review-request"
+            or _initial_turn not in config.parties
+        ):
+            raise ChannelError(
+                "refused: an initial party turn is controller-only, supervisor-authored, "
+                "and valid only for a brokered review-request"
+            )
     if not _SLUG_RE.fullmatch(thread):
         raise ChannelError(f"refused: invalid thread slug {thread!r} (lowercase alphanumerics and dashes)")
     # The mailbox is re-parsed line-anchored by _HEADER_RE, so a BODY line in
@@ -602,6 +623,8 @@ def post(
             raise ChannelError(f"refused: not your turn (turn={signal['turn']}); double-posting is how loops start")
         if open_thread and thread != open_thread and not force:
             raise ChannelError(f"refused: thread '{open_thread}' is open; one thread at a time (force to override)")
+        if open_thread and _initial_turn is not None:
+            raise ChannelError("refused: a controller initial turn can only open a new thread")
         if open_thread and thread == open_thread and entry_type != "close":
             count = len(thread_entries(root, thread, name))
             if count >= config.thread_cap:
@@ -623,6 +646,8 @@ def post(
         # the first production deployment: see docs/case-study.)
         if entry_type == "close":
             new_turn = ""
+        elif _initial_turn is not None:
+            new_turn = _initial_turn
         elif sender == config.supervisor:
             new_turn = str(signal["turn"])
         else:
