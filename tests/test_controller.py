@@ -579,6 +579,12 @@ def test_profiles_refuse_live_user_settings_and_controller_owned_environment() -
     with pytest.raises(channel.ChannelError, match="inherit user/runtime configuration"):
         profile = make_profile("seat", "author-independent")
         AdapterProfile(**{**profile.__dict__, "environment_allowlist": ("CODEX_HOME",)})
+    with pytest.raises(channel.ChannelError, match="controller-owned environment"):
+        profile = make_profile("seat", "author-independent")
+        AdapterProfile(**{**profile.__dict__, "environment": {"GIT_DIR": "/host/repo/.git"}})
+    with pytest.raises(channel.ChannelError, match="controller-owned environment"):
+        profile = make_profile("seat", "author-independent")
+        AdapterProfile(**{**profile.__dict__, "environment": {"GIT_CONFIG_KEY_0": "include.path"}})
 
 
 def test_runtime_root_below_a_tool_cache_is_refused(tmp_path: Path) -> None:
@@ -608,6 +614,20 @@ def test_tampered_materialized_docket_is_refused_on_reuse(tmp_path: Path) -> Non
         materialize_docket(broker)
 
 
+def test_half_recorded_revision_blocks_the_next_adapter_invocation(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    controller._prepare_case("pending-case")
+    manifest_path = broker.runtime_root / "cases" / "pending-case" / "case.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["pending_revision"] = {"revision_sha256": "f" * 64}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(channel.ChannelError, match="half-finished broker-revise"):
+        controller._prepare_case("pending-case")
+
+
 def test_case_runtime_survives_pytest_cache_clear_and_profile_drift_is_refused(tmp_path: Path) -> None:
     repo, sha = make_repository(tmp_path)
     broker = make_broker(repo, sha)
@@ -620,7 +640,7 @@ def test_case_runtime_survives_pytest_cache_clear_and_profile_drift_is_refused(t
     shutil.rmtree(repo / ".pytest_cache")
     cache_env = dict(os.environ)
     cache_env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
-    cache_env["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
+    cache_env.pop("PYTEST_ADDOPTS", None)
     proc = _run([sys.executable, "-m", "pytest", "--cache-clear", "-q"], repo, env=cache_env)
 
     assert proc.returncode == 0, (proc.stdout, proc.stderr)

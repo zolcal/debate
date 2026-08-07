@@ -157,12 +157,15 @@ debate broker-revise --root ./collab --channel <id> --config watcher.json \
 ```
 
 Each profile records its provider/model, reasoning setting, CLI version, authentication
-mode, cost mode,
-permission policy and relationship to the artifact author. Exactly one independent seat is
+mode, cost mode, permission policy and relationship to the artifact author. Exactly one independent seat is
 the minimum two-agent topology: the other seat is honestly labeled an isolated
 author-affiliated self-review. Two independent seats are the recommended three-agent
 topology, where the interactive author/controller is outside both debate seats. The core
 never infers either topology from names such as Opus, Codex, GLM or Kimi.
+
+`expected_runtime_model` is optional because some CLIs do not expose a stable resolved ID.
+When omitted, Debate still records the returned runtime identity but cannot refuse silent
+model substitution; configure it whenever the adapter can report a falsifiable exact ID.
 
 Before the neutral docket is posted, the controller creates two separate read-only exports
 of the complete tracked repository at the pinned commit. `collab/`, `var/` and `.git` are
@@ -181,6 +184,10 @@ tool cache. `adapter-doctor` prints the unconstrained schedule estimate and the 
 whole-case deadline from the same timing calculation; adapter timeouts above 60 minutes or
 an absent deadline are refused. It also prints `cost_mode` before any future smoke can spend
 money.
+
+Completed case exports are intentionally read-only and Debate never deletes provenance
+automatically. Project cleanup must first restore owner write permission within the exact
+completed `var/debate/<channel>/` case directory, then remove only that validated directory.
 
 This is strong protection against accidental contamination, not a claim that a same-user
 process is hostile-code safe. Read-only permissions, a clean environment, Git ceiling and

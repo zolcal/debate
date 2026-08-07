@@ -45,6 +45,16 @@ _RESERVED_ENV = {
     "TEMP",
     "TMP",
     "GIT_CEILING_DIRECTORIES",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_INDEX_FILE",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_COUNT",
     "PYTEST_ADDOPTS",
     "PYTHONDONTWRITEBYTECODE",
 }
@@ -157,13 +167,21 @@ class AdapterProfile:
             )
         if isinstance(self.retry_limit, bool) or self.retry_limit not in (0, 1):
             raise channel.ChannelError(f"refused: retry_limit for {self.party!r} must be 0 or 1")
-        overlap = sorted(_RESERVED_ENV.intersection(self.environment))
+        overlap = sorted(
+            key
+            for key in self.environment
+            if key in _RESERVED_ENV or key.startswith("GIT_CONFIG_")
+        )
         if overlap:
             raise channel.ChannelError(
                 f"refused: adapter {self.party!r} attempts to override controller-owned environment: "
                 f"{', '.join(overlap)}"
             )
-        inherited_overlap = sorted(_RESERVED_ENV.intersection(self.environment_allowlist))
+        inherited_overlap = sorted(
+            key
+            for key in self.environment_allowlist
+            if key in _RESERVED_ENV or key.startswith("GIT_CONFIG_")
+        )
         if inherited_overlap:
             raise channel.ChannelError(
                 f"refused: adapter {self.party!r} attempts to inherit user/runtime configuration: "
