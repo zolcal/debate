@@ -620,6 +620,7 @@ def test_case_runtime_survives_pytest_cache_clear_and_profile_drift_is_refused(t
     shutil.rmtree(repo / ".pytest_cache")
     cache_env = dict(os.environ)
     cache_env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    cache_env["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
     proc = _run([sys.executable, "-m", "pytest", "--cache-clear", "-q"], repo, env=cache_env)
 
     assert proc.returncode == 0, (proc.stdout, proc.stderr)
