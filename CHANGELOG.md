@@ -6,18 +6,17 @@ Every release from v0.2.0 onward went through this project's own review channel 
 record is under [`collab/`](collab/), and the message numbers cited below are entries in
 it.
 
-## Unreleased
+## v0.5.0 — 2026-08-07
 
-### Changed
+**Seats no longer post for themselves.** The headline is managed version 2: a neutral
+controller runs both reviewer seats from pinned read-only source exports, keeps each
+first position sealed until both exist, reveals them as a pair, and closes the case with
+a typed outcome — no self-posting, no anchoring, no silent stall. The machinery's first
+production acts were gating this repository's own merge and this very release.
 
-- Newly named channels are `managed_version: 1`, default to a 12-entry thread cap,
-  and require watcher commands for both arbitrary party names. Existing explicit caps
-  remain unchanged; configs without the managed marker remain readable as legacy/manual
-  history.
-- Managed missing-command and turnless-open states are `INVALID`, never healthy
-  `MANUAL`; `watch-status` returns the shared needs-attention exit code. Both headless
-  seats default to zero debounce in the shipped examples.
-- Added explicit managed-version 2 brokered channels (`debate init --brokered`). A neutral
+### Added
+
+- Explicit managed-version 2 brokered channels (`debate init --brokered`). A neutral
   `broker-open` snapshots the case before assigning the first seat; direct party posts are
   refused and structured adapter results are posted under controller-bound identities.
 - Generic adapter profiles record author relationship, provider/model/runtime identity,
@@ -32,7 +31,7 @@ it.
 - `broker-revise` snapshots each post-fix commit/docket as a new content-addressed case
   revision, records it through a supervisor entry without changing the party turn, and
   blocks invocation on a half-recorded revision.
-- Brokered cases now persist `docket`, `sealed`, `reveal`, `deliberation`, and `terminal`
+- Brokered cases persist `docket`, `sealed`, `reveal`, `deliberation`, and `terminal`
   phases. The two initial typed positions remain private until `commit_reveal_pair`
   publishes both with one atomic mailbox replacement; restart recovery repairs the
   doorbell without duplicating or exposing one side early. Each reveal provenance block
@@ -43,6 +42,16 @@ it.
   (a `PASS` requires an agreeing author-independent seat), the thread cap closes
   `NO_PASS`, and adapter or whole-case deadline failure closes `ERROR` with a separate
   `close_reason`. Supervisor entries never count as votes.
+
+### Changed
+
+- Newly named channels are `managed_version: 1`, default to a 12-entry thread cap,
+  and require watcher commands for both arbitrary party names. Existing explicit caps
+  remain unchanged; configs without the managed marker remain readable as legacy/manual
+  history.
+- Managed missing-command and turnless-open states are `INVALID`, never healthy
+  `MANUAL`; `watch-status` returns the shared needs-attention exit code. Both headless
+  seats default to zero debounce in the shipped examples.
 - Migrated this repository's active guidance to a fresh cap-12 brokered channel while
   preserving the historical Opus/GLM record. The local repository profile selects
   headless Opus/Codex without making that pair a product default; examples document the
@@ -51,10 +60,34 @@ it.
   `--channel`; the repository protocol reads each channel's persisted cap instead of
   declaring one root-wide number. The old commandless-seat timer is retired from active
   use rather than treated as a supported managed mode.
-- The repository's final brokered proof (MSG-11..14) records separate initial-capture
-  timestamps, atomically reveals both independently gathered positions, and closes `PASS`
-  automatically. Failed adapter setup attempts remain in the same append-only record as
-  bounded `ERROR` outcomes.
+- The repository's first end-to-end brokered proof (MSG-11..14) records separate
+  initial-capture timestamps, atomically reveals both independently gathered positions,
+  and closes `PASS` automatically. Failed adapter setup attempts remain in the same
+  append-only record as bounded `ERROR` outcomes. The record has since grown past that
+  proof: the same machinery gated this repository's own merge and this release, and
+  those cases are entries in the same file.
+
+### Deprecated
+
+- Posting to legacy-layout channels — the 0.3.x fixed filenames
+  `CHANNEL.md`/`signal.json`/`debate.json` — is deprecated as of 0.5. It still works;
+  `debate migrate` renames a channel in place, byte-identically, and is the supported
+  path forward. Writing *new* legacy channels has been impossible since 0.4. No removal
+  date is promised.
+
+### Fixed
+
+- Six strict-mypy errors surfaced by the feature branch's first CI contact. The visible
+  part is fail-closed handling: a malformed `sealed_submissions` or `latest_votes` case
+  state now raises the standard `refused:` channel error instead of a bare `TypeError`.
+- Brokered subprocesses could not start Python on Windows at all: the environment
+  allowlist built the child environment from nothing, and Windows cannot initialize
+  interpreter hash randomization without `SYSTEMROOT`. A machine-owned Windows baseline
+  (`SYSTEMROOT`, `SYSTEMDRIVE`, `COMSPEC`, `PATHEXT`, `WINDIR`) now sits beneath the
+  allowlist; the POSIX baseline stays empty, so no user configuration rides in with it.
+- `mypy .` excludes the broker's gitignored `var/` runtime tree beside `build/`, for the
+  same reason: duplicate-module copies that exist locally but never in CI's clean
+  checkout.
 
 ## v0.4.0 — 2026-08-05
 
