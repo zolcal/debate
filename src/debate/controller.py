@@ -665,8 +665,23 @@ def materialize_docket(config: BrokerConfig) -> DocketRevision:
     return DocketRevision(docket_root, revision_sha, manifest_path, tuple(records))
 
 
+# Windows refuses to start a Python subprocess without SYSTEMROOT (the crypto
+# RNG behind hash randomization lives under it) and resolves commands through
+# COMSPEC/PATHEXT. These are machine-owned paths carrying no user
+# configuration, so passing them through preserves the allowlist's isolation
+# claim; on POSIX the baseline is empty.
+_WINDOWS_BASELINE_ENVIRONMENT = ("SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "WINDIR")
+
+
+def _baseline_environment() -> dict[str, str]:
+    if os.name != "nt":
+        return {}
+    return {key: os.environ[key] for key in _WINDOWS_BASELINE_ENVIRONMENT if key in os.environ}
+
+
 def _adapter_environment(config: BrokerConfig, profile: AdapterProfile, runtime: Path) -> dict[str, str]:
-    environment = {key: os.environ[key] for key in profile.environment_allowlist if key in os.environ}
+    environment = _baseline_environment()
+    environment.update({key: os.environ[key] for key in profile.environment_allowlist if key in os.environ})
     environment.update(profile.environment)
     home = runtime / "home"
     build = runtime / "build"

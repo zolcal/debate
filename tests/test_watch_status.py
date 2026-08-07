@@ -8,6 +8,7 @@ a scheduler, or a live agent — the same discipline `decide()` follows.
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import json
 import subprocess
 import sys
 import time
@@ -293,8 +294,10 @@ def test_cli_managed_missing_command_reports_invalid_with_attention_exit(
     root = tmp_path / "chan"
     channel.init_channel(root, ("alpha", "beta"), "owner", name="managed-11111")
     config_path = tmp_path / "watcher.json"
+    # json.dumps, not string concatenation: a Windows tmp_path's backslashes
+    # would otherwise land in the JSON as invalid escapes.
     config_path.write_text(
-        '{"state_path":"' + str(tmp_path / "state.json") + '","commands":{"alpha":["echo"]}}',
+        json.dumps({"state_path": str(tmp_path / "state.json"), "commands": {"alpha": ["echo"]}}),
         encoding="utf-8",
     )
 

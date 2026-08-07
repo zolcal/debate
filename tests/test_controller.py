@@ -18,6 +18,7 @@ from debate.controller import (
     BrokerConfig,
     BrokerController,
     TimingPolicy,
+    _baseline_environment,
     create_source_export,
     doctor_lines,
     materialize_docket,
@@ -474,6 +475,7 @@ def test_source_export_is_complete_except_separated_state_and_git_is_unreachable
     home.mkdir(parents=True)
     build.mkdir(parents=True)
     env = {
+        **_baseline_environment(),
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(home),
         "GIT_CEILING_DIRECTORIES": str(repo.resolve()),
