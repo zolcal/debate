@@ -79,7 +79,18 @@ def test_inlined_credential_is_refused(tmp_path: Path) -> None:
     spec = spec_for(root, name, tmp_path,
                     {"alpha": ["run", "--api-key=sk-abcdef0123456789abcdef"], "beta": None})
     with pytest.raises(channel.ChannelError, match="wrapper"):
-        setup.apply(spec)
+        setup.apply(spec, load_config_fn=_watcher_config)
+    assert not spec.config_path.exists()
+
+
+def test_flag_form_credential_is_refused_too(tmp_path: Path) -> None:
+    """MSG-37: `agent --token VALUE` is two argv elements; the flag element
+    alone must trip the guard."""
+    root, name = make_channel(tmp_path)
+    spec = spec_for(root, name, tmp_path,
+                    {"alpha": ["agent", "--token", "some-value"], "beta": None})
+    with pytest.raises(channel.ChannelError, match="wrapper"):
+        setup.apply(spec, load_config_fn=_watcher_config)
     assert not spec.config_path.exists()
 
 
@@ -99,7 +110,7 @@ def test_unresolvable_command_is_refused_before_any_write(tmp_path: Path) -> Non
     spec = spec_for(root, name, tmp_path,
                     {"alpha": ["/nonexistent/agent-binary"], "beta": None})
     with pytest.raises(channel.ChannelError, match="neither on PATH"):
-        setup.apply(spec)
+        setup.apply(spec, load_config_fn=_watcher_config)
     assert not spec.config_path.exists()
 
 

@@ -417,12 +417,12 @@ def main(argv: list[str] | None = None) -> int:
             if name is None:
                 raise channel.ChannelError(
                     "refused: setup needs a named channel (the id is the state-file stem, "
-                    "the unit name and the config stem) — run `debate migrate` first."
+                    "the unit name and the config stem) -- run `debate migrate` first."
                 )
             chan_config = channel.load_config(args.root, name)
             if chan_config.managed_version == channel.BROKERED_MANAGED_VERSION:
                 raise channel.ChannelError(
-                    "refused: this channel is managed version 2 (brokered) — its seats are "
+                    "refused: this channel is managed version 2 (brokered) -- its seats are "
                     "adapter profiles, not watcher commands. Start from "
                     "watcher.brokered.example.json and validate with `debate adapter-doctor`."
                 )
@@ -445,7 +445,7 @@ def main(argv: list[str] | None = None) -> int:
                 assume_yes=args.yes,
             )
             if spec.config_path.exists() and not spec.overwrite:
-                answer = input(f"{spec.config_path} exists — overwrite? [y/N] ").strip().lower()
+                answer = input(f"{spec.config_path} exists -- overwrite? [y/N] ").strip().lower()
                 if answer not in ("y", "yes"):
                     raise channel.ChannelError("refused: not overwriting the existing config")
                 spec.overwrite = True

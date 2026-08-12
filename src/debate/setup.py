@@ -35,13 +35,13 @@ from .watcher import WatcherConfig
 PROMPT_TEMPLATE = (
     "It is your turn as '{party}' on the debate channel {channel_name}. "
     "First read {channel_root}/PROTOCOL.md. Then read ONLY the open thread via "
-    "`debate read --root {channel_root} --channel {channel_name}` — never the whole "
+    "`debate read --root {channel_root} --channel {channel_name}` -- never the whole "
     "mailbox. Immediately before acting, verify {channel_root}/{channel_name}.signal.json "
-    "still shows a NON-EMPTY thread AND turn=='{party}' — if either fails, exit without "
+    "still shows a NON-EMPTY thread AND turn=='{party}' -- if either fails, exit without "
     "posting. Act on what the thread asks: for verdicts cite YOUR OWN fresh evidence "
     "(your own checkout, your own runs), never evidence quoted from the request. When "
     "reviewing a plan document, append your review as a dated section at the END of the "
-    "document — never edit its body. Post via `debate post --root {channel_root} "
+    "document -- never edit its body. Post via `debate post --root {channel_root} "
     "--channel {channel_name} --from {party}`, then stop."
 )
 
@@ -50,7 +50,8 @@ DEFAULTS_PATH = Path("~/.config/debate/setup-defaults.json")
 # A guard against the obvious accident, not a scanner: seat credentials belong
 # in a self-sourcing wrapper (§2.5); nothing key-shaped may reach the config.
 SECRET_PATTERN = re.compile(
-    r"(?i)(api[_-]?key\s*[=:]|token\s*[=:]|secret|bearer\s|sk-[a-z0-9]{16,})")
+    r"(?i)(api[_-]?key|token|secret|bearer|passwd|password|credential"
+    r"|sk-[a-z0-9]{16,})")
 
 
 @dataclass
@@ -165,9 +166,9 @@ def validate(spec: SetupSpec) -> None:
         for part in argv:
             if SECRET_PATTERN.search(part):
                 raise channel.ChannelError(
-                    f"refused: the command for {party!r} looks like it inlines a "
-                    f"credential; keys never reach the config — use a self-sourcing "
-                    f"wrapper (plan §2.5)")
+                    f"refused: the command for {party!r} looks like it carries a "
+                    f"credential; keys never reach the config -- use a "
+                    f"self-sourcing wrapper (plan section 2.5)")
         head = argv[0]
         resolved = shutil.which(head)
         if resolved is None:
@@ -194,7 +195,7 @@ def validate(spec: SetupSpec) -> None:
 
 
 def apply(spec: SetupSpec,
-          load_config_fn: Callable[[Path, Path, str | None], WatcherConfig] | None = None) -> list[Path]:
+          load_config_fn: Callable[[Path, Path, str | None], WatcherConfig]) -> list[Path]:
     """Validate, round-trip the assembled config through the real loader, then
     write. Returns the written paths. Nothing is written until every check
     passes; the round-trip makes `WatcherConfig.__post_init__`'s refusals
@@ -210,24 +211,24 @@ def apply(spec: SetupSpec,
         "retry_seconds": spec.retry_seconds,
         "timeout_seconds": spec.timeout_seconds,
     }
-    if load_config_fn is not None:
-        # The probe lives in a scratch dir OUTSIDE every target path, so a
-        # loader refusal leaves the project byte-untouched (gate finding,
-        # MSG-33).
-        with tempfile.TemporaryDirectory(prefix="debate-setup-") as scratch:
-            probe = Path(scratch) / spec.config_path.name
-            probe.write_text(json.dumps(config, indent=2), encoding="utf-8")
-            loaded = load_config_fn(spec.channel_root, probe, spec.channel_name or None)
-        # The object that already knows one definition of validity gets asked
-        # at setup time, not at the first scheduler tick (gate finding,
-        # MSG-32): a managed channel needs a command for every party, so a
-        # "human-driven" seat — the plan's pre-managed pattern — refuses here.
-        problem = loaded.managed_problem()
-        if problem is not None:
-            raise channel.ChannelError(
-                f"refused: this configuration would be INVALID to the watcher — "
-                f"{problem}. Managed channels need a watcher command for every "
-                f"party; the human-driven seat is the legacy/unmanaged pattern.")
+    # The probe lives in a scratch dir OUTSIDE every target path, so a loader
+    # refusal leaves the project byte-untouched (gate finding, MSG-33). The
+    # loader is REQUIRED -- an optional one made this whole gate skippable by
+    # default (gate finding, MSG-36 F1).
+    with tempfile.TemporaryDirectory(prefix="debate-setup-") as scratch:
+        probe = Path(scratch) / spec.config_path.name
+        probe.write_text(json.dumps(config, indent=2), encoding="utf-8")
+        loaded = load_config_fn(spec.channel_root, probe, spec.channel_name or None)
+    # The object that already knows one definition of validity gets asked at
+    # setup time, not at the first scheduler tick (gate finding, MSG-32): a
+    # managed channel needs a command for every party, so a "human-driven"
+    # seat -- the plan's pre-managed pattern -- refuses here.
+    problem = loaded.managed_problem()
+    if problem is not None:
+        raise channel.ChannelError(
+            f"refused: this configuration would be INVALID to the watcher -- "
+            f"{problem}. Managed channels need a watcher command for every "
+            f"party; the human-driven seat is the legacy/unmanaged pattern.")
 
     written: list[Path] = []
     spec.state_path.parent.mkdir(parents=True, exist_ok=True)
