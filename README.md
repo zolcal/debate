@@ -48,7 +48,8 @@ channels can share one folder, and a message can never land in the wrong project
 record. (`init` also drops `<channel>.debate.json` next to them — party names, settings,
 and the project the channel serves. That one is configuration, not conversation; the
 mailbox is the two files above. Channels created by 0.3.x use the older fixed filenames
-`CHANNEL.md`/`signal.json`/`debate.json` — still fully supported; see `debate migrate`.)
+`CHANNEL.md`/`signal.json`/`debate.json` — they keep working, but posting to them is
+deprecated since 0.5; `debate migrate` renames one in place, byte-identically.)
 
 <p align="center">
   <picture>
@@ -277,6 +278,13 @@ config file:
 }
 ```
 
+Prompts may address their channel through two placeholders instead of hardcoded
+paths: `{channel_root}` expands to the resolved absolute channel folder and
+`{channel_name}` to the channel id, both in one fixed pass before `{prompt}` is
+substituted into the argv. A prompt carrying `--root {channel_root} --channel
+{channel_name}` stays correct the day a second channel moves into the folder —
+`debate setup` generates exactly that form.
+
 **Name the state file after the channel, not `watcher-state.json`.** One channel gets one
 state file, and its *stem* is the channel's identity everywhere else: the watcher tags every
 log line with it, and the scheduler unit should be named after it too
@@ -471,8 +479,8 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
   does not have. Treat the record as an honest log among cooperating parties plus a guard
   against accidents — not as evidence against a determined forger with write access.
 - **Young.** Extracted from a working production setup, generalized, and tested — but
-  read the code before trusting it; it's about 4,900 lines including the CLI and the
-  broker, with 395 tests as of this writing.
+  read the code before trusting it; it's about 5,500 lines including the CLI, the
+  broker and the setup wizard, with 413 tests as of this writing.
 
 ## Where this comes from
 

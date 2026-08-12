@@ -6,7 +6,17 @@ Every release from v0.2.0 onward went through this project's own review channel 
 record is under [`collab/`](collab/), and the message numbers cited below are entries in
 it.
 
-## Unreleased
+## v0.6.0 — 2026-08-13
+
+**Wiring the seats stops being hand-rolled.** `debate init` always scaffolded the
+channel and left the hard part — watcher config, pinned prompts, the channel's
+PROTOCOL.md, the scheduler — to hand-editing, which is where this project's own
+expensive mistakes lived. `debate setup` moves that failure surface into the tool:
+it interviews (or takes flags), derives everything derivable from the channel id,
+validates through the real config loader before writing a byte, smokes the actual
+seat contract on a scratch channel, and prints the scheduler units. Two review
+rounds rejected it before it shipped; all six findings are folded into what you
+get.
 
 ### Added
 
