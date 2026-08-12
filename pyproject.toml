@@ -37,6 +37,11 @@ dev = ["pytest>=8.0.0", "ruff>=0.7,<0.8", "mypy>=1.10.0"]
 [project.scripts]
 debate = "debate.__main__:main"
 
+[tool.setuptools.package-data]
+# `debate setup` scaffolds a channel's PROTOCOL.md from this packaged copy;
+# a test pins it byte-equal to the repo-root template so it cannot drift.
+debate = ["protocol_template.md"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

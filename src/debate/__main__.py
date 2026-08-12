@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shlex
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -239,6 +240,35 @@ def main(argv: list[str] | None = None) -> int:
         help="initialize managed-version 2: party entries must come through controller-bound adapters",
     )
 
+    p_setup = sub.add_parser(
+        "setup",
+        help="wire the seats of an existing channel: watcher config, pinned prompts, PROTOCOL.md",
+    )
+    p_setup.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_setup)
+    p_setup.add_argument(
+        "--command",
+        dest="seat_commands",
+        action="append",
+        default=[],
+        metavar="PARTY=ARGV",
+        help="seat command, e.g. --command 'glm=/home/me/.local/bin/glm-agent {prompt}'; "
+        "skips that party's question",
+    )
+    p_setup.add_argument(
+        "--human",
+        dest="seat_human",
+        action="append",
+        default=[],
+        metavar="PARTY",
+        help="mark a party human-driven (no watcher command); skips its question",
+    )
+    p_setup.add_argument(
+        "--yes",
+        action="store_true",
+        help="non-interactive: use flags and remembered defaults, confirm overwrites",
+    )
+
     p_post = sub.add_parser("post", help="append an entry and bump the doorbell")
     p_post.add_argument("--root", type=Path, default=Path("."))
     add_channel_flag(p_post)
@@ -382,6 +412,49 @@ def main(argv: list[str] | None = None) -> int:
                 f"initialized channel {channel_id!r} at {args.root} "
                 f"(parties {parties[0]!r}/{parties[1]!r}, supervisor {args.supervisor!r})"
             )
+        elif args.command == "setup":
+            from debate import setup as setup_mod
+
+            if name is None:
+                raise channel.ChannelError(
+                    "refused: setup needs a named channel (the id is the state-file stem, "
+                    "the unit name and the config stem) — run `debate migrate` first."
+                )
+            chan_config = channel.load_config(args.root, name)
+            if chan_config.managed_version == channel.BROKERED_MANAGED_VERSION:
+                raise channel.ChannelError(
+                    "refused: this channel is managed version 2 (brokered) — its seats are "
+                    "adapter profiles, not watcher commands. Start from "
+                    "watcher.brokered.example.json and validate with `debate adapter-doctor`."
+                )
+            flag_commands: dict[str, list[str] | None] = {}
+            for spec_text in args.seat_commands:
+                party, sep, argv_text = spec_text.partition("=")
+                if not sep or not argv_text.strip():
+                    raise channel.ChannelError(
+                        f"refused: --command needs PARTY=ARGV, got {spec_text!r}")
+                flag_commands[party.strip()] = shlex.split(argv_text)
+            for party in args.seat_human:
+                flag_commands[party.strip()] = None
+            spec = setup_mod.interview(
+                channel_root=args.root.resolve(),
+                channel_name=name,
+                parties=tuple(chan_config.parties),
+                thread_cap=chan_config.thread_cap,
+                project=Path(chan_config.project) if chan_config.project else None,
+                flag_commands=flag_commands,
+                assume_yes=args.yes,
+            )
+            if spec.config_path.exists() and not spec.overwrite:
+                answer = input(f"{spec.config_path} exists — overwrite? [y/N] ").strip().lower()
+                if answer not in ("y", "yes"):
+                    raise channel.ChannelError("refused: not overwriting the existing config")
+                spec.overwrite = True
+            written = setup_mod.apply(spec, load_config_fn=_watcher_config)
+            for path in written:
+                print(f"wrote {path}")
+            for hint in setup_mod.closing_hints(spec, setup_mod.config_is_gitignored(spec.config_path)):
+                print(f"hint: {hint}")
         elif args.command == "post":
             text = args.body if args.body is not None else args.body_file.read_text(encoding="utf-8")
             if args.verify_refs is not None:

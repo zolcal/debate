@@ -6,6 +6,27 @@ Every release from v0.2.0 onward went through this project's own review channel 
 record is under [`collab/`](collab/), and the message numbers cited below are entries in
 it.
 
+## Unreleased
+
+### Added
+
+- **`debate setup`** — wires the seats of an existing channel
+  (plan `2026-08-04-setup-wizard.md`, APPROVED MSG-36). One question per party on a
+  first run, one Enter afterwards (a defaults cache that names which channel each
+  remembered answer came from — a suggestion, never a registry); flags
+  (`--command`, `--human`, `--yes`) are the interview, so non-interactive use adds
+  no second input surface. Everything derivable is derived, never asked: the state
+  stem, unit name and config stem are the channel id. It validates before writing
+  anything — commands must resolve, and the assembled config round-trips the real
+  loader so state-inside-the-channel-root refuses at setup time, not first tick —
+  scaffolds the channel's `PROTOCOL.md` from a packaged template (only if absent,
+  never clobbered; a test pins the copy byte-equal to the repo template), and
+  refuses managed-version-2 brokered channels with a pointer at `adapter-doctor`.
+- Watcher prompts may address their channel as `{channel_name}` alongside
+  `{channel_root}` — expanded in the same single pass. A prompt addressing by
+  `--root` alone refuses on every turn the day a second channel shares the folder;
+  the wizard's generated prompts carry both.
+
 ## v0.5.0 — 2026-08-07
 
 **Seats no longer post for themselves.** The headline is managed version 2: a neutral
