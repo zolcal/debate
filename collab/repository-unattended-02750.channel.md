@@ -825,3 +825,520 @@ Controller closed the managed case as PASS. Reason: party-vote-agreement. Superv
 Controller-Terminal:
 - terminal-result: PASS
 - close-reason: party-vote-agreement
+
+## MSG-31 | 2026-08-12T18:45:21+00:00 | from: owner | type: review-request | thread: setup-wizard-slice1-branch | refs: feature/setup-wizard-slice1@196fa26d308557889f34b830d2fb0f97a9a6464d
+
+Branch gate: feature/setup-wizard-slice1@196fa26 (PR #9), Slice 1 of the APPROVED setup-wizard plan (MSG-36, debate-06451). Docket setup-slice1-docket.md; setup-slice1.diff is the full diff. One execution delta needs the seats' explicit judgment: managed-v2 channels are REFUSED by setup (the approval predates v2). Merge only on terminal PASS + green CI.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 27ac80a3a1571bf1cc3c1299e39c96bd7088580fe058a42779da0669de5ab006
+- source-ref: 196fa26d308557889f34b830d2fb0f97a9a6464d
+- docket-revision-sha256: 7c9df950663bafe0e7b7df29805810f431c1d90d3ca06a0d46c1c0fc0d8f51aa
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-04-setup-wizard.md", "sha256": "da654cf17ddc4c91753d1972bebf3f8c9fc2bb248bcae597918cba8a61bb3cdd", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/setup-slice1-docket.md", "sha256": "f1ed4b8e87573175919b38fe0b29f5b0226b22f8bd2e394557cc621cc74b2164", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/setup-slice1.diff", "sha256": "9c40f8af754665055ec3ecca3ca3df93e4f053da0d4597d5ba1f1b618fd2c08d", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/setup-slice1-watcher.json", "sha256": "27ac80a3a1571bf1cc3c1299e39c96bd7088580fe058a42779da0669de5ab006", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "f0c48c55992e42f69e00d7ecfcf9cc8a41c3bb9acd1cb919b9efbed4ff0ec043", "opus": "9dde1cb589fe430ba0304aee1da29e6425bf4d52c92b032265a73cbe4f5aa1a3"}
+
+## MSG-32 | 2026-08-12T18:53:21+00:00 | from: opus | type: verdict | thread: setup-wizard-slice1-branch | refs: -
+
+## Verdict: NO_PASS — one blocking finding
+
+### Fresh command output
+
+Mandated command, run literally from the pinned export root (`PYTHONPATH=src` per the seat profile):
+
+```
+$ python -m pytest -q
+........................................................................ [ 17%]
+........................................................................ [ 35%]
+........................................................................ [ 53%]
+..................................................................s..... [ 70%]
+........................................................................ [ 88%]
+...............................................                          [100%]
+406 passed, 1 skipped in 16.72s
+```
+
+The suite is green. It is not sufficient, because the suite does not exercise the case below — and one of its tests pins the defect as expected output.
+
+Supporting command:
+
+```
+$ diff PROTOCOL.md src/debate/protocol_template.md   # exit 0, no output
+$ sha256sum PROTOCOL.md src/debate/protocol_template.md
+8a2085a3f5a0f3a9b0b866e54da35cbe35e41ad9d73e96272598f5fe4d01fe6d  PROTOCOL.md
+8a2085a3f5a0f3a9b0b866e54da35cbe35e41ad9d73e96272598f5fe4d01fe6d  src/debate/protocol_template.md
+```
+
+Disclosure: I also attempted a supplementary `python3 -c` run to demonstrate the finding below as live output. The harness permission policy denied it (test-only Bash allowlist). That finding therefore rests on reading the pinned export, not on a fresh run; every line cited is quoted from the export and is independently checkable.
+
+### BLOCKING — the wizard's `--human` seat writes a config the tool itself reports `INVALID`
+
+The plan's §2.1 offers "human-driven (no `commands` entry, the documented pattern for a live seat)" as a first-class answer, and `--human PARTY` is a shipped flag (`__main__.py`, `p_setup.add_argument("--human", …)`). That description is stale for anything `debate init` creates today, in exactly the way the executor's own recorded delta is stale for managed version 2:
+
+- `channel.init_channel` (`src/debate/channel.py:353-354`): `if name is not None and managed_version is None: managed_version = MANAGED_VERSION` — every named channel is managed version 1. The README line added by this very diff says so: "New channels record managed_version 1".
+- `WatcherConfig.managed_problem()` (`src/debate/watcher.py:136-167`), whose docstring reads "Kept pure so `decide()` and `status()` share exactly one definition of validity": for `managed_version == 1`, `missing = sorted(expected - configured)` → returns `"missing adapter command for managed parties: alpha"`.
+- `decide()` (`src/debate/watcher.py:225-227`): `Decision(None, f"invalid managed channel: {problem}", "invalid managed configuration")` — never invokes, escalates to the supervisor on every tick.
+- `status()` (`src/debate/watcher.py:328-329`): `WatchStatus("INVALID", …)`, and `_NEEDS_ATTENTION = ("STALE", "ESCALATED", "INVALID", "ERROR")` (`src/debate/__main__.py:195`) makes `watch-status` exit nonzero.
+- The PROTOCOL template this wizard scaffolds states the rule itself (`src/debate/protocol_template.md:84-86`): "A managed-version 1 compatibility channel has one command for each of its exactly two parties … A missing command or a turnless open thread is `INVALID`, exits nonzero under `watch-status`, and is never delegated to a live human."
+
+`setup.py` nonetheless writes that config with no refusal and no warning: `validate()` checks party membership, argv resolvability, overwrite and state-dir creatability, and never consults `managed_problem()`. The §2.6 round-trip does not catch it either — `apply()` calls `load_config_fn(spec.channel_root, probe, spec.channel_name)`, and `_watcher_config` → `WatcherConfig.__post_init__` binds `managed_version=1` and `parties` from the channel record but never calls `managed_problem()`. So the object *knows* it is invalid at setup time and nobody asks.
+
+This is a direct miss against the docket criterion "§2.6 validation precedes every write and round-trips the REAL loader", whose stated purpose in the plan is to make refusals "fire at setup time rather than at the first scheduler tick". The single most likely misconfiguration the wizard itself offers is the one that survives to the first tick.
+
+Why the tests stayed green: `test_apply_human_driven_seat_has_no_command_entry` asserts `"alpha" not in config["commands"]` — it pins the broken output as correct. `test_end_to_end_cli_yes_flags_status_and_config_load` runs `--human beta` against a managed-v1 channel and then asserts `main(["status", …])` returns 0 — that is channel `status`, not `watch-status`. Nothing in the suite runs `watch-status` or `decide()` over a wizard-produced config.
+
+**Named better behavior (the fix I would accept):** in `setup.validate()`/`apply()`, reuse the one existing definition of validity — after the probe round-trip, call `managed_problem()` on the returned `WatcherConfig` and refuse when it is non-`None`, with a message naming the two real options (give the party a command, or the seat cannot be human-driven on a managed channel). It is a few lines, it reuses the function whose docstring already promises to be the single definition, and it closes the gap at setup time exactly as §2.6 promises. The interview should likewise not offer "empty = human-driven" for a managed-v1 channel. Add a test asserting `watch-status` (or `managed_problem()`) is clean on the wizard's own output.
+
+### On the execution delta you asked me to accept or reject: ACCEPTED
+
+Refusing a `managed_version: 2` channel is the right narrowing. `WatcherConfig.__post_init__` refuses `commands` mixed with brokered profiles ("refused: do not mix direct commands with brokered adapter profiles") and `managed_problem()` returns "managed-version 2 requires two brokered adapter profiles" when `broker is None`; v2 additionally needs `runtime_root`, `source_ref`, `whole_case_timeout_seconds`, docket files and canaries (`_watcher_config`, `src/debate/__main__.py:126-160`). A v1-shaped `commands`/`prompts` config for a v2 channel would be permanently `INVALID`. Refusing with a pointer at `watcher.brokered.example.json` and `adapter-doctor` is correct, and `test_brokered_channel_is_refused_with_pointer` covers it. My blocking finding is that the *same* reasoning was not applied one version down.
+
+### Criteria that DO hold (verified against the pinned export)
+
+- **§2.1 split** — `interview()` does terminal I/O plus the defaults read; `apply()` does validation then file writes only. Flags are the interview (`flag_commands` pre-seeds `commands`; only `open_parties` are asked). `--yes` with neither flags nor remembered answers raises `"refused: --yes with no remembered or flag-supplied answer for …"` (`setup.py`), covered by `test_yes_without_defaults_or_flags_refuses`.
+- **§2.2 derived-never-asked** — `derive_paths()`: `state_path = ~/.local/state/debate/<name>.json`, `config_path = <toplevel>/<name>.watcher.json`; toplevel is the recorded project when present, else `root.resolve().parent`, and `__main__` passes `Path(chan_config.project)`. Unit name `debate-watch-<channel_name>` in `closing_hints()` agrees with the `state_path.stem` convention since the stem is the id.
+- **§2.3 writes** — config, `PROTOCOL.md` only-if-absent (`scaffold_protocol` returns `None` when `target.exists()`; thread-cap bracket filled by `.replace("[12]", f"[{thread_cap}]", 1)`, and `[12]` in §3 is genuinely the first bracketed `[12]` in the template), defaults cache carrying `"channel": spec.channel_name` with the provenance surfaced as "remembered from channel …". `.gitignore` is never written — `config_is_gitignored()` only runs `git check-ignore -q` and a hint is printed instead.
+- **The repo's own `.gitignore` change** — adding `*.watcher.json` beside the existing `watcher.json` is the repo adopting its own hint. It is correct and does not shadow anything committed: `watcher.example.json` and `watcher.brokered.example.json` do not match the `*.watcher.json` suffix. Accepted.
+- **§2.4 prompt clauses** — `PROMPT_TEMPLATE` carries all of: PROTOCOL.md first; `debate read` only, "never the whole mailbox"; the two-gate check ("NON-EMPTY thread AND turn=='{party}' — if either fails, exit without posting"); fresh evidence ("YOUR OWN fresh evidence … never evidence quoted from the request"); review-append-at-END ("append your review as a dated section at the END … never edit its body"); post-then-stop. Addressing is `--root {channel_root} --channel {channel_name}` on both `debate read` and `debate post`.
+- **`command_for` single pass** — `src/debate/watcher.py`: `{channel_root}` then `{channel_name}` are expanded in the prompt text, and argv is walked once for `{prompt}`; argv is never re-scanned, so nothing arriving from the prompt body triggers a second expansion. A prompt without placeholders is untouched (`test_prompt_without_placeholder_is_left_untouched`).
+- **Packaged template byte-equality** — proven by the `diff`/`sha256sum` above and pinned by `test_packaged_template_matches_repo_protocol`.
+- **No secret reaches the written config** — the written object is exactly `state_path`, `commands`, `prompts`, `debounce_seconds`, `retry_seconds`, `timeout_seconds`; the wizard solicits no credential and Slice 1 scaffolds no wrapper.
+
+### Non-blocking notes (fix while you are in here)
+
+1. **Dead assertion.** `test_protocol_scaffolded_when_absent_and_never_clobbered`: `assert "[9]" in text and "[12]" not in text.split("\n\n")[0] or "[9]" in text`. By Python precedence this is `(A and B) or A`, which reduces to `A` — the "`[12]` is gone" half can never fail. Assert on the thread-cap line specifically.
+2. **Probe file writes into the operator's repo before the "nothing is written" guarantee.** `apply()` writes `.<name>.watcher.json.setup-probe` into the derived toplevel to round-trip the loader; it is removed in `finally`, but a kill between write and unlink leaves a stray file that — ending in `.setup-probe`, not `.watcher.json` — is not covered by the gitignore line the tool just hinted about. `tempfile.NamedTemporaryFile` in the same directory, or validating in-memory, avoids it.
+3. **`--yes` silently overwrites.** `interview()` sets `overwrite=assume_yes`, so a non-interactive re-run clobbers an existing watcher config without the §2.7 "prints what exists" step. Defensible as "yes means yes", but printing the existing path before replacing it costs one line.
+4. **Inline-secret argv is written verbatim.** `--command 'seat=/path/agent --api-key sk-…'` lands unscrubbed in the config. The plan's answer is the wrapper convention (§2.5, Slice 1 does not implement it); a warning when an argv element looks like a credential would close the gap the convention is carrying alone.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 1f084a952ed7a7b9bf56a45171eaacd1351885d7d55f7b5fbed27f71ebe4fa91
+- phase: sealed
+- captured-at: 2026-08-12T18:50:44+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 27ac80a3a1571bf1cc3c1299e39c96bd7088580fe058a42779da0669de5ab006
+- source-ref: 196fa26d308557889f34b830d2fb0f97a9a6464d
+- source-manifest-sha256: 9dde1cb589fe430ba0304aee1da29e6425bf4d52c92b032265a73cbe4f5aa1a3
+- docket-revision-sha256: 7c9df950663bafe0e7b7df29805810f431c1d90d3ca06a0d46c1c0fc0d8f51aa
+- input-sha256: 25818eadccdbfe4f166565c8ab8b44b8d7fd3ef22dc141ffb488b3b8246141fe
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-33 | 2026-08-12T18:53:21+00:00 | from: codex | type: verdict | thread: setup-wizard-slice1-branch | refs: -
+
+`python -m pytest -q` run in the pinned export completed: `406 passed, 1 skipped in 18.66s`. Blocking criterion §2.6 failure: inspection command `nl -ba .../src/debate/setup.py | sed -n '120,225p'` shows `validate()` creates `spec.state_path.parent` at lines 162–167, and `apply()` writes a loader probe at lines 187–193 before the real loader can reject the assembled configuration. A loader failure (including state_path-inside-channel-root) can therefore occur after writes, contrary to “validation precedes every write” / “Nothing is written until every check passes.” The same source inspection shows no secret guard: CLI input is accepted via `shlex.split` in `src/debate/__main__.py:431-438`, then persisted verbatim in `setup.py:178-185` and `196`; a `--command` argv containing a credential reaches the generated watcher config, violating the docket’s “no secret can reach the written config” criterion. Other checked items were present: `cmp -s .../PROTOCOL.md .../src/debate/protocol_template.md` returned `protocol_template_cmp_exit=0`, and watcher `command_for` expands both placeholders before prompt substitution.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 1f084a952ed7a7b9bf56a45171eaacd1351885d7d55f7b5fbed27f71ebe4fa91
+- phase: sealed
+- captured-at: 2026-08-12T18:53:21+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: 27ac80a3a1571bf1cc3c1299e39c96bd7088580fe058a42779da0669de5ab006
+- source-ref: 196fa26d308557889f34b830d2fb0f97a9a6464d
+- source-manifest-sha256: f0c48c55992e42f69e00d7ecfcf9cc8a41c3bb9acd1cb919b9efbed4ff0ec043
+- docket-revision-sha256: 7c9df950663bafe0e7b7df29805810f431c1d90d3ca06a0d46c1c0fc0d8f51aa
+- input-sha256: 83fc4f13aea07a10919ca8d4db7cbba03f26c1b3bc47e6e2366dddb6164591de
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-34 | 2026-08-12T18:53:21+00:00 | from: owner | type: close | thread: setup-wizard-slice1-branch | refs: -
+
+Controller closed the managed case as NO_PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: NO_PASS
+- close-reason: party-vote-agreement
+
+## MSG-35 | 2026-08-12T18:56:36+00:00 | from: owner | type: review-request | thread: setup-wizard-slice1-branch-r2 | refs: feature/setup-wizard-slice1@397827e4d7c8592bebe6a3c8c7e61f4014ad9fbd
+
+Branch gate round 2: feature/setup-wizard-slice1@397827e (PR #9) with the three MSG-32/33 findings folded (managed_problem() asked at setup time; zero writes before all checks pass — scratch-dir probe; credential-shaped argv refused). Also includes the Windows argv-splitting fix (POSIX shlex ate backslashes; CI all-green at this ref). Docket updated with the round-1 summary; criteria otherwise unchanged.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 6c25a174eaeb3603ece8d014397eb044aa12f13b2ee84c77c135eddf6ee20f23
+- source-ref: 397827e4d7c8592bebe6a3c8c7e61f4014ad9fbd
+- docket-revision-sha256: e2d7766190286ee17baba653e2400395beb0f1f9220a965600c95e2fda3fb0ca
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-04-setup-wizard.md", "sha256": "4b35ab4ee8e0c1a34350f7e60f796e45a634719bc19ab66c4eb5aa0992c7403d", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/setup-slice1-docket.md", "sha256": "161db4c18e88cd15864de1965f680fd5a2cee73c5ab7cf0cfb1ce64ea7496660", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/setup-slice1.diff", "sha256": "54806a938b3ac3d309635e7111bd6ecab6863ebd0a2a37afee8c86276a697b9a", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/setup-slice1-watcher.json", "sha256": "6c25a174eaeb3603ece8d014397eb044aa12f13b2ee84c77c135eddf6ee20f23", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "39e3b950a9ba437ac055096e9c1caa1849353940baa5a0032466d9b8319dc64e", "opus": "03c83b1d73e446af0ccce069d9c2c5d4227d6e1c8ee4721c37281ea810a53b68"}
+
+## MSG-36 | 2026-08-12T19:06:00+00:00 | from: opus | type: verdict | thread: setup-wizard-slice1-branch-r2 | refs: -
+
+## Verdict: NO_PASS — two blocking findings
+
+### Fresh command evidence
+
+Ran the docket command literally, no prefixes/suffixes/pipes, cwd = the pinned export root
+`.../exports/397827e4d7c8592bebe6a3c8c7e61f4014ad9fbd/opus`:
+
+```
+$ python -m pytest -q
+........................................................................ [ 17%]
+........................................................................ [ 35%]
+........................................................................ [ 52%]
+...................................................................s.... [ 70%]
+........................................................................ [ 88%]
+................................................                         [100%]
+407 passed, 1 skipped in 17.39s
+```
+
+The command passes. The blocking findings below come from criterion-1 inspection, which the
+suite does not cover. Files inspected in the export: `src/debate/setup.py`,
+`src/debate/__main__.py`, `src/debate/watcher.py`, `src/debate/channel.py`, `PROTOCOL.md`,
+`src/debate/protocol_template.md`, `pyproject.toml`, `tests/test_setup.py`,
+`tests/test_output_is_ascii.py`, plus `setup-slice1.diff` and the plan in the docket. I made
+no edits, read no live channel, and used no `/tmp`. Note on evidence limits: in this seat only
+the docket command and a few `ls`-class calls were permitted, so I could not independently
+print the imported `debate.__file__`; the run used the environment-supplied project-local paths
+from the export root, and `git status` there reports "not a git repository" (a clean export),
+with no `.pytest-tmp` residue left behind.
+
+### F1 (blocking) — the round-1 fold is fail-open by default: `apply()` skips the real-loader
+round-trip *and* the `managed_problem()` gate unless the caller opts in
+
+`src/debate/setup.py:196-231`:
+
+```python
+def apply(spec, load_config_fn: Callable[...] | None = None) -> list[Path]:
+    validate(spec)
+    config = {...}
+    if load_config_fn is not None:
+        with tempfile.TemporaryDirectory(...) as scratch:
+            ...
+            loaded = load_config_fn(...)
+        problem = loaded.managed_problem()
+        if problem is not None:
+            raise channel.ChannelError(...)
+```
+
+Both round-1 folds live inside that `if`. With the default argument, `apply(spec)` writes the
+config, the state dir and the defaults cache without ever asking the real loader — so
+`WatcherConfig.__post_init__`'s state-inside-the-channel-root refusal and the watcher's own
+`managed_problem()` INVALID verdict are simply not consulted. Docket criterion "§2.6 validation
+precedes every write and round-trips the REAL loader" holds only on the CLI path
+(`__main__.py:452` passes `_watcher_config`); the pinned library entry point defaults to
+skipping it.
+
+This is not hypothetical, and it re-opens round-1 finding (1) on the exact shape that finding
+named. `tests/test_setup.py:64-74` asserts `{"alpha": None, "beta": [script]}` must refuse —
+but only because that test passes `load_config_fn=_watcher_config`. The same spec shape reaches
+`apply(spec)` with no loader twice in this diff (`tests/test_setup.py:77-83` and `:97-103`, both
+`{"beta": None}`), where the only thing preventing a written INVALID managed-v1 config is that
+an *earlier* check (credential / PATH) fires first. Plan §2.1 and §5 pin `apply` as the reuse
+surface for a non-terminal caller ("the interview/apply split of §2.1 is what lets that agent
+reuse `apply` without a terminal") — that named future caller gets the unguarded default.
+
+A validation module whose two strongest checks are off by default is the defect; the fix is
+small: make the round-trip unconditional (default the loader to the real one via a local import,
+or move the loader out of `__main__`) and keep the parameter only as a test seam. I would also
+keep an assertion that `apply(spec)` with no kwargs refuses the human-driven managed-v1 spec.
+
+### F2 (blocking) — the diff introduces the first non-ASCII operator-facing strings in the
+package, against the repo's own incident-driven invariant
+
+`tests/test_output_is_ascii.py:1-11` states the rule and the incident ("CI (windows-latest) hit
+`UnicodeDecodeError: byte 0xb7` … Windows `print()` to a REDIRECTED stream uses the locale
+encoding … Source comments and docstrings are unaffected"). Its AST sweep
+(`test_no_string_literal_in_the_watcher_can_carry_non_ascii`, line 118) is hard-scoped to
+`src/debate/watcher.py`, so it cannot see the new module.
+
+Searching non-ASCII across `src/debate/` at the pinned ref: `controller.py` 0 hits;
+`channel.py` and `watcher.py` hits are *all* in docstrings/comments — i.e. before this diff the
+package had zero non-ASCII runtime string literals. This diff adds eight, in operator-facing
+strings:
+
+- `__main__.py:420` and `:425` — em dash inside the "run `debate migrate` first" and the
+  managed-v2 refusals; `main` prints `str(error)` to stderr (`__main__.py:614-616`).
+- `__main__.py:448` — em dash inside the interactive `input(f"{spec.config_path} exists — overwrite? [y/N] ")` prompt.
+- `setup.py:169-170` — em dash and `§` in the credential refusal (round-1 fold 3's own message).
+- `setup.py:228` — em dash in the `managed_problem` refusal (round-1 fold 1's own message).
+- `setup.py:38, 40, 44` — em dashes in `PROMPT_TEMPLATE`. Lower severity: `json.dumps` escapes
+  them, so the written config stays ASCII, and argv to the child is not locale-encoded.
+
+U+2014 and U+00A7 both exist in cp1252, so on Windows these print *successfully* as bytes
+0x97/0xA7 and the redirected log is then not valid UTF-8 — precisely the failure the test module
+was written for, and precisely the messages a first-run operator reads. `debate setup` is the
+onboarding command; this is the worst place to reintroduce it. Fix: plain ASCII in these strings
+(`-`, "section 2.5"), and widen the AST sweep to `setup.py` and `__main__.py` so the guard stops
+being file-scoped.
+
+If the maintainers scope the ASCII rule to watcher/log output only, F2 becomes a note — F1 still
+blocks on its own.
+
+### Explicit rulings the docket asked for
+
+- **Managed-version-2 refusal (execution delta): ACCEPTED as the right narrowing.** A v2 seat is
+  an adapter profile; `WatcherConfig.__post_init__` (`watcher.py:118-125`) rejects a brokered
+  config that carries `commands` at all, so a wizard emitting `commands`/`prompts` for a v2
+  channel could only ever produce something the loader refuses. Refusing early at
+  `__main__.py:423-428` with a pointer at `watcher.brokered.example.json` and `adapter-doctor`
+  is better than writing a config that dies at load. `tests/test_setup.py:209-219` pins the
+  pointer. No better behavior to name.
+- **Keeping `--human`: accepted as a guided refusal, with one precision note.** `debate init`
+  always records a managed version (`__main__.py:401`), so on every channel the current tool
+  creates, `--human` can only ever end in the F1-guarded refusal. Its help text
+  ("mark a party human-driven (no watcher command); skips its question") gives no hint of that.
+  Either say "legacy/unmanaged channels only" in the help, or refuse at parse time with the same
+  wording. Non-blocking.
+- **The repo's own `.gitignore` hunk: accepted.** `*.watcher.json` is the repo adopting the hint
+  the tool prints, and it does not swallow the committed `watcher.example.json` /
+  `watcher.brokered.example.json` (neither ends in `.watcher.json`). Minor inconsistency: the
+  tool's hint (`setup.py:322-323`) suggests the literal filename, while the repo adopted the glob.
+
+### Criterion-1 checks that DO hold
+
+- **§2.1 split.** `interview()` touches only the terminal plus the defaults cache; `apply()` does
+  files only. Flags are the interview (`interview()` seeds from `flag_commands`, never asks a
+  covered party), and `--yes` with neither flags nor remembered answers refuses
+  (`setup.py:275-278`, pinned by `tests/test_setup.py:150-155`).
+- **§2.2 derived-never-asked.** `derive_paths` (`setup.py:111-123`) makes the channel id the
+  config stem and the state stem; `closing_hints` names the unit `debate-watch-<channel id>`,
+  which matches `watcher.py`'s `debate-watch-<state stem>` because the state file is
+  `<id>.json`. Toplevel follows the recorded project, falling back to the channel folder's
+  parent — the `_derived_project` two-tier rule.
+- **§2.3 writes.** Config, `PROTOCOL.md` only-if-absent (`scaffold_protocol` returns `None` when
+  present, `setup.py:146-151`), defaults cache carrying `"channel": spec.channel_name`, and the
+  interview shows that provenance (`setup.py:262-263`). `.gitignore` is never written — only a
+  printed hint, and `config_is_gitignored` runs `git check-ignore` read-only.
+- **§2.4 prompt.** All required clauses present in `PROMPT_TEMPLATE`: PROTOCOL.md first, `debate
+  read` only / never the whole mailbox, the two separate gates (NON-EMPTY thread AND
+  `turn=='{party}'`), fresh own evidence, review appended as a dated section at the END,
+  post-then-stop, and `--root {channel_root} --channel {channel_name}` addressing.
+  `command_for` (`watcher.py:190-202`) expands both channel placeholders in the prompt text and
+  only then substitutes `{prompt}` into argv; argv is never re-scanned. Nit only: the two
+  channel replacements are chained, so a channel_root path that literally contained
+  `{channel_name}` would be expanded by the second — same class as the pre-existing ordering,
+  not a regression.
+- **Packaged template byte-equality.** `src/debate/protocol_template.md` matches the export's
+  `PROTOCOL.md` line for line on my own read (159 lines, identical content including the
+  `[12]` thread-cap bracket), `pyproject.toml` ships it as package data, and
+  `tests/test_setup.py:123-124` pins it — that test is inside the 407 that passed.
+- **No secret reaches the config** on the checked path: `validate` scans every argv element
+  before anything is written (`setup.py:165-170`), prompts and derived keys are generated.
+
+### Non-blocking notes worth folding
+
+1. `tests/test_setup.py:114` is tautological: `assert "[9]" in text and "[12]" not in text.split("\n\n")[0] or "[9]" in text` collapses to `"[9]" in text`, so "the thread-cap bracket was
+   *replaced*" is never actually asserted. The behavior is correct (`str.replace(..., 1)` on the
+   first `[12]`, which is the thread-cap line); the test just does not pin it.
+2. Test hygiene outside the temp tree. `--basetemp=.pytest-tmp` (`pyproject.toml`) puts `tmp_path`
+   inside the working tree, so on a real checkout `_derived_project` resolves to the repo
+   toplevel and `test_end_to_end_...` / `test_two_channels_refuse_without_channel_flag` write a
+   `<id>.watcher.json` into the developer's repo root and unlink it (the tests say so and clean
+   up; a mid-test failure leaves residue, now gitignored). Worse, the two-channel test does not
+   monkeypatch `HOME` the way the e2e test does, so `apply` does `mkdir(parents=True)` on the
+   operator's real `~/.local/state/debate/`. For a tool whose stated purpose is to stop doing
+   surprising things to an operator's machine, its own suite should stay inside `tmp_path`.
+3. `SECRET_PATTERN` matches the bare word `secret` in any argv element, so a wrapper path such as
+   `~/.secrets/glm-agent` — the very idiom plan §2.5 recommends — is refused with no override.
+   Consider anchoring on assignment-shaped tokens only, or offering an escape hatch.
+4. `apply` writes the config before scaffolding `PROTOCOL.md`; a failure on the second write
+   leaves a config pointing at a channel with no PROTOCOL.md.
+
+Happy to flip to PASS on a revision that makes the loader round-trip unconditional (F1) and
+returns the operator-facing strings to ASCII with the AST sweep widened past `watcher.py` (F2).
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 631550944342aae92c32b9bf053040b38ff0c7a620739d1d35dac4a332960f18
+- phase: sealed
+- captured-at: 2026-08-12T19:06:00+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 6c25a174eaeb3603ece8d014397eb044aa12f13b2ee84c77c135eddf6ee20f23
+- source-ref: 397827e4d7c8592bebe6a3c8c7e61f4014ad9fbd
+- source-manifest-sha256: 03c83b1d73e446af0ccce069d9c2c5d4227d6e1c8ee4721c37281ea810a53b68
+- docket-revision-sha256: e2d7766190286ee17baba653e2400395beb0f1f9220a965600c95e2fda3fb0ca
+- input-sha256: 3e27307d355215e89294e24161d9395db6550b664b0e527528eac5c34d85d5eb
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-37 | 2026-08-12T19:06:00+00:00 | from: codex | type: verdict | thread: setup-wizard-slice1-branch-r2 | refs: -
+
+Blocking: the secret guard in `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/397827e4d7c8592bebe6a3c8c7e61f4014ad9fbd/codex/src/debate/setup.py:52-53` only matches `token`/`api-key` when followed by `=` or `:`. A normal argv such as `agent --token actual-secret` passes validation and is then written into `commands` at lines 204-207, violating the docket requirement that no secret/key-shaped credential reaches the written config. The required fresh verification command `python -m pytest -q` ran in the pinned export and returned `407 passed, 1 skipped in 19.53s`, but its passing result does not cover this credential form.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 631550944342aae92c32b9bf053040b38ff0c7a620739d1d35dac4a332960f18
+- phase: sealed
+- captured-at: 2026-08-12T18:59:13+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: 6c25a174eaeb3603ece8d014397eb044aa12f13b2ee84c77c135eddf6ee20f23
+- source-ref: 397827e4d7c8592bebe6a3c8c7e61f4014ad9fbd
+- source-manifest-sha256: 39e3b950a9ba437ac055096e9c1caa1849353940baa5a0032466d9b8319dc64e
+- docket-revision-sha256: e2d7766190286ee17baba653e2400395beb0f1f9220a965600c95e2fda3fb0ca
+- input-sha256: 2178028d0e91c2f8ec919bfd43f1bdfc4a8abde7027882d49258592f10abe49a
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-38 | 2026-08-12T19:06:00+00:00 | from: owner | type: close | thread: setup-wizard-slice1-branch-r2 | refs: -
+
+Controller closed the managed case as NO_PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: NO_PASS
+- close-reason: party-vote-agreement
+
+## MSG-39 | 2026-08-12T19:09:09+00:00 | from: owner | type: review-request | thread: setup-wizard-slice1-branch-r3 | refs: feature/setup-wizard-slice1@b5afcb9d93f8cfe67a7236f43307d376921c3db8
+
+Branch gate round 3: feature/setup-wizard-slice1@b5afcb9 (PR #9). Round-2 folds: required loader (fail-open gone), ASCII runtime strings + package-wide AST sweep, flag-form credential refusal. Suite 408 passed at this ref; CI re-running. Docket carries both prior rounds' summaries.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: a3a3d4392e1e7f96365ea7620a2cafad978f5664a5d8fc62a469c82efbab4510
+- source-ref: b5afcb9d93f8cfe67a7236f43307d376921c3db8
+- docket-revision-sha256: f8f9a7ec711c6e1565ca09fc78d6c81a1c8076e7acc1d259ece049fe3ab19d6a
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-04-setup-wizard.md", "sha256": "316f6942bc68973e8f33af15fb10de8924146114fc3c85afb28588f3d8c617b4", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/setup-slice1-docket.md", "sha256": "0ff18ff1c6c68ec14e2fbe1e03164a8f4a1e1115c04940208a0af909d89f97c0", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/setup-slice1.diff", "sha256": "02eff5c492d485e0406ae10dae661bab5b06a02b17dffc419576dc9fe6492a50", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/setup-slice1-watcher.json", "sha256": "a3a3d4392e1e7f96365ea7620a2cafad978f5664a5d8fc62a469c82efbab4510", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "bb8a342b61b5f84e1b7b02212a2688c0879339c316776fc40f7df5fde88247b4", "opus": "ffe75711b91c191bb3815388ddc88469c7eec18d81d74a4b513f22f791bf727d"}
+
+## MSG-40 | 2026-08-12T19:16:20+00:00 | from: opus | type: verdict | thread: setup-wizard-slice1-branch-r3 | refs: -
+
+## Verification run
+
+Command run literally, from `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/b5afcb9d93f8cfe67a7236f43307d376921c3db8/opus` (confirmed by `pwd`), no prefix/suffix/pipe:
+
+`python -m pytest -q`
+
+Result: `408 passed, 1 skipped in 16.81s` (progress dots showed a single `s` at ~70%). A post-run `ls -la` of the export root shows the same 17 entries and the same 12:09 mtimes as before the run, with no `.pytest-tmp`/`.pytest_cache` residue — the pinned source is byte-untouched.
+
+## Criterion-1 checks against the pinned export and `setup-slice1.diff`
+
+Read in full: `setup-slice1.diff`, `src/debate/setup.py`, `src/debate/__main__.py` (setup branch + `_watcher_config`), `src/debate/watcher.py` (`WatcherConfig`, `managed_problem`, `command_for`), `src/debate/protocol_template.md`, `PROTOCOL.md`, `tests/test_setup.py`, `tests/test_output_is_ascii.py`, `pyproject.toml`, `src/debate/channel.py` (config load / `init_channel`).
+
+- **§2.1 interview/apply split.** `interview()` (setup.py:244) takes an injectable `ask` and does no writes; `apply()` (setup.py:197) validates then writes, its only extra I/O being a scratch `TemporaryDirectory` probe. Flags are the interview: `--command`/`--human` populate `flag_commands` in `__main__.py:429-437` and covered parties are never asked (`open_parties` filter, setup.py:261). `--yes` with a party covered by neither flags nor cache refuses (setup.py:276-279; `test_yes_without_defaults_or_flags_refuses`).
+- **§2.2 derived-never-asked.** `derive_paths` (setup.py:112-124): config `<toplevel>/{name}.watcher.json`, state `~/.local/state/debate/{name}.json`; unit name `debate-watch-{channel_name}` in `closing_hints` — one id for all three, matching `debate-watch-<state stem>`. Toplevel is the channel's recorded `project` when present, else the root's parent, and `__main__.py:443` passes `chan_config.project`.
+- **§2.3 writes.** Config, `PROTOCOL.md` only-if-absent (`scaffold_protocol` returns `None` when the target exists; thread-cap bracket filled by `.replace("[12]", ..., 1)` — the first `[12]` in the template is the "Thread cap:" line, the earlier brackets are `[your call …]`/`[usually no]`), and the defaults cache carrying `"channel": spec.channel_name` provenance, surfaced in the next run's prompt. The tool never edits `.gitignore`: `config_is_gitignored` only runs `git check-ignore -q` and `closing_hints` prints the line to add.
+- **§2.4 prompt + engine.** `PROMPT_TEMPLATE` (setup.py:35-46) carries every incident clause: PROTOCOL.md first, `debate read` only ("never the whole mailbox"), the two-gate check ("NON-EMPTY thread AND turn=='{party}' — if either fails, exit without posting"), fresh own evidence never the request's, review-appended-as-a-dated-section-at-the-END-never-edit-the-body, post-then-stop; both `debate read` and `debate post` address `--root {channel_root} --channel {channel_name}`. `command_for` (watcher.py:197-202) chains both replacements on the prompt text in one expression and then substitutes `{prompt}` into argv in a single comprehension — argv is never re-scanned.
+- **§2.6 validation before writes, real loader.** `apply` calls `validate` first (no writes there — the state dir is only `mkdir`'d at setup.py:234, after the gate), writes the probe into a `TemporaryDirectory` outside every target path, and `load_config_fn` is a **required** positional-capable parameter with no default (setup.py:197-198); `__main__.py:452` passes the real `_watcher_config`, and every `setup.apply(...)` call in `tests/test_setup.py` supplies it too. `_watcher_config` binds the channel record, so `WatcherConfig.__post_init__`'s state-inside-the-root refusal and then `managed_problem()` fire at setup time.
+- **Packaged template.** `src/debate/protocol_template.md` and root `PROTOCOL.md` read identically line-for-line (159 lines each), and `test_packaged_template_matches_repo_protocol` pins byte equality via `resources.files("debate")`; it is in the passing run. `pyproject.toml:40-43` ships it as package data.
+- **Secrets.** `SECRET_PATTERN` is applied per argv element in `validate` before the config dict is assembled, so a refusal happens before any config text exists; `--api-key=sk-…`, bare `--token`, `secret`, `bearer`, `password`, `credential` all trip it (`test_inlined_credential_is_refused`, `test_flag_form_credential_is_refused_too`). Generated prompts are template-derived and carry no operator input.
+
+## Round-2 folds, verified independently
+
+1. Loader is required — no default on `load_config_fn`; the managed gate cannot be skipped.
+2. ASCII sweep widened: `tests/test_output_is_ascii.py:127-129` globs `src/debate/*.py` and calls `_sweep_one_module` on each. I confirmed `src/debate` has no subpackages (`__init__.py`, `__main__.py`, `channel.py`, `controller.py`, `setup.py`, `watcher.py`), so a non-recursive glob is in fact every module. `setup.py`'s em-dashes and `§` live only in comments/docstrings, which the sweep exempts by design.
+3. Flag-form credentials refuse (see above).
+
+Round-1 folds also hold: the `managed_problem()` refusal quotes the watcher's own words (`test_human_seat_on_managed_channel_refuses_at_setup_time` asserts `INVALID.*missing adapter command` and that the state dir does not exist afterwards); validation writes nothing.
+
+## The two judgment calls the docket asked for
+
+**managed-version-2 refusal: accept.** A v2 config is `adapters`/`runtime_root`/`source_ref`/`docket_files`, not `commands`/`prompts`; a wizard-written v2 config would be rejected downstream anyway (`managed_problem`: "managed-version 2 requires two brokered adapter profiles"), just later and less legibly. Refusing early at `__main__.py:423-428` with a pointer at a real artifact and a real subcommand is the right narrowing — I verified `watcher.brokered.example.json` exists at the export root and `adapter-doctor` is a genuine subcommand (`__main__.py:352` parser, `:567` dispatch), so the pointer is not aspirational.
+
+**`.gitignore` adding `*.watcher.json`: accept.** It is the repo adopting the hint the tool prints for its own generated file. No tracked file is shadowed: a glob for `**/*.watcher.json` over the export returns nothing, and the committed samples (`watcher.example.json`, `watcher.brokered.example.json`) do not end in `.watcher.json`.
+
+**Keeping `--human`: right, narrowly.** It is not dead: `load_config` leaves `managed_version` at `None` for records that lack the key (channel.py:410), so a named pre-0.5 channel still accepts a human seat; on managed v1 it converts what would otherwise be a bare `--yes` refusal into the watcher-worded explanation.
+
+## Non-blocking notes (none affect this verdict)
+
+- `--human`'s help text ("mark a party human-driven … skips its question") does not warn that on a managed-v1 channel it always ends in a refusal; one clause would save a round trip.
+- `test_protocol_scaffolded_when_absent_and_never_clobbered` asserts `"[9]" in text and "[12]" not in … or "[9]" in text`, which reduces to `"[9]" in text`. The clobber half of the test is solid; the bracket half is weaker than it reads.
+- `SECRET_PATTERN` is a shape guard, as its own comment says: an opaque credential with no key-ish word (or a wrapper path containing "token") is a miss/false-positive respectively. Consistent with §2.5 putting keys in wrappers, so not a gate failure.
+- `apply` writes the config before scaffolding PROTOCOL.md and the cache; a failure in between leaves a config with no PROTOCOL.md. Cheap to re-run, and PROTOCOL.md is never clobbered.
+
+Every criterion-1 check holds on my own reading and the docket command passes on my own fresh run, so: **PASS**.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 8844af6d10d35fbd844723dd68b66d261de1dec2e90590e4a19ba513fc2ec41c
+- phase: sealed
+- captured-at: 2026-08-12T19:13:53+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: a3a3d4392e1e7f96365ea7620a2cafad978f5664a5d8fc62a469c82efbab4510
+- source-ref: b5afcb9d93f8cfe67a7236f43307d376921c3db8
+- source-manifest-sha256: ffe75711b91c191bb3815388ddc88469c7eec18d81d74a4b513f22f791bf727d
+- docket-revision-sha256: f8f9a7ec711c6e1565ca09fc78d6c81a1c8076e7acc1d259ece049fe3ab19d6a
+- input-sha256: f4fc819dfd846734f404f5c4f1c57b2fd19e9b4b0f2fa893eddfde8b40df4d95
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-41 | 2026-08-12T19:16:20+00:00 | from: codex | type: verdict | thread: setup-wizard-slice1-branch-r3 | refs: -
+
+Inspected the complete pinned diff and plan against the source export. Verified setup's interview/apply validation flow, channel-id-derived paths, non-clobbering PROTOCOL/defaults writes, no tool .gitignore edit, complete prompt clauses and single-pass {channel_name} expansion, required real-loader round-trip before target writes, byte-equal packaged protocol template, credential guards including --token, widened ASCII sweep, and managed-v2 refusal pointing to watcher.brokered.example.json and adapter-doctor. Exact verification command: `python -m pytest -q` Result: `408 passed, 1 skipped in 17.84s`.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 8844af6d10d35fbd844723dd68b66d261de1dec2e90590e4a19ba513fc2ec41c
+- phase: sealed
+- captured-at: 2026-08-12T19:16:20+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: a3a3d4392e1e7f96365ea7620a2cafad978f5664a5d8fc62a469c82efbab4510
+- source-ref: b5afcb9d93f8cfe67a7236f43307d376921c3db8
+- source-manifest-sha256: bb8a342b61b5f84e1b7b02212a2688c0879339c316776fc40f7df5fde88247b4
+- docket-revision-sha256: f8f9a7ec711c6e1565ca09fc78d6c81a1c8076e7acc1d259ece049fe3ab19d6a
+- input-sha256: 07adc5e010dadf26f5d8827820504ad0a833bb74132bc4bbab4dd1890343fab0
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-42 | 2026-08-12T19:16:20+00:00 | from: owner | type: close | thread: setup-wizard-slice1-branch-r3 | refs: -
+
+Controller closed the managed case as PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: PASS
+- close-reason: party-vote-agreement
