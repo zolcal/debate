@@ -245,21 +245,23 @@ def test_prompt_without_placeholder_is_left_untouched(tmp_path: Path) -> None:
 
 # ---- Slice 2: the smoke ----------------------------------------------------
 
-def replying_seat(tmp_path: Path, party: str = "alpha") -> Path:
-    """A fake seat honoring the real contract: parse the channel address out
-    of the pinned prompt, find the open thread from the doorbell, post a
-    well-formed reply via the CLI."""
-    script = tmp_path / f"reply-{party}.sh"
-    script.write_text(rf"""#!/bin/sh
-prompt="$1"
-root=$(printf '%s' "$prompt" | sed -n 's/.*--root \([^ ]*\).*/\1/p' | head -1)
-chan=$(printf '%s' "$prompt" | sed -n 's/.*--channel \([^ ]*\).*/\1/p' | head -1)
-thread=$(sed -n 's/.*"thread": *"\([^"]*\)".*/\1/p' "$root/$chan.signal.json" | head -1)
-PYTHONPATH={Path(__file__).resolve().parents[1] / 'src'} {sys.executable} -m debate post \
-  --root "$root" --channel "$chan" --from {party} --type info --thread "$thread" --body "pong"
+def replying_seat(tmp_path: Path, party: str = "alpha") -> list[str]:
+    """A fake seat honoring the real contract, portable across CI lanes:
+    parse the channel address out of the pinned prompt, find the open thread
+    from the doorbell, post a well-formed reply via the CLI."""
+    src = Path(__file__).resolve().parents[1] / "src"
+    script = tmp_path / f"reply-{party}.py"
+    script.write_text(f"""import json, os, re, subprocess, sys
+prompt = sys.argv[1]
+root = re.search(r"--root (\\S+)", prompt).group(1)
+chan = re.search(r"--channel ([A-Za-z0-9-]+)", prompt).group(1)
+sig = json.load(open(os.path.join(root, chan + ".signal.json"), encoding="utf-8"))
+env = dict(os.environ, PYTHONPATH={str(src)!r})
+subprocess.run([sys.executable, "-m", "debate", "post", "--root", root,
+                "--channel", chan, "--from", {party!r}, "--type", "info",
+                "--thread", sig["thread"], "--body", "pong"], env=env, check=True)
 """)
-    script.chmod(0o755)
-    return script
+    return [sys.executable, str(script), "{prompt}"]
 
 
 def smoke_spec(root: Path, name: str, tmp_path: Path,
@@ -270,8 +272,8 @@ def smoke_spec(root: Path, name: str, tmp_path: Path,
 
 def test_smoke_passes_with_a_wellformed_fake_seat(tmp_path: Path) -> None:
     root, name = make_channel(tmp_path)
-    script = replying_seat(tmp_path)
-    spec = smoke_spec(root, name, tmp_path, {"alpha": [str(script), "{prompt}"], "beta": None})
+    argv = replying_seat(tmp_path)
+    spec = smoke_spec(root, name, tmp_path, {"alpha": argv, "beta": None})
     lines: list[str] = []
     failures = setup.smoke(spec, scratch_base=tmp_path, emit=lines.append)
     assert failures == []
@@ -282,15 +284,14 @@ def test_smoke_passes_with_a_wellformed_fake_seat(tmp_path: Path) -> None:
 
 
 def test_smoke_fails_loudly_for_prose_echo_and_silent_seats(tmp_path: Path) -> None:
-    prose = tmp_path / "prose.sh"
-    prose.write_text("#!/bin/sh\necho 'sure, I will get right on that'\n")
-    prose.chmod(0o755)
-    silent = tmp_path / "silent.sh"
-    silent.write_text("#!/bin/sh\nexit 0\n")
-    silent.chmod(0o755)
+    prose = tmp_path / "prose.py"
+    prose.write_text("print('sure, I will get right on that')\n")
+    silent = tmp_path / "silent.py"
+    silent.write_text("pass\n")
     root, name = make_channel(tmp_path)
     spec = smoke_spec(root, name, tmp_path,
-                      {"alpha": [str(prose), "{prompt}"], "beta": [str(silent), "{prompt}"]})
+                      {"alpha": [sys.executable, str(prose), "{prompt}"],
+                       "beta": [sys.executable, str(silent), "{prompt}"]})
     failures = setup.smoke(spec, scratch_base=tmp_path, emit=lambda _line: None)
     assert len(failures) == 2
     assert all("no reply landed" in reason for reason in failures)
