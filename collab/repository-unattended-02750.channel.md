@@ -1573,3 +1573,346 @@ Controller-Terminal:
 ## MSG-51 | 2026-08-12T19:57:54+00:00 | from: owner | type: close | thread: record-recovery-2026-08-12 | refs: -
 
 RECORD RECOVERY NOTE (one-shot close-correction idiom). On 2026-08-12, after merging PR #11, the operator seat (claude dev session) ran a git file-restore against this mailbox while it held eight entries not yet committed to git, truncating MSG-43..50 from the file; the doorbell stayed at seq 50. The entries were reconstructed from the controller's persisted case state (sealed_submissions, terminal fields) and invocation results, using a pipeline FIRST validated byte-equal against the still-committed MSG-40..42, with the two review-request bodies restored verbatim from the posting session's transcript. The pre-recovery truncated file is preserved at var/debate/repository-unattended-02750/mailbox-truncated-backup-2026-08-12.md and the script at var/debate/repository-unattended-02750/recover_entries.py. The owner approved the reconstruct-and-restore path in the remote session before any write. Lesson recorded: never point git file-restore at a live channel record; commit the record chore BEFORE any git operation touching collab/.
+
+## MSG-52 | 2026-08-12T23:09:00+00:00 | from: owner | type: review-request | thread: plan-v060-release | refs: main@77c531ab8bda807e126799535f8a8d352d91ecb5
+
+Plan-doc gate: the v0.6.0 release plan (docs/plans/2026-08-12-v0.6.0-release.md, materialized in the docket) reviewed against main@77c531a before any execution. The release ships the completed setup wizard. Flow is the owner-approved v0.5.0 precedent including its gate folds; criteria in plan-v060-docket.md — check README's current count/version claims against the export yourself.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: c161ec6513d4f4c78932501acfc31f0874662cc9c4234c7af7deb8efa36d028d
+- source-ref: 77c531ab8bda807e126799535f8a8d352d91ecb5
+- docket-revision-sha256: 495ce16a403f9329e73b28b7b897c57dcba30703957a0020cb52dd09f5350a21
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-12-v0.6.0-release.md", "sha256": "2c39e778195d3a6c81f09e99c76ae710c96b3e4fd00bb233e1bbe2bad03d20d4", "tracked_at_source_ref": false}, {"path": "docs/plans/2026-08-07-v0.5.0-release.md", "sha256": "8cb05b7f5395330d52b3efcde56a60270cb9b2ac30f6e54ddf907fb496aa59fa", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-v060-docket.md", "sha256": "df020611ecac072d5f5ba73796a4b09ee0184ef25bbd4069041397ff0519e11c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-v060-watcher.json", "sha256": "c161ec6513d4f4c78932501acfc31f0874662cc9c4234c7af7deb8efa36d028d", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "d2719267b1a6ad7305decc332de5f8c6960721e1126a02a981bd7180265820ad", "opus": "8d28d22a5af95055649342b8d834504312cff34516fefbf02f72820a8ea0f50d"}
+
+## MSG-53 | 2026-08-12T23:16:38+00:00 | from: opus | type: verdict | thread: plan-v060-release | refs: -
+
+NO_PASS — the docket command passes, but criterion 1 fails on one stale public claim the plan's step-4 sweep is not written to catch.
+
+VERIFICATION COMMAND (run literally in the pinned export root, no prefix/suffix/pipe):
+`python -m pytest -q tests/test_release_sync.py`
+Result: `.                 [100%]` / `1 passed in 0.08s`.
+
+WHAT CHECKS OUT (export at 77c531a):
+- Four version strings all read 0.5.0: pyproject.toml:7, src/debate/__init__.py:42, .claude-plugin/plugin.json:3, .claude-plugin/marketplace.json:9 — and tests/test_release_sync.py:11-23 is exactly the four-way lockstep the plan's step 2 leans on.
+- CHANGELOG.md:9 carries `## Unreleased` with the wizard content the plan describes: `debate setup`, `--smoke`, `--scheduler`, and the `{channel_name}` prompt expansion. src/debate/setup.py and tests/test_setup.py exist, and __main__.py:246-282 registers exactly the flags the plan and README name (`--command`, `--human`, `--yes`, `--smoke`, `--scheduler`, plus the shared `--root`/`--channel`).
+- Step 8 matches .github/workflows/release.yml as shipped: the `gate` job is 2 OS x 2 Python = 4 lanes (release.yml:19-35, same matrix as ci.yml:13-30), the publish pre-flight asserts tag == pyproject == `__version__` and a non-empty `## <tag>` CHANGELOG section BEFORE `python -m build` and the PyPI upload (release.yml:55-79), and `github-release` sources notes from that same section (release.yml:87-117). The step-3 heading form `## v0.6.0 — <UTC date>` satisfies the workflow's `^## v0.6.0(?=[ \t]|$)` anchor.
+- Language rules hold in the export: no occurrence of "unforgeable" in any .md, and the only "final" is "the final CLIs reported" (README.md:521); README.md:512 already says "The first end-to-end proof is MSG-11..14".
+- The plan is right that the counts are stale, and it under-states by how much. My own inspection: `python -m pytest -q --collect-only` → `413 tests collected in 0.63s` (README.md:475 claims 395); `wc -l src/debate/*.py` → `5488 total` (README.md:474 claims "about 4,900 lines"). Step 4's "recount at commit time" covers this.
+
+BLOCKING FINDING — stale public claim outside step 4's sweep:
+README.md:50-51 still tells readers that the 0.3.x fixed-filename layout (`CHANNEL.md`/`signal.json`/`debate.json`) is "still fully supported; see `debate migrate`". That was made false by the release this plan builds on: CHANGELOG.md:106-111 (`### Deprecated`) says posting to those legacy-layout channels "is deprecated as of 0.5", and README.md:389-391 says the same thing in its own "Upgrading from 0.3.x" paragraph. So the README asserts full support in the intro and deprecation 340 lines later. Step 4 sweeps only "the honest numbers", `MSG-`, "in 0.5"/"as of" forward references, and wizard flags; README.md:50-51 contains none of those tokens, so the sweep as written passes over it. This ships on the PyPI project page (pyproject.toml:9 sets `readme = "README.md"`), so v0.6.0 would republish the contradiction. Fix: make line 50-51 say the legacy layout keeps working but is deprecated since 0.5, and widen step 4's sweep to support-status/`0.3.x` wording, not just counts and `MSG-`/version-forward-reference tokens.
+
+TWO NOTES, NOT COUNTED AS BLOCKING:
+1. Unverifiable-from-export context claims: the plan's "merges 0fd806b and 55a4f8c" and "gate records through MSG-51 committed" cannot be checked here — the export separates `collab/` and `.git` (there is no `collab/` directory in the export, and git is unreachable), and the docket materialized only collab/PROTOCOL.md and collab/repository-unattended-02750.debate.json, neither of which is the channel record. Everything about those merges that the export can corroborate (setup.py, its tests, the Unreleased entries) is consistent with the plan. I did not treat this as a defect of the plan, only as a limit on what I could confirm.
+2. The shipped `{channel_name}` prompt placeholder (CHANGELOG.md:38-42) is absent from the README watcher-config section (README.md:264-278 shows only `{prompt}`). `{channel_root}` was never documented there either, so this is a pre-existing doc gap rather than a claim made stale by v0.6.0 — worth folding into step 4 while it is open.
+
+Re-case after the README.md:50-51 fix and a widened step-4 sweep; everything else in the plan matches the export.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 160db9be503298d22e5985e66010a6c7ccb7fa4455dd1de6b5e0a28da1c69da3
+- phase: sealed
+- captured-at: 2026-08-12T23:16:38+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: c161ec6513d4f4c78932501acfc31f0874662cc9c4234c7af7deb8efa36d028d
+- source-ref: 77c531ab8bda807e126799535f8a8d352d91ecb5
+- source-manifest-sha256: 8d28d22a5af95055649342b8d834504312cff34516fefbf02f72820a8ea0f50d
+- docket-revision-sha256: 495ce16a403f9329e73b28b7b897c57dcba30703957a0020cb52dd09f5350a21
+- input-sha256: 8752e3457f46c7940e73e078d29dd84ed7e8f556c74a2162cd20f3ba64d07158
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-54 | 2026-08-12T23:16:38+00:00 | from: codex | type: verdict | thread: plan-v060-release | refs: -
+
+PASS. Fresh verification ran exactly `python -m pytest -q tests/test_release_sync.py` in `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/77c531ab8bda807e126799535f8a8d352d91ecb5/codex` and returned `1 passed in 0.08s`. I checked `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/77c531ab8bda807e126799535f8a8d352d91ecb5/codex/CHANGELOG.md`, `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/77c531ab8bda807e126799535f8a8d352d91ecb5/codex/README.md`, the four 0.5.0 version locations, and `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/77c531ab8bda807e126799535f8a8d352d91ecb5/codex/.github/workflows/release.yml`. The plan accurately covers the Unreleased wizard work, four-way bump, four-lane release gate/pre-upload version-and-notes checks, and GitHub Release creation. README's stale 4,900-line/395-test claim is explicitly swept and recounted; its `as of 0.5` wording falls within the planned forward-reference sweep. The plan preserves tamper-evident wording and prohibits final/unforgeable release language.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 160db9be503298d22e5985e66010a6c7ccb7fa4455dd1de6b5e0a28da1c69da3
+- phase: sealed
+- captured-at: 2026-08-12T23:11:10+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: c161ec6513d4f4c78932501acfc31f0874662cc9c4234c7af7deb8efa36d028d
+- source-ref: 77c531ab8bda807e126799535f8a8d352d91ecb5
+- source-manifest-sha256: d2719267b1a6ad7305decc332de5f8c6960721e1126a02a981bd7180265820ad
+- docket-revision-sha256: 495ce16a403f9329e73b28b7b897c57dcba30703957a0020cb52dd09f5350a21
+- input-sha256: 7b0b15ebecbca25abdbef63ea08f8525f872ea016437c10059c870811d074d76
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-55 | 2026-08-12T23:20:31+00:00 | from: codex | type: verdict | thread: plan-v060-release | refs: -
+
+Ran exactly `python -m pytest -q tests/test_release_sync.py` in the pinned export; result: `1 passed in 0.08s`. Blocking finding: README.md:50-51 says legacy 0.3.x fixed-filename channels are “still fully supported,” but README.md:389-391 and CHANGELOG.md:107-110 correctly say posting to them has been deprecated since 0.5 (while still working). Plan step 4 only sweeps counts, `MSG-`, “in 0.5”/“as of” references, and wizard claims, so it would not catch this contradictory public support-status claim before the README is republished to PyPI. Amend the README wording and explicitly widen step 4 to sweep legacy-layout/0.3.x support-status claims. The four 0.5.0 version locations, Unreleased wizard entries, release.yml's four-lane gate/pre-upload checks, and language rules otherwise match the export.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Provenance:
+- phase: deliberation
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: c161ec6513d4f4c78932501acfc31f0874662cc9c4234c7af7deb8efa36d028d
+- source-ref: 77c531ab8bda807e126799535f8a8d352d91ecb5
+- source-manifest-sha256: d2719267b1a6ad7305decc332de5f8c6960721e1126a02a981bd7180265820ad
+- docket-revision-sha256: 495ce16a403f9329e73b28b7b897c57dcba30703957a0020cb52dd09f5350a21
+- input-sha256: 501b61f5ff50cb6686d76f4dc1be02af2bba802209cca44892d4055d3aa662f3
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-56 | 2026-08-12T23:20:31+00:00 | from: owner | type: close | thread: plan-v060-release | refs: -
+
+Controller closed the managed case as NO_PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: NO_PASS
+- close-reason: party-vote-agreement
+
+## MSG-57 | 2026-08-12T23:21:17+00:00 | from: owner | type: review-request | thread: plan-v060-release-r2 | refs: main@77c531ab8bda807e126799535f8a8d352d91ecb5
+
+Plan gate round 2: the v0.6.0 release plan with the MSG-53/55 finding folded (README:50-51 support-status fix leads step 4; sweep widened to legacy-layout support-status wording; reviewers' own counts adopted; {channel_name} doc gap folded). Docket carries the round-1 summary.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: c161ec6513d4f4c78932501acfc31f0874662cc9c4234c7af7deb8efa36d028d
+- source-ref: 77c531ab8bda807e126799535f8a8d352d91ecb5
+- docket-revision-sha256: d5e4847d51ba3c29dcb0186a7af0eb176cc9cbe1e71214dcec9ce80550725905
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-12-v0.6.0-release.md", "sha256": "9fffd0ae77a9da46db77847b23740090c386ab70d3f6635376d63b37d56199bc", "tracked_at_source_ref": false}, {"path": "docs/plans/2026-08-07-v0.5.0-release.md", "sha256": "8cb05b7f5395330d52b3efcde56a60270cb9b2ac30f6e54ddf907fb496aa59fa", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-v060-docket.md", "sha256": "30c80e89d4b3b3b5d1d241291111b2d4e463b50ec80eecc643f717f49e21e109", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-v060-watcher.json", "sha256": "c161ec6513d4f4c78932501acfc31f0874662cc9c4234c7af7deb8efa36d028d", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "d2719267b1a6ad7305decc332de5f8c6960721e1126a02a981bd7180265820ad", "opus": "8d28d22a5af95055649342b8d834504312cff34516fefbf02f72820a8ea0f50d"}
+
+## MSG-58 | 2026-08-12T23:25:56+00:00 | from: opus | type: verdict | thread: plan-v060-release-r2 | refs: -
+
+PASS — round-1 fold verified against the pinned export; verification command green.
+
+VERIFICATION (run literally in the export root, no prefixes/pipes):
+`python -m pytest -q tests/test_release_sync.py`
+→ `.                                       [100%]` / `1 passed in 0.08s`
+
+CRITERION 1 — claims about main's state at 77c531a:
+- Four lockstep version strings all read 0.5.0: pyproject.toml:7, src/debate/__init__.py:42, .claude-plugin/plugin.json:3, .claude-plugin/marketplace.json:9. tests/test_release_sync.py:11-23 is exactly the four-location enforcement step 2 cites (it asserts marketplace["metadata"]["version"]).
+- CHANGELOG.md:9 carries `## Unreleased` with the wizard content the plan describes (`debate setup`, `--smoke`, `--scheduler`, and `{channel_name}` alongside `{channel_root}`); next heading is `## v0.5.0 — 2026-08-07` (CHANGELOG.md:44). Section headings observed: Unreleased, v0.5.0, v0.4.0, v0.3.1, v0.2.0, v0.1.1, v0.1.0.
+- Shipped-behavior spot checks behind those entries: src/debate/__main__.py:242-280 defines exactly `--command/--human/--yes/--smoke/--scheduler` (the `--scheduler` help says "never installs or runs them", matching the CHANGELOG and README:107-110); src/debate/watcher.py:193-200 expands `{channel_root}` and `{channel_name}` in the same single pass, so the plan's engine claim is accurate.
+
+ROUND-1 FINDING, FOLD CONFIRMED:
+- README.md:50-51 still reads "Channels created by 0.3.x use the older fixed filenames … — still fully supported; see `debate migrate`", contradicting README.md:389-391 "posting to existing ones is deprecated as of 0.5". Step 4's first bullet now names this line explicitly and requires the intro to agree with the "Upgrading from 0.3.x" paragraph and the CHANGELOG. I grepped support-status wording repo-wide: skills/debate/SKILL.md:3,12, examples/glm-kimi.md:94, PROTOCOL.md:11 and docs/case-study.md:16 mention the legacy layout only descriptively (no support-status claim), so the repo-wide bullet is adequately scoped and README:50-51 is the only contradiction.
+
+COUNTS — I recounted rather than trusting the plan:
+- `python -m pytest -q --collect-only tests` → `413 tests collected in 0.65s`
+- `find src -name '*.py' | xargs wc -l` → `5488 total`
+The plan's folded figures (413 tests, 5,488 src lines) match my own counts exactly, and README.md:474-475 ("about 4,900 lines … with 395 tests as of this writing") is the stale claim step 4 bullet 3 targets. Those are the only occurrences of 395/4,900 anywhere in the export.
+
+OTHER STALE-CLAIM SEARCH (docket's "count and version claims" prompt): the remaining README version references — :283 "Since 0.4", :379 "created before 0.4", :385 "Upgrading from 0.3.x", :390 "as of 0.5", :515-516 "the v0.5.0 release itself", :521 pinned CLI/profile figures — are historical statements that stay true after v0.6.0; the PyPI badge at :9 is dynamic. No file outside README/CHANGELOG hard-codes a release version except pyproject.toml:7 (covered by step 2). I found no stale public claim that step 4's sweep would miss.
+
+WATCHER-DOC GAP: `{channel_name}` and `{channel_root}` appear nowhere in README.md (grep returned no hits, including the watcher-config section at :270-300), so the folded non-blocking item is a real pre-existing gap and step 4 bullet 5 covers it.
+
+RELEASE PROCEDURE vs .github/workflows/release.yml as shipped: trigger `on: push: tags: ["v*"]` matches step 8's tag-push; the `gate` job is 2 OS × 2 Python = the 4 lanes the plan claims; the `publish` job's "Verify tag matches package version, and that notes exist" step runs before `python -m build`/`pypa/gh-action-pypi-publish`, i.e. it refuses on version or notes mismatch before the irreversible upload, exactly as step 8 states; `github-release` sources the body from the CHANGELOG section. Step 3's heading format `## v0.6.0 — <UTC tag date>` satisfies both jobs' `^## <tag>(?=[ \t]|$)` anchor.
+
+LANGUAGE RULES: step 3 keeps "tamper-evident, never 'unforgeable'" and "nothing is called 'final'", consistent with README.md:467-473. Grep for `unforgeable` across README/CHANGELOG/PROTOCOL/docs/skills/.claude-plugin returned nothing; the single `final` hit is README.md:521 "the final CLIs reported a `$0.355168`", an ordinary adjective about the CLI versions, not a claim that the record is final. Step 0 flips the DRAFT header at gate-PASS before execution, per the v0.5.0 fold.
+
+STATED LIMITATION (not blocking): the export separates `.git` and the live channel record per PROTOCOL.md §5, so I could not directly confirm merge SHAs 0fd806b / 55a4f8c or "gate records through MSG-51". Everything those claims imply that is observable in the export — the wizard surface, the ASCII/`{channel_name}` work, and the `## Unreleased` contents — checks out, and collab/repository-unattended-02750.debate.json in the docket confirms the managed-version-2 opus/codex channel with thread_cap 12 that step 6 targets.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 14942d372ee88bc563f75174e9dd7672f2d22acf3957e629b6ea885f29043515
+- phase: sealed
+- captured-at: 2026-08-12T23:23:59+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: c161ec6513d4f4c78932501acfc31f0874662cc9c4234c7af7deb8efa36d028d
+- source-ref: 77c531ab8bda807e126799535f8a8d352d91ecb5
+- source-manifest-sha256: 8d28d22a5af95055649342b8d834504312cff34516fefbf02f72820a8ea0f50d
+- docket-revision-sha256: d5e4847d51ba3c29dcb0186a7af0eb176cc9cbe1e71214dcec9ce80550725905
+- input-sha256: 8d92ce8fa87d6ebb34172feed2fa3294d1afe89881840b22b4547f7899565baa
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-59 | 2026-08-12T23:25:56+00:00 | from: codex | type: verdict | thread: plan-v060-release-r2 | refs: -
+
+PASS. Fresh required command run in the pinned source export: `python -m pytest -q tests/test_release_sync.py` → `1 passed in 0.08s`. Inspected `README.md`, `CHANGELOG.md`, `.github/workflows/release.yml`, `pyproject.toml`, `src/debate/__init__.py`, both `.claude-plugin` manifests, `tests/test_release_sync.py`, and setup/watcher implementation. The four versions are 0.5.0, CHANGELOG has `## Unreleased` for the wizard, release.yml provides the four-lane gate and pre-upload version/notes check, and step 4 explicitly covers the found stale README legacy-support claim, counts, MSG/forward-reference sweep, and both watcher placeholders. Fresh collection output also reports 413 tests; `wc -l src/debate/*.py` reports 5,488 total source lines. No blocking stale public claim outside the planned sweep found; source uses tamper-evident and contains no unforgeable claim.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 14942d372ee88bc563f75174e9dd7672f2d22acf3957e629b6ea885f29043515
+- phase: sealed
+- captured-at: 2026-08-12T23:25:56+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: c161ec6513d4f4c78932501acfc31f0874662cc9c4234c7af7deb8efa36d028d
+- source-ref: 77c531ab8bda807e126799535f8a8d352d91ecb5
+- source-manifest-sha256: d2719267b1a6ad7305decc332de5f8c6960721e1126a02a981bd7180265820ad
+- docket-revision-sha256: d5e4847d51ba3c29dcb0186a7af0eb176cc9cbe1e71214dcec9ce80550725905
+- input-sha256: 7a831b0f14a14db73f063776f6fc51f391872dc17cb25b36c3d3bc682a379640
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-60 | 2026-08-12T23:25:56+00:00 | from: owner | type: close | thread: plan-v060-release-r2 | refs: -
+
+Controller closed the managed case as PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: PASS
+- close-reason: party-vote-agreement
+
+## MSG-61 | 2026-08-12T23:27:56+00:00 | from: owner | type: review-request | thread: release-v060-branch | refs: release/v0.6.0@c87529bf310ba169f2d3e10235de0909364c5b8e
+
+Branch gate for v0.6.0: release/v0.6.0@c87529b under the APPROVED plan (MSG-60). Docket release-v060-docket.md; full diff enclosed. Verify the round-1 support-status fix landed and sweep for any remaining contradiction. Merge + irreversible tag/PyPI only on PASS.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: ebe630f359a970f902d58bdbd3c841bfd12d8d846200070501136c637023136f
+- source-ref: c87529bf310ba169f2d3e10235de0909364c5b8e
+- docket-revision-sha256: 05d3672253460d3e8faa4c421c4134b548d30015d9cfd98c18b277b9bdf62f09
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-12-v0.6.0-release.md", "sha256": "1f8189af0737dcb2ed4950c378d9794162b51b53d37b89ab1bf7ee716801efce", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/release-v060-docket.md", "sha256": "f9976ec2b61a8964518801424c0f866b76275355cae99942d6d8958dc81f9ed1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/release-v060.diff", "sha256": "e9a40ffff6a91f20861161d6b02fae11c721910b4588e3eae0105844a54f2a49", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/release-v060-watcher.json", "sha256": "ebe630f359a970f902d58bdbd3c841bfd12d8d846200070501136c637023136f", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "74a02d84cfcdb65823f849277b24202f12af689e5f41cfda65f103e58c9725ad", "opus": "3ff1a948bc7a7fca842f7a84384b0a70ca3e7946be7796a2aa40807541321714"}
+
+## MSG-62 | 2026-08-12T23:33:57+00:00 | from: opus | type: verdict | thread: release-v060-branch | refs: -
+
+PASS — every hunk of `release-v060.diff` verified against the pinned export at c87529b, and the required command is green.
+
+## Verification command (run literally, no prefixes/pipes)
+
+`python -m pytest -q`
+
+Result:
+```
+........................................................................ [ 17%]
+........................................................................ [ 34%]
+........................................................................ [ 52%]
+........................................................................ [ 69%]
+s....................................................................... [ 87%]
+.....................................................                    [100%]
+412 passed, 1 skipped in 17.44s
+```
+
+## Criterion-1 checks
+
+**1. Four version strings at 0.6.0, lockstep test exists.** `grep -rn "0\.6\.0\|0\.5\.0" pyproject.toml src/debate/__init__.py .claude-plugin/plugin.json .claude-plugin/marketplace.json` returns exactly four hits, all 0.6.0, no 0.5.0 residue: pyproject.toml:7, src/debate/__init__.py:42, .claude-plugin/plugin.json:3, .claude-plugin/marketplace.json:9. tests/test_release_sync.py:11 `test_all_four_version_locations_agree` reads pyproject as source of truth and asserts the package `__version__` plus both manifests against it — it covers all four locations and is inside the green run above.
+
+**2. CHANGELOG heading vs release.yml anchor.** CHANGELOG.md:9 is `## v0.6.0 — 2026-08-13`; `## Unreleased` is gone. The publish preflight and the github-release job both use `r"^## " + re.escape(ref) + r"(?=[ \t]|$)[^\n]*\n(.*?)(?=\n## |\Z)"` (release.yml:73 and :106). For ref `v0.6.0` the character after the tag is a space, so the `[ \t]` lookahead holds, the `[^\n]*` absorbs the em-dash date, and the captured body (CHANGELOG.md:11-52, through to `## v0.5.0` at :54) is non-empty — both the "no usable section" exit and the empty-body exit are avoided.
+
+**3. CHANGELOG entries vs shipped behavior.**
+- *Wizard flags*: `--command`, `--human`, `--yes` (plus `--smoke`, `--scheduler`) are all real `p_setup` arguments at src/debate/__main__.py:249,258,266,271,277. "Everything derivable is derived" matches `derive_paths` (setup.py:113) making the config stem and state stem the channel id, and `scheduler_units` (setup.py:365) making the unit `debate-watch-<channel-id>`. "Validates before writing anything" matches `apply` (setup.py:198-242): `validate` first, then the config round-trips the real loader through a probe in a scratch dir outside every target path, and only then is a byte written. The PROTOCOL scaffold is absent-only/never-clobbered (setup.py:140-153), and tests/test_setup.py:136 pins `setup.protocol_template()` byte-equal to the repo `PROTOCOL.md`, with tests at :125-132 proving an owner-edited file is not clobbered. The managed-version-2 refusal pointing at `adapter-doctor` is covered by tests/test_setup.py:227-231. The defaults cache stores the provenance channel as a suggestion, not a registry (setup.py:94-109).
+- *Smoke semantics*: setup.py:302-356 matches the entry claim for claim — throwaway channel built with setup's own write path so it carries a PROTOCOL.md (`init_channel` + `scaffold_protocol`, :324-326), an `info` probe posted as the *other* party (:319, :327-331), the seat run with its REAL pinned prompt repointed at the scratch root (:332-335), a reply asserted in the scratch mailbox (:343-345), one call per seat announced before it is spent (:317-318), and `finally: shutil.rmtree(scratch, ignore_errors=True)` (:354-355) so the scratch root goes either way. The PASS message states plainly it proves the seat contract only, "NOT consistency or review quality" (:346-348).
+- *Scheduler withholding*: __main__.py:473-478 prints "scheduler output withheld: fix the failing seat first" when a requested smoke failed, and only otherwise emits units; `scheduler_units` is text-only and never touches `systemctl` (setup.py:359-401, install line printed as "not run for you" at __main__.py:487).
+- *`{channel_name}` expansion*: watcher.py:193-202 expands `{channel_name}` alongside `{channel_root}` in the same single first pass.
+
+**4. Round-1 finding fixed, and no other support-status contradiction standing.** README.md:50-52 now reads "they keep working, but posting to them is deprecated since 0.5; `debate migrate` renames one in place, byte-identically" — the "still fully supported" claim is gone. That agrees with README.md:393-399 ("deprecated as of 0.5 — it still works, `debate migrate` is the supported path forward, and no removal date is promised") and with the CHANGELOG Deprecated entry at :117-121. I swept wording, not just tokens: `grep -rn "fully supported|still supported|supported|deprecat"` over all repo `*.md` (README, CHANGELOG, PROTOCOL.md, docs/, skills/) returns only CHANGELOG.md:107,118,119,183,218 and README.md:52,398,399. The one remaining "remains fully supported" is CHANGELOG.md:183, which sits inside the historical `## v0.4.0 — 2026-08-05` section (heading at :137) and is explicitly tense-scoped "in 0.4" — a correct historical record superseded by the v0.5.0 Deprecated entry, not a standing contradiction. A dedicated `0\.3\.x|legacy|CHANNEL\.md|fully supported|still supported|deprecat` sweep of README returns only :50-52, :62, :313, :393, :397-398, all consistent.
+
+**5. Counts verify in the export.** `wc -l src/debate/*.py src/debate/**/*.py` totals exactly **5488** (channel.py 1404, controller.py 1843, __init__.py 42, __main__.py 658, setup.py 428, watcher.py 1113). Tests: the run above collected **413** (412 passed + 1 skipped). README.md:481-483 states "about 5,500 lines ... with 413 tests" — honest rounding of 5,488 and an exact test count; the stale 4,900/395 pair is gone.
+
+**6. Placeholder documentation matches `command_for`'s real semantics.** README.md:281-286 says both placeholders expand "in one fixed pass before `{prompt}` is substituted into the argv". watcher.py:175-202 does exactly that: `{channel_root}` and `{channel_name}` are replaced inside the prompt text in a single chained pass, then `{prompt}` is substituted into argv, and argv is never re-scanned — so the documented expansion order (placeholders first, argv substitution second) is the implemented order. `{channel_root}` → `str(self.channel_root.resolve())` matches "resolved absolute channel folder"; `{channel_name}` → the channel id matches. The generated form is real: setup.py:36-45 emits prompts carrying `--root {channel_root} --channel {channel_name}`, so "`debate setup` generates exactly that form" holds. The paragraph is placed in the README watcher-config section, directly after the config JSON block ending at :279, per the folded non-blocking note.
+
+**7. Language rules.** Case-insensitive sweep for `unforgeable|tamper-evident|final` across all repo `*.md`: no occurrence of "unforgeable" anywhere. Both tamper-evidence claims are correctly hedged — README.md:473 "tamper-evident, not tamper-proof" with the explicit "not as evidence against a determined forger with write access", and CHANGELOG.md:189 "The record is tamper-evident." Nothing is called "final" as a status claim; the sole `final` hit is README.md:529 "the final CLIs reported a `$0.355168`", where the word means *last*, not a claim of finality.
+
+## Non-blocking observation
+
+The heading date `2026-08-13` (CHANGELOG.md:9) is one day ahead of the current date, and the file's preamble states "Dates are the tag dates." This is not a gate failure: the docket pins that exact heading as the expected state, release.yml's anchor matches on the tag alone and ignores everything after it on the heading line, and the tag is pushed after this gate. Worth confirming the tag actually lands on 2026-08-13 UTC so the stated tag date stays honest.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: e96c053e5496e2b2ea85d548936bf9be2dadd4d0031f282e6f6d50cf01bbf77c
+- phase: sealed
+- captured-at: 2026-08-12T23:33:57+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: ebe630f359a970f902d58bdbd3c841bfd12d8d846200070501136c637023136f
+- source-ref: c87529bf310ba169f2d3e10235de0909364c5b8e
+- source-manifest-sha256: 3ff1a948bc7a7fca842f7a84384b0a70ca3e7946be7796a2aa40807541321714
+- docket-revision-sha256: 05d3672253460d3e8faa4c421c4134b548d30015d9cfd98c18b277b9bdf62f09
+- input-sha256: 3584c204523947459f97ea4294f416c6663768bafac95f955e2b67aaa6d0034a
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-63 | 2026-08-12T23:33:57+00:00 | from: codex | type: verdict | thread: release-v060-branch | refs: -
+
+Verified every release-diff hunk against the pinned export and approved plan: all four version locations are 0.6.0; the CHANGELOG v0.6.0 heading matches release.yml’s tag anchor and accurately describes setup, smoke, scheduler withholding, and placeholder expansion; legacy-layout wording is consistent; source totals 5,488 lines; and no unforgeable/final release claim remains. README placeholder documentation matches watcher.command_for’s single fixed expansion pass and order. Exact command run in the export: `python -m pytest -q` → `412 passed, 1 skipped in 18.43s` (413 collected outcomes). Verified files include /home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/c87529bf310ba169f2d3e10235de0909364c5b8e/codex/CHANGELOG.md, README.md, .github/workflows/release.yml, src/debate/watcher.py, src/debate/setup.py, pyproject.toml, src/debate/__init__.py, and tests/test_release_sync.py.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: e96c053e5496e2b2ea85d548936bf9be2dadd4d0031f282e6f6d50cf01bbf77c
+- phase: sealed
+- captured-at: 2026-08-12T23:30:52+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: ebe630f359a970f902d58bdbd3c841bfd12d8d846200070501136c637023136f
+- source-ref: c87529bf310ba169f2d3e10235de0909364c5b8e
+- source-manifest-sha256: 74a02d84cfcdb65823f849277b24202f12af689e5f41cfda65f103e58c9725ad
+- docket-revision-sha256: 05d3672253460d3e8faa4c421c4134b548d30015d9cfd98c18b277b9bdf62f09
+- input-sha256: 98a1f4d557ccfd82adbeb53afa0713d9efea705ae01eaa73b01c1b7fb88c9e38
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-64 | 2026-08-12T23:33:57+00:00 | from: owner | type: close | thread: release-v060-branch | refs: -
+
+Controller closed the managed case as PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: PASS
+- close-reason: party-vote-agreement
