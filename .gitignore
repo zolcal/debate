@@ -20,7 +20,9 @@ collab/*.signal.json
 collab/*.lock
 
 # Host-specific live config stays local; sanitized examples are committed instead.
+# <channel-id>.watcher.json is what `debate setup` writes — same rule, same reason.
 watcher.json
+*.watcher.json
 .claude/settings.local.json
 
 # Review worktrees live inside the repo. Each is a full checkout, so an

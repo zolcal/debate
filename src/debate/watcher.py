@@ -190,7 +190,15 @@ class WatcherConfig:
         argv = self.commands.get(party)
         if not argv:
             return None
-        prompt = self.prompts.get(party, "").replace("{channel_root}", str(self.channel_root.resolve()))
+        # {channel_name} joins {channel_root} in the same single first pass
+        # (setup-wizard plan §2.4): a prompt addressing its channel by --root
+        # alone refuses on every turn the day a second channel shares the
+        # folder, and several channels per folder is normal since 0.4.
+        prompt = (
+            self.prompts.get(party, "")
+            .replace("{channel_root}", str(self.channel_root.resolve()))
+            .replace("{channel_name}", str(self.channel_name or ""))
+        )
         return [part.replace("{prompt}", prompt) for part in argv]
 
 

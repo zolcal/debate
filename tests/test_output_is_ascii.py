@@ -120,9 +120,18 @@ def test_no_string_literal_in_the_watcher_can_carry_non_ascii() -> None:
     missed a sibling string; an AST sweep cannot. Docstrings are exempt —
     Python reads source as UTF-8 regardless of locale, and they never reach a
     stream."""
+
+    # Widened from watcher.py alone after the setup-wizard gate (MSG-36 F2)
+    # found the sweep's scoping let a NEW module ship the package's first
+    # non-ASCII runtime literals. Every module, one loop, no scoping to rot.
+    package = Path(__file__).resolve().parent.parent / "src" / "debate"
+    for source_file in sorted(package.glob("*.py")):
+        _sweep_one_module(source_file)
+
+
+def _sweep_one_module(source_file: Path) -> None:
     import ast
 
-    source_file = Path(__file__).resolve().parent.parent / "src" / "debate" / "watcher.py"
     tree = ast.parse(source_file.read_text(encoding="utf-8"))
 
     docstrings = set()

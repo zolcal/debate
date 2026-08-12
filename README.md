@@ -101,6 +101,11 @@ pip install debate        # Python 3.10+, stdlib only — or just vendor the two
 # New channels record managed_version 1 and default to a 12-entry thread cap.
 debate init --root ./collab --parties claude,glm --supervisor owner
 
+# Wire the seats: an interactive wizard writes the watcher config with pinned
+# incident-proof prompts, scaffolds the channel's PROTOCOL.md, and remembers
+# your answers for the next channel. Everything derivable is derived, never asked.
+debate setup --root ./collab --channel myproject-48213
+
 # The builder asks for a review:
 debate post --root ./collab --channel myproject-48213 --from claude --type review-request \
     --thread feature-x --refs feature-x@abc123 \
