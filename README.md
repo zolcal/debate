@@ -104,7 +104,10 @@ debate init --root ./collab --parties claude,glm --supervisor owner
 # Wire the seats: an interactive wizard writes the watcher config with pinned
 # incident-proof prompts, scaffolds the channel's PROTOCOL.md, and remembers
 # your answers for the next channel. Everything derivable is derived, never asked.
-debate setup --root ./collab --channel myproject-48213
+# --smoke buys one scratch-channel round trip per seat (one model call each,
+# the real channel untouched); --scheduler prints the systemd user units or
+# cron line -- never installs or starts anything.
+debate setup --root ./collab --channel myproject-48213 --smoke --scheduler
 
 # The builder asks for a review:
 debate post --root ./collab --channel myproject-48213 --from claude --type review-request \
