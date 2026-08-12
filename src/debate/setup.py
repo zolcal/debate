@@ -62,6 +62,13 @@ class SetupSpec:
     overwrite: bool = False
 
 
+def split_argv(text: str) -> list[str]:
+    """Windows paths carry backslashes; POSIX shlex eats them (C:\\Users ->
+    C:Users) and the mangled head then fails the executable check. Non-POSIX
+    mode keeps them; quoting still works for the space-in-path case."""
+    return shlex.split(text, posix=os.name != "nt")
+
+
 def defaults_path() -> Path:
     return Path(os.environ.get("DEBATE_SETUP_DEFAULTS", str(DEFAULTS_PATH))).expanduser()
 
@@ -240,7 +247,7 @@ def interview(*, channel_root: Path, channel_name: str, parties: tuple[str, ...]
             + ", ".join(repr(p) for p in open_parties))
     for p in open_parties:
         raw = ask(f"Command for seat {p!r} (argv; empty = human-driven): ").strip()
-        commands[p] = shlex.split(raw) if raw else None
+        commands[p] = split_argv(raw) if raw else None
 
     config_path, state_path = derive_paths(channel_root, channel_name, project)
     rem_debounce_raw = remembered.get("debounce_seconds")

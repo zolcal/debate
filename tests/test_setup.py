@@ -146,7 +146,10 @@ def test_end_to_end_cli_yes_flags_status_and_config_load(tmp_path: Path,
                                                         monkeypatch: pytest.MonkeyPatch) -> None:
     root, name = make_channel(tmp_path)
     script = seat_script(tmp_path)
+    # HOME steers expanduser on POSIX; Windows uses USERPROFILE. Set both so
+    # the derived state dir stays inside the test tree on every CI lane.
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     code = main([
         "setup", "--root", str(root), "--channel", name,
         "--command", f"alpha={script} {{prompt}}", "--human", "beta", "--yes",

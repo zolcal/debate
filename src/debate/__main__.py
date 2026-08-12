@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shlex
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -433,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
                 if not sep or not argv_text.strip():
                     raise channel.ChannelError(
                         f"refused: --command needs PARTY=ARGV, got {spec_text!r}")
-                flag_commands[party.strip()] = shlex.split(argv_text)
+                flag_commands[party.strip()] = setup_mod.split_argv(argv_text)
             for party in args.seat_human:
                 flag_commands[party.strip()] = None
             spec = setup_mod.interview(
