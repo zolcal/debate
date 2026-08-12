@@ -61,16 +61,26 @@ def test_apply_watcher_driven_pair_round_trips_the_real_loader(tmp_path: Path) -
     assert spec.config_path in written
 
 
-def test_apply_human_driven_seat_has_no_command_entry(tmp_path: Path) -> None:
+def test_human_seat_on_managed_channel_refuses_at_setup_time(tmp_path: Path) -> None:
+    """MSG-32: managed v1 needs a command per party; the config the watcher
+    would call INVALID must refuse at setup, in the watcher's own words."""
     root, name = make_channel(tmp_path)
     script = seat_script(tmp_path)
     spec = spec_for(root, name, tmp_path,
                     {"alpha": None, "beta": [str(script), "{prompt}"]})
-    setup.apply(spec, load_config_fn=_watcher_config)
-    config = json.loads(spec.config_path.read_text())
-    assert "alpha" not in config["commands"]
-    assert "alpha" not in config["prompts"]
-    assert list(config["commands"]) == ["beta"]
+    with pytest.raises(channel.ChannelError, match="INVALID.*missing adapter command"):
+        setup.apply(spec, load_config_fn=_watcher_config)
+    assert not spec.config_path.exists()
+    assert not spec.state_path.parent.exists(), "no write on refusal, not even a dir"
+
+
+def test_inlined_credential_is_refused(tmp_path: Path) -> None:
+    root, name = make_channel(tmp_path)
+    spec = spec_for(root, name, tmp_path,
+                    {"alpha": ["run", "--api-key=sk-abcdef0123456789abcdef"], "beta": None})
+    with pytest.raises(channel.ChannelError, match="wrapper"):
+        setup.apply(spec)
+    assert not spec.config_path.exists()
 
 
 def test_state_path_inside_channel_root_is_refused_at_setup_time(tmp_path: Path) -> None:
@@ -81,6 +91,7 @@ def test_state_path_inside_channel_root_is_refused_at_setup_time(tmp_path: Path)
     with pytest.raises(channel.ChannelError, match="state"):
         setup.apply(spec, load_config_fn=_watcher_config)
     assert not spec.config_path.exists(), "nothing written when validation fails"
+    assert not list(spec.config_path.parent.glob(".*setup-probe*")), "no probe residue"
 
 
 def test_unresolvable_command_is_refused_before_any_write(tmp_path: Path) -> None:
@@ -95,13 +106,15 @@ def test_unresolvable_command_is_refused_before_any_write(tmp_path: Path) -> Non
 def test_protocol_scaffolded_when_absent_and_never_clobbered(tmp_path: Path) -> None:
     root, name = make_channel(tmp_path)
     script = seat_script(tmp_path)
-    spec = spec_for(root, name, tmp_path, {"alpha": [str(script)], "beta": None})
+    spec = spec_for(root, name, tmp_path,
+                    {"alpha": [str(script)], "beta": [str(script)]})
     spec.thread_cap = 9
     setup.apply(spec, load_config_fn=_watcher_config)
     text = (root / "PROTOCOL.md").read_text()
     assert "[9]" in text and "[12]" not in text.split("\n\n")[0] or "[9]" in text
     (root / "PROTOCOL.md").write_text("owner-edited")
-    spec2 = spec_for(root, name, tmp_path, {"alpha": [str(script)], "beta": None})
+    spec2 = spec_for(root, name, tmp_path,
+                    {"alpha": [str(script)], "beta": [str(script)]})
     spec2.config_path = tmp_path / "second.watcher.json"
     setup.apply(spec2, load_config_fn=_watcher_config)
     assert (root / "PROTOCOL.md").read_text() == "owner-edited"
@@ -115,7 +128,7 @@ def test_defaults_round_trip_and_second_run_offers_them(tmp_path: Path) -> None:
     root, name = make_channel(tmp_path)
     script = seat_script(tmp_path)
     spec = spec_for(root, name, tmp_path,
-                    {"alpha": [str(script), "{prompt}"], "beta": None})
+                    {"alpha": [str(script), "{prompt}"], "beta": [str(script), "{prompt}"]})
     setup.apply(spec, load_config_fn=_watcher_config)
 
     asked: list[str] = []
@@ -130,7 +143,8 @@ def test_defaults_round_trip_and_second_run_offers_them(tmp_path: Path) -> None:
         ask=fake_ask)
     assert len(asked) == 1 and "remembered from channel" in asked[0]
     assert name in asked[0]  # provenance shown (glm MSG-36 note ii)
-    assert spec2.commands == {"alpha": [str(script), "{prompt}"], "beta": None}
+    assert spec2.commands == {"alpha": [str(script), "{prompt}"],
+                              "beta": [str(script), "{prompt}"]}
 
 
 def test_yes_without_defaults_or_flags_refuses(tmp_path: Path) -> None:
@@ -152,7 +166,8 @@ def test_end_to_end_cli_yes_flags_status_and_config_load(tmp_path: Path,
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     code = main([
         "setup", "--root", str(root), "--channel", name,
-        "--command", f"alpha={script} {{prompt}}", "--human", "beta", "--yes",
+        "--command", f"alpha={script} {{prompt}}",
+        "--command", f"beta={script} {{prompt}}", "--yes",
     ])
     assert code in (0, None)
     out = capsys.readouterr().out
@@ -176,12 +191,15 @@ def test_two_channels_refuse_without_channel_flag(tmp_path: Path,
     root, name1 = make_channel(tmp_path, label="one")
     name2 = channel.generate_channel_id(root, label="two")
     channel.init_channel(root, ("alpha", "beta"), "owner", 12, name=name2)
+    script = seat_script(tmp_path)
     assert main(["setup", "--root", str(root),
-                 "--human", "alpha", "--human", "beta", "--yes"]) == 1
+                 "--command", f"alpha={script} {{prompt}}",
+                 "--command", f"beta={script} {{prompt}}", "--yes"]) == 1
     err = capsys.readouterr().err
     assert name1 in err and name2 in err  # refusal names both channels
     assert main(["setup", "--root", str(root), "--channel", name1,
-                 "--human", "alpha", "--human", "beta", "--yes"]) == 0
+                 "--command", f"alpha={script} {{prompt}}",
+                 "--command", f"beta={script} {{prompt}}", "--yes"]) == 0
     out = capsys.readouterr().out
     for line in out.splitlines():  # derived toplevel may be the real repo root
         if line.startswith("wrote ") and line.endswith(".watcher.json"):

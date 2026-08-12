@@ -15,14 +15,17 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 from typing import Callable
 
 from . import channel
+from .watcher import WatcherConfig
 
 # The six incident-driven clauses of the live prompts, none optional (§2.4):
 # the two-gate check (non-empty thread AND turn), fresh evidence, read via
@@ -43,6 +46,11 @@ PROMPT_TEMPLATE = (
 )
 
 DEFAULTS_PATH = Path("~/.config/debate/setup-defaults.json")
+
+# A guard against the obvious accident, not a scanner: seat credentials belong
+# in a self-sourcing wrapper (§2.5); nothing key-shaped may reach the config.
+SECRET_PATTERN = re.compile(
+    r"(?i)(api[_-]?key\s*[=:]|token\s*[=:]|secret|bearer\s|sk-[a-z0-9]{16,})")
 
 
 @dataclass
@@ -154,6 +162,12 @@ def validate(spec: SetupSpec) -> None:
             continue
         if not argv:
             raise channel.ChannelError(f"refused: empty command for {party!r}")
+        for part in argv:
+            if SECRET_PATTERN.search(part):
+                raise channel.ChannelError(
+                    f"refused: the command for {party!r} looks like it inlines a "
+                    f"credential; keys never reach the config — use a self-sourcing "
+                    f"wrapper (plan §2.5)")
         head = argv[0]
         resolved = shutil.which(head)
         if resolved is None:
@@ -166,16 +180,21 @@ def validate(spec: SetupSpec) -> None:
         raise channel.ChannelError(
             f"refused: {spec.config_path} exists; re-run confirming the overwrite "
             f"(or pass --yes)")
-    try:
-        spec.state_path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
+    # Creatable is CHECKED here, created only in the write phase — validation
+    # writes nothing, not even a directory (gate finding, MSG-33).
+    ancestor = spec.state_path.parent
+    while not ancestor.exists():
+        if ancestor.parent == ancestor:
+            break
+        ancestor = ancestor.parent
+    if not os.access(ancestor, os.W_OK):
         raise channel.ChannelError(
-            f"refused: cannot create state directory {spec.state_path.parent}: {error}"
-        ) from error
+            f"refused: state directory {spec.state_path.parent} is not creatable "
+            f"({ancestor} is not writable)")
 
 
 def apply(spec: SetupSpec,
-          load_config_fn: Callable[[Path, Path, str | None], object] | None = None) -> list[Path]:
+          load_config_fn: Callable[[Path, Path, str | None], WatcherConfig] | None = None) -> list[Path]:
     """Validate, round-trip the assembled config through the real loader, then
     write. Returns the written paths. Nothing is written until every check
     passes; the round-trip makes `WatcherConfig.__post_init__`'s refusals
@@ -192,14 +211,26 @@ def apply(spec: SetupSpec,
         "timeout_seconds": spec.timeout_seconds,
     }
     if load_config_fn is not None:
-        probe = spec.config_path.parent / f".{spec.config_path.name}.setup-probe"
-        probe.write_text(json.dumps(config, indent=2), encoding="utf-8")
-        try:
-            load_config_fn(spec.channel_root, probe, spec.channel_name or None)
-        finally:
-            probe.unlink(missing_ok=True)
+        # The probe lives in a scratch dir OUTSIDE every target path, so a
+        # loader refusal leaves the project byte-untouched (gate finding,
+        # MSG-33).
+        with tempfile.TemporaryDirectory(prefix="debate-setup-") as scratch:
+            probe = Path(scratch) / spec.config_path.name
+            probe.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            loaded = load_config_fn(spec.channel_root, probe, spec.channel_name or None)
+        # The object that already knows one definition of validity gets asked
+        # at setup time, not at the first scheduler tick (gate finding,
+        # MSG-32): a managed channel needs a command for every party, so a
+        # "human-driven" seat — the plan's pre-managed pattern — refuses here.
+        problem = loaded.managed_problem()
+        if problem is not None:
+            raise channel.ChannelError(
+                f"refused: this configuration would be INVALID to the watcher — "
+                f"{problem}. Managed channels need a watcher command for every "
+                f"party; the human-driven seat is the legacy/unmanaged pattern.")
 
     written: list[Path] = []
+    spec.state_path.parent.mkdir(parents=True, exist_ok=True)
     spec.config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
     written.append(spec.config_path)
     scaffolded = scaffold_protocol(spec.channel_root, spec.thread_cap)
