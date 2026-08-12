@@ -65,6 +65,7 @@ class SetupSpec:
     config_path: Path
     state_path: Path
     thread_cap: int
+    supervisor: str = "owner"
     debounce_seconds: dict[str, int] = field(default_factory=dict)
     retry_seconds: int = 1800
     timeout_seconds: int = 1800
@@ -242,7 +243,7 @@ def apply(spec: SetupSpec,
 
 
 def interview(*, channel_root: Path, channel_name: str, parties: tuple[str, ...],
-              thread_cap: int, project: Path | None,
+              thread_cap: int, project: Path | None, supervisor: str = "owner",
               flag_commands: dict[str, list[str] | None],
               assume_yes: bool,
               ask: Callable[[str], str] = input) -> SetupSpec:
@@ -291,11 +292,113 @@ def interview(*, channel_root: Path, channel_name: str, parties: tuple[str, ...]
     return SetupSpec(
         channel_root=channel_root, channel_name=channel_name, parties=parties,
         commands=commands, config_path=config_path, state_path=state_path,
-        thread_cap=thread_cap, debounce_seconds=debounce,
+        thread_cap=thread_cap, supervisor=supervisor, debounce_seconds=debounce,
         retry_seconds=int(retry_raw) if isinstance(retry_raw, (int, float)) else 1800,
         timeout_seconds=int(timeout_raw) if isinstance(timeout_raw, (int, float)) else 1800,
         overwrite=assume_yes,
     )
+
+
+def smoke(spec: SetupSpec, *, scratch_base: Path | None = None,
+          emit: Callable[[str], None] = print) -> list[str]:
+    """Slice 2: the scratch-channel round trip. One model call per
+    watcher-driven seat; the REAL channel is untouched.
+
+    A pass proves the seat contract -- turn-gate, read, post -- and nothing
+    more: not consistency, not review quality. The scratch root is built with
+    setup's own write path so it carries a PROTOCOL.md (a root built by
+    init_channel alone would false-negative a correct seat at its first
+    instruction). Returns the failure reasons, empty on full pass."""
+    import subprocess
+
+    failures: list[str] = []
+    driven = [(p, argv) for p, argv in spec.commands.items() if argv]
+    for party, argv in driven:
+        emit(f"smoke {party}: about to spend ONE model call "
+             f"({' '.join(argv[:1])} ...); the real channel is untouched")
+        other = next(p for p in spec.parties if p != party)
+        scratch = Path(tempfile.mkdtemp(prefix="debate-smoke-",
+                                        dir=str(scratch_base) if scratch_base else None))
+        try:
+            sid = channel.generate_channel_id(scratch, label="smoke")
+            channel.init_channel(scratch, (spec.parties[0], spec.parties[1]),
+                                 spec.supervisor, spec.thread_cap, name=sid)
+            scaffold_protocol(scratch, spec.thread_cap)
+            channel.post(root=scratch, sender=other, entry_type="info",
+                         thread="smoke-probe",
+                         body="Smoke probe: reply on this open thread with any "
+                              "well-formed entry, then stop.",
+                         name=sid)
+            prompt = (build_prompt(party)
+                      .replace("{channel_root}", str(scratch.resolve()))
+                      .replace("{channel_name}", sid))
+            expanded = [part.replace("{prompt}", prompt) for part in argv]
+            try:
+                proc = subprocess.run(expanded, stdin=subprocess.DEVNULL,
+                                      capture_output=True, text=True,
+                                      timeout=spec.timeout_seconds, check=False)
+            except (OSError, subprocess.SubprocessError) as error:
+                failures.append(f"{party}: seat command failed to run: {error}")
+                continue
+            replies = [e for e in channel.read_entries(scratch, sid)
+                       if e.sender == party]
+            if replies:
+                emit(f"smoke {party}: PASS -- {replies[0].entry_type!r} reply "
+                     f"landed in the scratch mailbox (seat contract only: "
+                     f"turn-gate, read, post; NOT consistency or review quality)")
+            else:
+                tail = (proc.stdout or proc.stderr or "").strip()[-160:]
+                failures.append(
+                    f"{party}: no reply landed in the scratch mailbox "
+                    f"(exit {proc.returncode}; output tail: {tail!r})")
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+    return failures
+
+
+def scheduler_units(spec: SetupSpec) -> dict[str, str]:
+    """Slice 3: generate the user units (or the cron line) -- text only,
+    NEVER installed or started here. Naming convention enforced: the unit is
+    debate-watch-<channel-id>, same identity as state file, lock and log tag."""
+    import sys
+
+    unit = f"debate-watch-{spec.channel_name}"
+    root = spec.channel_root.resolve()
+    config = spec.config_path.resolve()
+    workdir = spec.config_path.parent.resolve()
+    pythonpath = str(Path(channel.__file__).resolve().parent.parent)
+    exec_start = (f"{sys.executable} -m debate watch-once --root {root} "
+                  f"--channel {spec.channel_name} --config {config}")
+    service = f"""[Unit]
+Description=debate watcher tick [channel: {root}, state: {spec.state_path.name}]
+# Stateless single tick: mirrors new entries, invokes a seat only when its
+# turn + open thread + debounce all hold. Overlap is harmless (lock refusal),
+# and systemd will not start a second instance of a still-activating oneshot.
+# Naming convention: debate-watch-<channel-id> so units, state files, locks
+# and journals all carry the SAME channel identity.
+
+[Service]
+Type=oneshot
+WorkingDirectory={workdir}
+Environment=PYTHONPATH={pythonpath}
+ExecStart={exec_start}
+SyslogIdentifier={unit}
+"""
+    timer = f"""[Unit]
+Description=Fire {unit}.service every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
+"""
+    cron = (f"* * * * * cd {workdir} && PYTHONPATH={pythonpath} "
+            f"{sys.executable} -m debate watch-once --root {root} "
+            f"--channel {spec.channel_name} --config {config}")
+    return {f"{unit}.service": service, f"{unit}.timer": timer, "cron": cron}
 
 
 def config_is_gitignored(path: Path) -> bool:

@@ -267,6 +267,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="non-interactive: use flags and remembered defaults, confirm overwrites",
     )
+    p_setup.add_argument(
+        "--smoke",
+        action="store_true",
+        help="after writing: one scratch-channel round trip per watcher-driven seat "
+        "(one model call each; the real channel is untouched)",
+    )
+    p_setup.add_argument(
+        "--scheduler",
+        action="store_true",
+        help="print the debate-watch-<id> user units / cron line; never installs or runs them",
+    )
 
     p_post = sub.add_parser("post", help="append an entry and bump the doorbell")
     p_post.add_argument("--root", type=Path, default=Path("."))
@@ -441,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
                 parties=tuple(chan_config.parties),
                 thread_cap=chan_config.thread_cap,
                 project=Path(chan_config.project) if chan_config.project else None,
+                supervisor=chan_config.supervisor,
                 flag_commands=flag_commands,
                 assume_yes=args.yes,
             )
@@ -452,8 +464,33 @@ def main(argv: list[str] | None = None) -> int:
             written = setup_mod.apply(spec, load_config_fn=_watcher_config)
             for path in written:
                 print(f"wrote {path}")
+            smoke_failed = False
+            if args.smoke:
+                failures = setup_mod.smoke(spec)
+                for reason in failures:
+                    print(f"smoke FAIL: {reason}", file=sys.stderr)
+                smoke_failed = bool(failures)
+            if args.scheduler:
+                if smoke_failed:
+                    # Units only after the seat passes: do not hand over a
+                    # scheduler for a seat that cannot reply (review fold c).
+                    print("scheduler output withheld: fix the failing seat first",
+                          file=sys.stderr)
+                else:
+                    units = setup_mod.scheduler_units(spec)
+                    unit_stem = f"debate-watch-{spec.channel_name}"
+                    for filename, text in units.items():
+                        if filename == "cron":
+                            continue
+                        print(f"--- ~/.config/systemd/user/{filename} ---")
+                        print(text)
+                    print("install (not run for you): systemctl --user daemon-reload && "
+                          f"systemctl --user enable --now {unit_stem}.timer")
+                    print(f"no systemd? cron line: {units['cron']}")
             for hint in setup_mod.closing_hints(spec, setup_mod.config_is_gitignored(spec.config_path)):
                 print(f"hint: {hint}")
+            if smoke_failed:
+                return 4
         elif args.command == "post":
             text = args.body if args.body is not None else args.body_file.read_text(encoding="utf-8")
             if args.verify_refs is not None:

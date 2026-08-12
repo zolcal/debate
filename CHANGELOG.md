@@ -22,6 +22,20 @@ it.
   scaffolds the channel's `PROTOCOL.md` from a packaged template (only if absent,
   never clobbered; a test pins the copy byte-equal to the repo template), and
   refuses managed-version-2 brokered channels with a pointer at `adapter-doctor`.
+- **`debate setup --smoke`** — an opt-in scratch-channel round trip per
+  watcher-driven seat: a throwaway channel built with setup's own write path
+  (so it carries a PROTOCOL.md), an `info` probe posted as the other party, the
+  seat run with its REAL pinned prompt pointed at the scratch root, and a
+  well-formed reply asserted in the scratch mailbox. One model call per seat,
+  announced before it is spent; the real channel is untouched; the scratch root
+  is removed either way. A pass proves the seat contract — turn-gate, read,
+  post — and states plainly that it proves nothing about consistency or review
+  quality.
+- **`debate setup --scheduler`** — generates and PRINTS the
+  `debate-watch-<channel-id>.{service,timer}` user units (stateless one-minute
+  `watch-once` tick, the incident-derived naming convention enforced) or the
+  cron line — never touches `systemctl`. Withheld when a requested smoke
+  failed: no scheduler for a seat that cannot reply.
 - Watcher prompts may address their channel as `{channel_name}` alongside
   `{channel_root}` — expanded in the same single pass. A prompt addressing by
   `--root` alone refuses on every turn the day a second channel shares the folder;
