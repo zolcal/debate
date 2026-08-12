@@ -1342,3 +1342,234 @@ Controller closed the managed case as PASS. Reason: party-vote-agreement. Superv
 Controller-Terminal:
 - terminal-result: PASS
 - close-reason: party-vote-agreement
+
+## MSG-43 | 2026-08-12T19:36:31+00:00 | from: owner | type: review-request | thread: setup-wizard-slices23-branch | refs: feature/setup-wizard-slices23@f8a92cc537f07e217e8f3199bb8dbf2e6bee70e1
+
+Branch gate: feature/setup-wizard-slices23@f8a92cc (PR #11) — slices 2 (--smoke: scratch-channel round trip, spend announced first, seat-contract-only claims, scratch always removed) and 3 (--scheduler: printed-never-run house-template units, withheld on smoke failure) of the APPROVED setup-wizard plan. Docket setup-slices23-docket.md; full diff enclosed. Merge only on terminal PASS + green CI.
+
+## MSG-44 | 2026-08-12T19:44:01+00:00 | from: opus | type: verdict | thread: setup-wizard-slices23-branch | refs: -
+
+**PASS** — every criterion-1 check holds against my own reads of the pinned export, and the mandated command passes on my fresh run.
+
+**Fresh command and result.** Run literally from the export root (`pwd` = `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/f8a92cc537f07e217e8f3199bb8dbf2e6bee70e1/opus`), no prefix, suffix, pipe or env diagnostics:
+
+```
+python -m pytest -q
+```
+```
+........................................................................ [ 17%]
+........................................................................ [ 34%]
+........................................................................ [ 52%]
+........................................................................ [ 69%]
+s....................................................................... [ 87%]
+.....................................................                    [100%]
+412 passed, 1 skipped in 17.31s
+```
+
+**Diff vs. export.** I read `setup-slices23.diff` in full and confirmed the export IS the post-slice tree: `src/debate/setup.py:302-402` (`smoke`, `scheduler_units`), `src/debate/__main__.py:267-277` (flags) and `:452-502` (setup branch), and `tests/test_setup.py:246-340` are byte-consistent with the diff hunks.
+
+**Slice 2 (`--smoke`).**
+- Opt-in only: the sole call site is `__main__.py` under `if args.smoke:`; nothing else invokes `setup_mod.smoke`.
+- Scratch root carries a PROTOCOL.md: `setup.py:330-333` calls `channel.init_channel(scratch, ...)` then setup's own `scaffold_protocol(scratch, spec.thread_cap)` (`setup.py:140-153`), so R2 precision note 1's false-negative (bare `init_channel` root, whose first prompt instruction "First read {channel_root}/PROTOCOL.md" would have no target) cannot occur.
+- Probe is an `info` from the other party (`other = next(p for p in spec.parties if p != party)`, `entry_type="info"`). `info` is a legal opener: `channel.py:70` `OPENER_TYPES = ("review-request", "question", "info", "close")`, enforced at `channel.py:622`; with no thread open the turn-alternation guard (`channel.py:629`) does not bind, so the probe lands and hands the turn to the seat.
+- Real pinned prompt, correct expansion order: `build_prompt(party)` returns the same `PROMPT_TEMPLATE` (`setup.py:35-46`) that `apply()` writes into `prompts`. `setup.py:338-341` expands `{channel_root}` then `{channel_name}` in the prompt text, then `{prompt}` into argv parts — identical to `WatcherConfig.command_for` (`watcher.py:190-197`), whose single-pass order is pinned at MSG-122; argv is never re-scanned.
+- Spend announced before the model call: `emit("smoke {party}: about to spend ONE model call ...")` at `setup.py:317-319` precedes `subprocess.run` at `:342`.
+- Pass states its limits plainly: `:347-350` — "seat contract only: turn-gate, read, post; NOT consistency or review quality".
+- Failures carry reason and output tail: `:355-358` reports exit code plus a 160-char stdout/stderr tail; the launch-failure branch reports the OSError/SubprocessError reason.
+- Scratch removed on every path: `try/finally: shutil.rmtree(scratch, ignore_errors=True)` (`:359-360`) wraps everything after `mkdtemp`, including the `continue`.
+- Real channel untouched: every write in `smoke` targets `scratch`; `spec.channel_root` is only read.
+
+**Slice 3 (`--scheduler`).** `scheduler_units` (`setup.py:371-402`) returns strings only — no `systemctl`, no `subprocess`, no file write; `__main__.py:481-499` prints the units and prints (does not run) the install line. House template present: `Type=oneshot`, `WorkingDirectory=`, `Environment=PYTHONPATH=`, `SyslogIdentifier=debate-watch-<id>`, `ExecStart=... watch-once --root ... --channel <id> --config ...`, timer `OnUnitActiveSec=1min` / `WantedBy=timers.target`. Naming matches the house convention `debate-watch-<state-file-stem>` (`watcher.py:437`, `README.md:283`), and the stem is the channel id by `derive_paths`. No credential can reach a unit: the text is built solely from `sys.executable`, resolved paths and the channel id — seat argv is never interpolated — and `validate()`'s `SECRET_PATTERN` (`setup.py:52-54`, `:168-172`) already refuses key-shaped argv. Withholding is correct: `__main__.py:482-486` prints "scheduler output withheld: fix the failing seat first" and skips generation whenever a requested smoke failed (review fold c), exiting 4.
+
+**Review-fold discipline.** ASCII invariant holds — the widened AST sweep over every `src/debate/*.py` module (`tests/test_output_is_ascii.py:118-156`) passed in the run above, covering the new `setup.py` and `__main__.py` literals. The required loader is unchanged: `apply(spec, load_config_fn)` still has no default (`setup.py:198-199`) and `__main__.py:465` passes `_watcher_config`. No new fail-open default: the only added defaults are `SetupSpec.supervisor="owner"`, `interview(supervisor="owner")` and `smoke`'s test seams (`scratch_base`, `emit`); the CLI always passes the channel's real `chan_config.supervisor` (`__main__.py:455`), and the default path fails closed (three-way distinctness in `init_channel`) rather than skipping a gate.
+
+**Non-blocking observations** (neither is a docket criterion): a `subprocess.TimeoutExpired` failure carries the reason but not the captured output tail, unlike the no-reply branch; and `--smoke` on a spec with no watcher-driven seat returns an empty failure list silently (unreachable for managed channels, which `apply()` already refuses for human-driven seats).
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: bbb83b609bb98e50c67384715244ac830515bf422fb60d04d33ac703c1cbe9cb
+- phase: sealed
+- captured-at: 2026-08-12T19:44:01+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: c29890006a837abee77782a034db287221bfb30087ecded6ec1a27b08670be37
+- source-ref: f8a92cc537f07e217e8f3199bb8dbf2e6bee70e1
+- source-manifest-sha256: 114a922306a1c006718f39f949264dba250c6061d80e1e815bda78347727bc40
+- docket-revision-sha256: 44f48de5f08ad0075bfef334dd93332ace1a5e836705754a958e63549892a96d
+- input-sha256: 448de2bab3752df97d08e294017bf73b572d74bbef5899a0065aaf4ea61daa2d
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-45 | 2026-08-12T19:44:01+00:00 | from: codex | type: verdict | thread: setup-wizard-slices23-branch | refs: -
+
+Verified the immutable docket, full setup-slices23.diff, approved plan, and pinned source implementations in src/debate/setup.py, src/debate/__main__.py, src/debate/watcher.py, src/debate/channel.py, and tests/test_setup.py. Slice 2 uses a protocol-scaffolded scratch channel, legal info opener, pinned-prompt single-pass expansion, pre-spend notice, cleanup, and failure reporting; Slice 3 only generates text and withholds scheduler output after smoke failure. The required loader remains mandatory and the package-wide ASCII AST sweep remains present. Fresh command run exactly: `python -m pytest -q` -> `412 passed, 1 skipped in 18.03s`.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: bbb83b609bb98e50c67384715244ac830515bf422fb60d04d33ac703c1cbe9cb
+- phase: sealed
+- captured-at: 2026-08-12T19:39:23+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: c29890006a837abee77782a034db287221bfb30087ecded6ec1a27b08670be37
+- source-ref: f8a92cc537f07e217e8f3199bb8dbf2e6bee70e1
+- source-manifest-sha256: b75f73ed5d1ef4167d338f7e8757f80979e916d2d4d34714b6827a291969ec4e
+- docket-revision-sha256: 44f48de5f08ad0075bfef334dd93332ace1a5e836705754a958e63549892a96d
+- input-sha256: 4482f16d618a50f66f2373d69a1b2cb38c8b0338f459280a01b8f39f0634ad01
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-46 | 2026-08-12T19:44:01+00:00 | from: owner | type: close | thread: setup-wizard-slices23-branch | refs: -
+
+Controller closed the managed case as PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: PASS
+- close-reason: party-vote-agreement
+
+## MSG-47 | 2026-08-12T19:44:34+00:00 | from: owner | type: review-request | thread: setup-wizard-slices23-amendment | refs: feature/setup-wizard-slices23@72464097c679cc4aed891e0012c77cc43261386a
+
+Amendment round: one TEST-ONLY commit past the MSG-44/45 PASS (portable python fake seats for Windows lanes + fake-seat regex fix). Full amendment diff in the docket; product code untouched; CI green at this ref. Merge only on PASS.
+
+## MSG-48 | 2026-08-12T19:50:44+00:00 | from: opus | type: verdict | thread: setup-wizard-slices23-amendment | refs: -
+
+PASS — amendment round, feature/setup-wizard-slices23 (export ref 72464097c679cc4aed891e0012c77cc43261386a).
+
+## Command run (exactly as the docket specifies, no prefixes/suffixes/pipes)
+
+`python -m pytest -q`, run in the pinned export root `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/72464097c679cc4aed891e0012c77cc43261386a/opus`.
+
+Result (run twice, identical both times):
+
+```
+........................................................................ [ 17%]
+........................................................................ [ 34%]
+........................................................................ [ 52%]
+........................................................................ [ 69%]
+s....................................................................... [ 87%]
+.....................................................                    [100%]
+412 passed, 1 skipped in 17.68s
+```
+(second run: `412 passed, 1 skipped in 17.14s`)
+
+## The amendment commit (setup-slices23-amendment.diff)
+
+Verified test-only: the diff touches `tests/test_setup.py` and nothing else — no `src/`, no docs, no config. Both changes are portability fixes, and the export tree matches the diff's post-state:
+
+- `replying_seat` (tests/test_setup.py:248-264) now returns `[sys.executable, str(script), "{prompt}"]` writing a `.py` fixture instead of a `chmod +x` `#!/bin/sh` script, so a Windows lane does not have to exec a shell script. The channel-id capture is now `re.search(r"--channel ([A-Za-z0-9-]+)", prompt)` — the character class cannot swallow the pinned prompt's backtick (the old `sed 's/.*--channel \([^ ]*\).*/\1/p'` captured any non-space run, backtick included).
+- The prose/silent fixtures (tests/test_setup.py:286-299) are likewise `.py` files invoked via `sys.executable`. The failure assertions are unchanged in strength: still `len(failures) == 2`, still `"no reply landed"` in every reason, still `"sure, I will"` present (output tail proven shown), still `not list(tmp_path.glob("debate-smoke-*"))`.
+
+The fixtures still honour the real contract — parse `--root`/`--channel` out of the pinned prompt, read the open thread from `<chan>.signal.json`, post via the real `debate post` CLI — so the pass case is not weakened into a stub.
+
+## Criterion-1 checks against the pinned export
+
+Slice 2 (`--smoke`), src/debate/setup.py:302-356 and src/debate/__main__.py:271, 467-472:
+- Opt-in only: `--smoke` exists solely on the setup parser and is read only at `__main__.py:468` (`if args.smoke:`); nothing runs otherwise.
+- Scratch root carries a PROTOCOL.md: `init_channel` + `scaffold_protocol(scratch, spec.thread_cap)` (setup.py:324-326) — setup's own write path, so a correct seat does not false-negative at its first instruction.
+- Probe is an `info` from the other party: `other = next(p for p in spec.parties if p != party)` (setup.py:319), `channel.post(..., sender=other, entry_type="info", ...)` (setup.py:327). `info` is a legal opener — `OPENER_TYPES = ("review-request", "question", "info", "close")` at channel.py:70, enforced at channel.py:622.
+- Real pinned prompt, correct expansion order: `build_prompt(party)` (the same function `apply` writes into the config, setup.py:209) with `{channel_root}`/`{channel_name}` replaced first, then `{prompt}` substituted into argv, argv never re-scanned (setup.py:332-335) — byte-for-byte the order of `WatcherConfig.command_for` (watcher.py:197-202).
+- Spend announced before the model call: the `about to spend ONE model call` emit is at setup.py:317-318, ahead of scratch creation and `subprocess.run` (setup.py:337).
+- Pass states the limit plainly: `seat contract only: turn-gate, read, post; NOT consistency or review quality` (setup.py:346-348).
+- Failures carry reason and tail: `no reply landed in the scratch mailbox (exit {returncode}; output tail: {tail!r})` (setup.py:350-353).
+- Scratch removed on every path: `try: ... finally: shutil.rmtree(scratch, ignore_errors=True)` (setup.py:322/354-355); the exception branch's `continue` (setup.py:342) still runs the `finally`.
+- Real channel untouched: every write in `smoke` targets `scratch`; `spec.channel_root` is never written.
+
+Slice 3 (`--scheduler`), setup.py:359-401 and __main__.py:473-489:
+- Text only: `scheduler_units` returns a dict of strings and writes no file; `__main__` only `print`s. `systemctl` appears nowhere except inside the printed `install (not run for you): ...` string (__main__.py:487-488) — a repo-wide grep for `systemctl`/`subprocess.run` under `src/debate` shows no execution path from the scheduler code.
+- House template honoured: `Type=oneshot`, `WorkingDirectory=`, `Environment=PYTHONPATH=`, `SyslogIdentifier=debate-watch-<id>`, `ExecStart=... watch-once --root ... --channel <id> --config ...`, timer `OnUnitActiveSec=1min` / `WantedBy=timers.target`. Naming is `debate-watch-{spec.channel_name}`, and since `derive_paths` makes the state stem the channel id (setup.py:124) this agrees with the `debate-watch-<state-stem>` convention pinned in README.md:280-287 and tests/test_unit_naming.py.
+- No credential can appear in a unit: unit text is composed only of `sys.executable`, the resolved root/config/workdir/PYTHONPATH and `state_path.name`; seat argv (the only credential-adjacent field, itself guarded by `SECRET_PATTERN` at setup.py:52-54/167-172) never enters the unit.
+- Withheld on a failed requested smoke: `if smoke_failed: print("scheduler output withheld: fix the failing seat first", file=sys.stderr)` (__main__.py:473-478), plus exit code 4 (__main__.py:492-493).
+
+Review-fold discipline:
+- ASCII sweep still widened and still green: `test_no_string_literal_in_the_watcher_can_carry_non_ascii` walks `src/debate/*.py` in a loop (tests/test_output_is_ascii.py:118-129), so `setup.py` is in scope; it passes in the run above.
+- Loader still required: `apply(spec, load_config_fn: Callable[...])` has no default (setup.py:198-199) and `__main__` passes `_watcher_config` explicitly.
+- No new fail-open default: `--smoke`/`--scheduler` are `store_true` (default off), a failed smoke both withholds the units and returns 4.
+
+## On the two round-1 non-blocking observations — still non-blocking
+
+- Timeout tail: `subprocess.TimeoutExpired` is a `SubprocessError`, so a timed-out seat lands in the `except (OSError, subprocess.SubprocessError)` branch (setup.py:340-341) and reports `seat command failed to run: <error>` without the captured output tail that the no-reply branch shows. The failure is still loud and named, and the timeout value is in the message; this is a diagnostic thinness on one branch, not a wrong result. Not blocking.
+- Silent empty smoke: with `--smoke` and no watcher-driven seat, `driven` is empty and `smoke` returns `[]` with no output, so the run reads as a pass that tested nothing. On a managed v1 channel `apply` already refuses a human-driven seat (setup.py:227-232), which bounds the exposure to legacy/unmanaged channels, and the smoke genuinely cannot exercise a human seat. Worth a line of output in a future slice; not blocking.
+
+Nothing else from my inspection is blocking. Both docket criteria are met: the command passes at this ref, and every criterion-1 check holds against the pinned export.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: e2829d1427b896e9955ca5c810d06359920a1c06138cb91a60611bf03f5acaf0
+- phase: sealed
+- captured-at: 2026-08-12T19:48:39+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 361da312b477e93533765f62cca7fb7151be58304a0d0dc27a98b4274024e433
+- source-ref: 72464097c679cc4aed891e0012c77cc43261386a
+- source-manifest-sha256: a25fc7f773d9d75aed2ada0e3d723b27e3c9af3c7dbf9e83a882a7f292b58f56
+- docket-revision-sha256: 89c3ef9b3fd9db78a93b20b0021ce2838680a6e794b042f1efd017e34b24284f
+- input-sha256: 871bf60955e41bd2cc080d742b01e926dfb239931fb5ca4cf16c77526e963fd1
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-49 | 2026-08-12T19:50:44+00:00 | from: codex | type: verdict | thread: setup-wizard-slices23-amendment | refs: -
+
+Verified the immutable docket hashes, the full slices23 and amendment diffs, and the pinned export's `src/debate/setup.py`, `src/debate/__main__.py`, `src/debate/watcher.py`, `src/debate/channel.py`, relevant tests, README, and CHANGELOG. `channel.OPENER_TYPES` includes `info`; smoke uses the scaffold path and pinned prompt with the same placeholder order as `WatcherConfig.command_for`; scheduler generation is text-only and is withheld after a requested smoke failure; the widened package AST ASCII sweep remains present. Fresh exact verification command: `python -m pytest -q` Result: `412 passed, 1 skipped in 18.22s`. The prior timeout-tail and zero-watcher-seat smoke observations remain non-blocking for this docket's stated criteria.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: e2829d1427b896e9955ca5c810d06359920a1c06138cb91a60611bf03f5acaf0
+- phase: sealed
+- captured-at: 2026-08-12T19:50:44+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: 361da312b477e93533765f62cca7fb7151be58304a0d0dc27a98b4274024e433
+- source-ref: 72464097c679cc4aed891e0012c77cc43261386a
+- source-manifest-sha256: 54add63f8a9128327f5996c6db9abd48860e170a30ade2d38a4042173413707e
+- docket-revision-sha256: 89c3ef9b3fd9db78a93b20b0021ce2838680a6e794b042f1efd017e34b24284f
+- input-sha256: 54ed7cd7dfb57eb5ef54e23125a0dd824c1c95bd156d03b937369c0ebb428e1c
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-50 | 2026-08-12T19:50:44+00:00 | from: owner | type: close | thread: setup-wizard-slices23-amendment | refs: -
+
+Controller closed the managed case as PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: PASS
+- close-reason: party-vote-agreement
+
+## MSG-51 | 2026-08-12T19:57:54+00:00 | from: owner | type: close | thread: record-recovery-2026-08-12 | refs: -
+
+RECORD RECOVERY NOTE (one-shot close-correction idiom). On 2026-08-12, after merging PR #11, the operator seat (claude dev session) ran a git file-restore against this mailbox while it held eight entries not yet committed to git, truncating MSG-43..50 from the file; the doorbell stayed at seq 50. The entries were reconstructed from the controller's persisted case state (sealed_submissions, terminal fields) and invocation results, using a pipeline FIRST validated byte-equal against the still-committed MSG-40..42, with the two review-request bodies restored verbatim from the posting session's transcript. The pre-recovery truncated file is preserved at var/debate/repository-unattended-02750/mailbox-truncated-backup-2026-08-12.md and the script at var/debate/repository-unattended-02750/recover_entries.py. The owner approved the reconstruct-and-restore path in the remote session before any write. Lesson recorded: never point git file-restore at a live channel record; commit the record chore BEFORE any git operation touching collab/.
