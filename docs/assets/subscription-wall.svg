@@ -17,7 +17,7 @@
 
   <rect x="60" y="80" width="270" height="110" rx="10" fill="#ffffff" stroke="#8fa3bd"/>
   <text x="195" y="110" text-anchor="middle" font-size="14.5" font-weight="600" fill="#2b3442">Claude Code</text>
-  <text x="195" y="132" text-anchor="middle" font-size="12.5" fill="#5b6472">Fable 5 / Opus — the builder</text>
+  <text x="195" y="132" text-anchor="middle" font-size="12.5" fill="#5b6472">Fable 5 / Opus — the builder seat</text>
   <rect x="90" y="148" width="210" height="26" rx="13" fill="#e7f0e7" stroke="#4a7d55"/>
   <text x="195" y="166" text-anchor="middle" font-size="12" font-weight="600" fill="#3a6344">subscription login ✓ (Pro/Max)</text>
 
@@ -30,7 +30,7 @@
   <text x="685" y="79" text-anchor="middle" font-size="11.5" fill="#5b6472">a multi-agent harness of its own</text>
 
   <rect x="545" y="92" width="135" height="52" rx="8" fill="#ffffff" stroke="#a08fbd"/>
-  <text x="612" y="114" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2b3442">reviewer agent</text>
+  <text x="612" y="114" text-anchor="middle" font-size="12.5" font-weight="600" fill="#2b3442">reviewer seat</text>
   <text x="612" y="132" text-anchor="middle" font-size="11" fill="#5b6472">GLM-based</text>
 
   <rect x="692" y="92" width="135" height="52" rx="8" fill="#ffffff" stroke="#a08fbd"/>
@@ -82,4 +82,6 @@
   <text x="205" y="368" text-anchor="middle" font-size="11.5" fill="#6d4fc4">post · read</text>
   <path d="M 602 405 C 640 405 685 370 685 320" fill="none" stroke="#6d4fc4" stroke-width="1.6" marker-end="url(#swArrowViolet)"/>
   <text x="676" y="368" text-anchor="middle" font-size="11.5" fill="#6d4fc4">read · post</text>
+  <!-- era caption: this diagram documents the two-agent origin story -->
+  <text x="440" y="490" text-anchor="middle" font-size="11.5" font-style="italic" fill="#5b6472">The two-seat origin setup this tool was extracted from — the era before the three-agent topology (see README: Where this comes from).</text>
 </svg>
