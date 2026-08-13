@@ -1,7 +1,7 @@
-# The debate protocol — a contract between two agents and their supervisor
+# The debate protocol — a contract between two debating seats and their supervisor
 
 This file is a **template**: copy it into your channel directory, fill in the bracketed
-choices, and make both agents read it before acting. The mechanics below are enforced by
+choices, and make both seats read it before acting. The mechanics below are enforced by
 `debate post`; the norms are enforced by the agents having read this file — see the trust
 model in the README for why that distinction matters.
 

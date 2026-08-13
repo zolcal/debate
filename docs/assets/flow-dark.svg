@@ -1,10 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="430" viewBox="0 0 880 430" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="510" viewBox="0 0 880 510" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 1 L 9 5 L 0 9 z" fill="#8b949e"/>
     </marker>
     <marker id="arrowAccent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 1 L 9 5 L 0 9 z" fill="#a371f7"/>
+    </marker>
+    <marker id="arrowAuthor" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#f0883e"/>
     </marker>
   </defs>
 
@@ -23,12 +26,12 @@
 
   <!-- ===== builder (left) ===== -->
   <rect x="40" y="80" width="200" height="70" rx="10" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
-  <text x="140" y="108" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">builder agent</text>
-  <text x="140" y="128" text-anchor="middle" font-size="12" fill="#8b949e">any CLI-invocable harness</text>
+  <text x="140" y="108" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">seat A - debater</text>
+  <text x="140" y="128" text-anchor="middle" font-size="12" fill="#8b949e">independent of the author</text>
 
   <!-- ===== reviewer (right) ===== -->
   <rect x="640" y="80" width="200" height="70" rx="10" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
-  <text x="740" y="108" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">reviewer agent</text>
+  <text x="740" y="108" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">seat B - debater</text>
   <text x="740" y="128" text-anchor="middle" font-size="12" fill="#8b949e">different vendor, on purpose</text>
 
   <!-- builder <-> channel -->
@@ -64,12 +67,20 @@
   <text x="676" y="283" text-anchor="middle" font-size="11.5" fill="#a371f7">zero debounce, once per seq</text>
 
   <!-- ===== supervisor (bottom, full width strip) ===== -->
-  <rect x="40" y="380" width="800" height="40" rx="10" fill="#12261a" stroke="#3fb950" stroke-width="1.5"/>
-  <text x="440" y="405" text-anchor="middle" font-size="13.5" fill="#e6edf3">
+  <rect x="40" y="460" width="800" height="40" rx="10" fill="#12261a" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="440" y="485" text-anchor="middle" font-size="13.5" fill="#e6edf3">
     <tspan font-weight="600">human supervisor</tspan> — sees every entry, merges are theirs, never the courier
   </text>
 
   <!-- watcher prints new entries for the supervisor -->
-  <line x1="440" y1="340" x2="440" y2="373" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <text x="486" y="362" text-anchor="middle" font-size="11.5" fill="#3fb950">prints new entries</text>
+  <line x1="440" y1="340" x2="440" y2="453" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="497" y="370" text-anchor="middle" font-size="11.5" fill="#3fb950">prints new entries</text>
+  <!-- ===== the author + owner (bottom left) ===== -->
+  <rect x="40" y="360" width="220" height="76" rx="10" fill="#2b1a12" stroke="#f0883e" stroke-width="1.5"/>
+  <text x="150" y="386" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">author agent + owner</text>
+  <text x="150" y="404" text-anchor="middle" font-size="12" fill="#8b949e">build the work together,</text>
+  <text x="150" y="420" text-anchor="middle" font-size="12" fill="#8b949e">outside both seats</text>
+  <path d="M 260 380 C 330 380 350 260 385 224" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowAuthor)"/>
+  <text x="330" y="330" text-anchor="middle" font-size="11.5" fill="#f0883e">delivers the branch +</text>
+  <text x="330" y="345" text-anchor="middle" font-size="11.5" fill="#f0883e">review-request</text>
 </svg>

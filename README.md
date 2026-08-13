@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Two robot figures at opposing parliamentary dispatch boxes, one handing the other a document, with an open ledger recording the exchange between them and a robed human observer watching from a balcony above." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/banner.png" width="920">
+  <img alt="A parliamentary chamber with three robots and one human. Two robots debate from opposing dispatch boxes across an open ledger on the central lectern. A third robot sits at a desk beneath the balcony, passing a document up toward the robed human supervisor, who leans over the railing toward it - the author and the owner working as a pair while the two seats debate." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/banner.png" width="920">
 </p>
 
 # debate
@@ -11,23 +11,27 @@
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
-**One AI agent writes the code. A second agent — from a different company, in a different
-app — checks it. They talk by taking turns in two text files, and you can read every word.**
+**One AI agent builds the work at your side. When it is ready, two more — from different
+companies, in different apps — debate it before it lands. They argue by taking turns in
+two text files, and you can read every word.**
 
-Zero dependencies. Two files. One rule: nobody posts out of turn.
+Zero dependencies. Two files. Three agents, one human. One rule: nobody posts out of turn.
 
 ## What is this?
 
-You have Claude Code in one terminal. You have a second AI agent somewhere else — a
-different vendor, a different tool, maybe a different machine. You'd like one of them to
-*write* code and the other to *review* it, the way two developers review each other's pull
-requests. The bet this tool is built on is that an AI reviewer from the same vendor shares
+You have an AI agent that builds with you all day — specs, code, fixes. What it cannot
+give you is a real second opinion on its own work. `debate` adds that: when a piece of
+work is ready, two OTHER agents — different vendors, different tools, deliberately
+neither of them the author — take seats on a channel and debate it, the way two
+reviewers argue over a pull request neither of them wrote.
+
+The bet this tool is built on is that an AI reviewer from the same vendor shares
 too much of the builder's training to be a real second opinion — that a second opinion is
 only a second opinion if it comes from somewhere else. That is a hypothesis, not a measured
 result. It is being tested in a pre-registered study, which is underway and has no results
 yet; when it has, this README will report them either way.
 
-Problem: those two agents can't talk to each other. There is no shared API between vendors,
+Problem: those two reviewers can't talk to each other. There is no shared API between vendors,
 and the AI subscriptions you already pay for only work inside each vendor's own app. So in
 practice *you* become the messenger, copy-pasting between two windows.
 
@@ -54,7 +58,7 @@ deprecated since 0.5; `debate migrate` renames one in place, byte-identically.)
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-dark.svg">
-    <img alt="The channel is two files in a shared directory: an append-only record that acts as the hansard, and a doorbell holding sequence number, whose turn it is, and which thread is open. A builder agent and a reviewer agent — deliberately from different vendors — each post and read through one writer that enforces turns, one open thread at a time, and message caps. A dumb cron watcher polls the doorbell every minute, prints new entries, and wakes whichever headless agent's turn it is with a pinned, zero-debounce prompt. The human supervisor sees every entry and owns the merges, never acting as courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="820">
+    <img alt="The channel is two files in a shared directory: an append-only record that acts as the hansard, and a doorbell holding sequence number, whose turn it is, and which thread is open. The author agent and the owner build the work together outside both seats and deliver the branch plus a review-request into the channel. Two debating seats - deliberately from different vendors, independent of the author - each post and read through one writer that enforces turns, one open thread at a time, and message caps. A dumb cron watcher polls the doorbell every minute, prints new entries, and wakes whichever seat's turn it is with a pinned, zero-debounce prompt. The human supervisor sees every entry and owns the merges, never acting as courier." src="https://raw.githubusercontent.com/zolcal/debate/main/docs/assets/flow-light.svg" width="820">
   </picture>
 </p>
 
@@ -460,9 +464,10 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
 
 ## Limits, honestly
 
-- **Two parties by design.** A review needs a builder and a reviewer; strict alternation
-  between exactly two named agents (plus a supervisor who can always interject) is the
-  feature. Getting N agents to agree is a different protocol.
+- **Two seats by design.** A debate needs exactly two opposing seats; strict alternation
+  between two named seats (plus a supervisor who can always interject) is the feature. In
+  the recommended topology both seats are independent of the author, who works with the
+  owner outside the channel. Getting N agents to agree is a different protocol.
 - **Polling, not push.** The doorbell is made to be checked once a minute by cron. If
   you need sub-second latency, this is not your transport.
 - **The writer lock is advisory.** `post` and `compact` serialize on a transient
