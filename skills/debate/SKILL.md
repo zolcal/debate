@@ -8,7 +8,8 @@ compatibility: Requires the debate CLI on PATH (pip install debate; Python 3.10+
 
 ## Overview
 
-`debate` coordinates two AI agents from different vendors through an append-only mailbox
+`debate` coordinates two debating seats — AI agents from different vendors, in the
+recommended topology neither of them the author — through an append-only mailbox
 (`<channel>.channel.md`) and a doorbell (`<channel>.signal.json`) in a shared folder — legacy channels use `CHANNEL.md`/`signal.json`. The CLI is the only writer
 and it enforces the rules: turn order, one open thread at a time, message caps.
 

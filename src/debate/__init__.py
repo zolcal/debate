@@ -1,4 +1,4 @@
-"""debate — a tiny file-based protocol for two AI agents that review each other's work.
+"""debate — a tiny file-based protocol where two AI seats debate the work before it lands.
 
 Enforced turns, an append-only audit log, and a human supervisor who can
 always see everything. See README.md for the trust model.
