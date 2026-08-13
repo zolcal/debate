@@ -1916,3 +1916,770 @@ Controller closed the managed case as PASS. Reason: party-vote-agreement. Superv
 Controller-Terminal:
 - terminal-result: PASS
 - close-reason: party-vote-agreement
+
+## MSG-65 | 2026-08-13T02:07:57+00:00 | from: owner | type: review-request | thread: plan-three-agent-collateral | refs: main@35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+
+Plan-doc gate: the three-agent collateral refresh (README hero copy + banner + intro flow SVG updated from the two-agent story to the shipped three-agent topology: author agent with the owner, two independent seats debating). Publishable artifacts; owner picks the banner before commit; channel stays two-seat everywhere. Criteria in plan-collateral-docket.md.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d
+- source-ref: 35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+- docket-revision-sha256: 923b7cea6c7477fb37daec02d5c5ff960e01d717a8feb539650e19275c0b30f2
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-13-three-agent-collateral-refresh.md", "sha256": "83c9ef422ed94cdc39d55079963296b2171156203a529ef8c0dfe7b8cd640d51", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-collateral-docket.md", "sha256": "05282a6297d52fc0db945c4a7fa1a7e3358385c0307b489019ff152da79f1437", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-collateral-watcher.json", "sha256": "2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "a9c42d8e1c7ffaff7fcf494423d1e9e2b316aa34c8fea8fed4df4738ebf7ee6b", "opus": "4343325d3ac2e2724bca0c1a2002c0a840bf5e0043c36b8b7cc0381fe66610a6"}
+
+## MSG-66 | 2026-08-13T02:12:04+00:00 | from: opus | type: verdict | thread: plan-three-agent-collateral | refs: -
+
+NO_PASS — the required command passes, but criterion 1 does not hold: the plan's own sweep is scoped too narrowly, and after execution the front door would still contradict the topology section in three concrete places.
+
+## Verification (docket criterion 2)
+
+Command run literally from the export root `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/35be8fde86c54f49a205ac0e0aef0806bb3caf5c/opus`:
+
+```
+python -m pytest -q tests/test_output_is_ascii.py
+```
+
+Result:
+
+```
+....                                                                     [100%]
+4 passed in 0.25s
+```
+
+## Criterion 1 — what holds
+
+- **Central factual claim is correct.** Verified in the export: `README.md:14` leads "One AI agent writes the code. A second agent — from a different company, in a different app — checks it."; the banner alt at `README.md:2` describes "Two robot figures at opposing parliamentary dispatch boxes"; the intro flow alt at `README.md:57` says "A builder agent and a reviewer agent"; and `docs/assets/flow-light.svg:26,31` literally labels the two boxes "builder agent" / "reviewer agent". Against that, `README.md:174-179` states "Exactly one independent seat is the minimum two-agent topology... Two independent seats are the recommended three-agent topology, where the interactive author/controller is outside both debate seats." The front door does tell a two-agent story while the shipped recommended topology is three agents.
+- **Two-seat discipline is kept.** Step 1 bullet 2 and the Non-goals ("no N-party channel claims — the channel remains a two-seat debate; the third agent is the author outside it") match `README.md:185` ("each remains a two-seat debate with its own explicit channel id"), and the minimum two-agent topology is explicitly retained as the fallback.
+- **Image/diagram conventions are respected.** Owner picks the banner before commit, `banner.png` filename preserved for hotlinks, alt texts updated with the images, hand-built SVG style/palette preserved — consistent with `docs/assets/` (hand-authored `<rect>`/`<text>` primitives, no export metadata).
+
+## Blocking findings
+
+**1. Publishable front-door copy outside README keeps the retired two-agent claim, and is outside the plan's scope.**
+- `.claude-plugin/plugin.json:4`: `"description": "Debate — cross-vendor code review: one AI agent writes the code, a second agent from a different vendor reviews it, ..."` — the retired hero sentence, near-verbatim.
+- `pyproject.toml:8`: `description = "Two AI agents review each other's work through two shared text files — ..."` — this is the PyPI one-line summary shown above the README on the project page.
+
+The plan anticipates PyPI ("PyPI's README updates at the next release") but only for the README body; the summary line and the plugin listing are not in any step, and Non-goals says "No code changes", which reads as excluding `pyproject.toml`. After execution, the PyPI page and the Claude Code plugin listing would still say one agent writes and a second checks, directly contradicting the refreshed README and `README.md:174-179`.
+
+**2. `README.md:463-465` survives the sweep and contradicts the topology section.** "**Two parties by design.** A review needs a builder and a reviewer; strict alternation between exactly two named agents (plus a supervisor who can always interject) is the feature." Under the recommended three-agent topology neither seat is the builder — both are author-independent. Step 1 scopes the sweep to "README/PROTOCOL **intro** wording", and this bullet is in "Limits, honestly", so it is not covered. It needs rewording to the two-*seat* framing (which preserves the bullet's actual anti-N-party point) or the front door and `README.md:174-179` still disagree.
+
+**3. The PROTOCOL sweep collides with the "no code changes" non-goal.** `tests/test_setup.py:135-136` asserts `setup.protocol_template() == (REPO / "PROTOCOL.md").read_text(...)`, byte-locking `PROTOCOL.md` to `src/debate/protocol_template.md` (both open "a contract between two agents and their supervisor"). Any PROTOCOL intro rewording required by step 1 must edit the packaged template in lockstep, which the plan forbids under "no code changes". Step 4's full-suite run would catch it, but the plan as written specifies two mutually exclusive things.
+
+## Non-blocking
+
+Step 3 underspecifies the SVG relayout: `docs/assets/flow-light.svg:1` is a fixed `width="880" height="430" viewBox="0 0 880 430"` canvas with the builder box at `x="40"`, the channel at `x="310"` (w=260) and the reviewer at `x="640"` (w=200) — there is no horizontal room for a third box plus the owner without widening the viewBox or relaying out, and `README.md:57` pins `width="820"`. Worth naming the target canvas so light/dark stay identical in geometry.
+
+Re-run recommendation: add the `pyproject.toml` summary and `.claude-plugin/plugin.json` description to step 1, extend the sweep beyond "intro" to at least `README.md:463`, and reconcile the PROTOCOL sweep with `src/debate/protocol_template.md`.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 0eaf5849e8d4651cd6b4950c8670c631f7e923c0ad428607e47248c0ca130a84
+- phase: sealed
+- captured-at: 2026-08-13T02:10:46+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d
+- source-ref: 35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+- source-manifest-sha256: 4343325d3ac2e2724bca0c1a2002c0a840bf5e0043c36b8b7cc0381fe66610a6
+- docket-revision-sha256: 923b7cea6c7477fb37daec02d5c5ff960e01d717a8feb539650e19275c0b30f2
+- input-sha256: 37621f216b492bf027e4dbd96100d713d8236474951b8afdbed6557edd2e713e
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-67 | 2026-08-13T02:12:04+00:00 | from: codex | type: verdict | thread: plan-three-agent-collateral | refs: -
+
+Inspected the pinned export README and flow SVGs plus the immutable docket. The README front door currently presents two agents, while its brokered section explicitly documents the recommended three-agent topology with the author/controller outside two seats; the plan correctly reconciles this while retaining the two-seat channel and minimum topology. Its banner/SVG steps preserve filenames, require owner selection before commit, update alt text, and preserve the hand-built SVG convention. Fresh verification: `python -m pytest -q tests/test_output_is_ascii.py` => `4 passed in 0.28s`.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 0eaf5849e8d4651cd6b4950c8670c631f7e923c0ad428607e47248c0ca130a84
+- phase: sealed
+- captured-at: 2026-08-13T02:12:04+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: 2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d
+- source-ref: 35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+- source-manifest-sha256: a9c42d8e1c7ffaff7fcf494423d1e9e2b316aa34c8fea8fed4df4738ebf7ee6b
+- docket-revision-sha256: 923b7cea6c7477fb37daec02d5c5ff960e01d717a8feb539650e19275c0b30f2
+- input-sha256: 34cb63adf887e8bfd7d632e70c9f0dca2cdaf5069523f7946001faf31252f30d
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-68 | 2026-08-13T02:16:31+00:00 | from: opus | type: verdict | thread: plan-three-agent-collateral | refs: -
+
+NO_PASS — holding my position after re-reading the export against the opposing PASS. The required command passes; criterion 1 bullet 3 still fails, and the opposing verdict does not address the specific lines that fail it.
+
+## Verification (docket criterion 2)
+
+Command run literally from the export root `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/35be8fde86c54f49a205ac0e0aef0806bb3caf5c/opus`:
+
+```
+python -m pytest -q tests/test_output_is_ascii.py
+```
+
+Result:
+
+```
+....                                                                     [100%]
+4 passed in 5.16s
+```
+
+## Where I agree with the PASS seat
+
+Re-verified in the export and unchanged from my sealed read: the plan's central factual claim is right (`README.md:14` "One AI agent writes the code. A second agent — from a different company, in a different app — checks it."; banner alt at `README.md:2`; intro flow alt at `README.md:57` "A builder agent and a reviewer agent"; `docs/assets/flow-light.svg:26,31` labels "builder agent"/"reviewer agent" — versus `README.md:174-179` documenting the recommended three-agent topology with the author/controller outside both seats). Two-seat discipline holds (plan step 1 bullet 2 + Non-goals vs `README.md:185` "each remains a two-seat debate with its own explicit channel id"), the minimum two-agent topology is retained, and the image/diagram steps match repo convention (owner picks before commit, `banner.png` filename preserved, alt text updated with images, hand-built SVG primitives preserved). Those three sub-criteria are not in dispute.
+
+## Blocking — criterion 1, bullet 3 ("anything missing that would leave the front door and the topology section contradicting each other after execution")
+
+**1. `README.md:463-465` survives the plan's sweep and directly contradicts `README.md:174-179`.** Verbatim at the pinned ref:
+
+> - **Two parties by design.** A review needs a builder and a reviewer; strict alternation between exactly two named agents (plus a supervisor who can always interject) is the feature.
+
+Under the recommended three-agent topology neither seat is the builder — both are author-independent, which is exactly what `README.md:174-179` says. Plan step 1 bullet 3 scopes the sweep to "README/PROTOCOL **intro** wording"; this bullet is in "Limits, honestly", so it is not covered by any step. This is the same README page — the front door — and after execution it would still assert the retired framing. The fix is small (reframe to two *seats*, which preserves the bullet's real anti-N-party point) but it is not in the plan. The PASS verdict asserts the plan "correctly reconciles" the front door without reaching this line; I could not reconcile that assertion with the text.
+
+**2. Publishable one-line descriptions outside README keep the retired claim and are excluded by the plan's own Non-goals.**
+- `.claude-plugin/plugin.json:4`: `"description": "Debate — cross-vendor code review: one AI agent writes the code, a second agent from a different vendor reviews it, ..."` — the retired hero sentence near-verbatim, and this is the text shown in the plugin listing.
+- `pyproject.toml:8`: `description = "Two AI agents review each other's work through two shared text files — ..."` — the PyPI summary rendered above the README on the project page.
+
+Plan step 5 anticipates PyPI but only for the README body ("PyPI's README updates at the next release"); neither string appears in any step, and "No code changes" reads as excluding `pyproject.toml`. Post-execution the PyPI page would carry a two-agent summary directly above a three-agent README. I weight this below finding 1 (it is adjacent collateral rather than the README front door proper), but it is the same contradiction the plan exists to remove, and it is cheap to fold into step 1.
+
+## Downgraded from my sealed verdict — non-blocking
+
+My sealed finding 3 (PROTOCOL sweep vs "no code changes") is weaker than I first stated. `tests/test_setup.py:135-136` does byte-lock `PROTOCOL.md` to `src/debate/protocol_template.md`, so any PROTOCOL intro edit must touch `src/` in lockstep against the "No code changes" non-goal. But sweeping the actual text, `PROTOCOL.md:1` ("a contract between two agents and their supervisor") and the `builder → reviewer` message-type names at lines 37-42 describe channel mechanics and message roles, which remain accurate for a two-seat channel. So the sweep can legitimately conclude "no PROTOCOL change needed"; the plan is under-specified here, not self-contradictory. Flagging the byte-lock so execution does not discover it late.
+
+Also non-blocking: step 3 does not name the target canvas. `docs/assets/flow-light.svg:1` is fixed at `width="880" height="430" viewBox="0 0 880 430"` with boxes at `x="40"`, `x="310"` (w=260) and `x="640"` (w=200) — no horizontal room for a third box plus the owner without widening or relaying out, and `README.md:57` pins `width="820"`. Name the canvas so light and dark stay geometrically identical.
+
+## To clear this
+
+Add `README.md:463` (extend the sweep past "intro" to the whole README) and the `pyproject.toml` / `.claude-plugin/plugin.json` descriptions to step 1, and state the SVG target canvas. Criterion 2 already passes and the other three sub-criteria of criterion 1 already hold.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Provenance:
+- phase: deliberation
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d
+- source-ref: 35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+- source-manifest-sha256: 4343325d3ac2e2724bca0c1a2002c0a840bf5e0043c36b8b7cc0381fe66610a6
+- docket-revision-sha256: 923b7cea6c7477fb37daec02d5c5ff960e01d717a8feb539650e19275c0b30f2
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Provenance:
+- phase: deliberation
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d
+- source-ref: 35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+- source-manifest-sha256: 4343325d3ac2e2724bca0c1a2002c0a840bf5e0043c36b8b7cc0381fe66610a6
+- docket-revision-sha256: 923b7cea6c7477fb37daec02d5c5ff960e01d717a8feb539650e19275c0b30f2
+- input-sha256: fa49b9566e127f78b18b7749822edc27ce34f2d2858cb5fdc7e7cbb07e6dc032
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-69 | 2026-08-13T02:21:03+00:00 | from: codex | type: verdict | thread: plan-three-agent-collateral | refs: -
+
+`python -m pytest -q tests/test_output_is_ascii.py` passed: `4 passed in 0.22s`.
+
+The central claim is correct: README.md:14-15, :2, :57, and flow-light.svg:26/31 tell a builder/reviewer two-agent story, while README.md:174-179 specifies the recommended three-agent topology with the author/controller outside two independent seats. The plan preserves two-seat channel mechanics, the fallback topology, banner selection/filenames/alt text, and hand-built SVGs.
+
+Blocking: step 1 limits its sweep to README/PROTOCOL “intro wording.” README.md:463-465 would remain: “A review needs a builder and a reviewer” with two named agents. That conflicts with the recommended topology, where the two channel seats are independent and the builder/author is outside them. The plan must explicitly sweep and reframe this full-README claim to the two-seat channel model.
+
+Also missing from the public collateral sweep are pyproject.toml:8 and .claude-plugin/plugin.json:4, whose package/plugin descriptions retain the retired two-agent framing. Updating only the README would leave those published entry points inconsistent with its three-agent topology section.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Provenance:
+- phase: deliberation
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: 2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d
+- source-ref: 35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+- source-manifest-sha256: a9c42d8e1c7ffaff7fcf494423d1e9e2b316aa34c8fea8fed4df4738ebf7ee6b
+- docket-revision-sha256: 923b7cea6c7477fb37daec02d5c5ff960e01d717a8feb539650e19275c0b30f2
+- input-sha256: 175e0754e912e10e9909a58cee01b492260c82a1603e6ca23881c844d4384c07
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-70 | 2026-08-13T02:21:03+00:00 | from: owner | type: close | thread: plan-three-agent-collateral | refs: -
+
+Controller closed the managed case as NO_PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: NO_PASS
+- close-reason: party-vote-agreement
+
+## MSG-71 | 2026-08-13T04:40:30+00:00 | from: owner | type: review-request | thread: plan-three-agent-collateral-r2 | refs: main@35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+
+Plan gate round 2: the collateral refresh with all three MSG-66..69 findings folded (entry-point strings in scope; full-README sweep incl. the Limits bullet reframed to two seats; PROTOCOL/template lockstep honored; non-goal wording fixed). Docket carries the round-1 summary.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d
+- source-ref: 35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+- docket-revision-sha256: 6ab590813c1c7a0f38e08dc26f0ec937e5eaf881f0ad8aaaea85fcf409e807ca
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-13-three-agent-collateral-refresh.md", "sha256": "3ab9e9b7efb7be4af0318e763701130dd69fdbd84b4d16905df2c41c498508f5", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-collateral-docket.md", "sha256": "02ecee936ad914e72be9ee11b9b1fc0bdf0c1ac434b952037c3989a106a8d2ba", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-collateral-watcher.json", "sha256": "2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "a9c42d8e1c7ffaff7fcf494423d1e9e2b316aa34c8fea8fed4df4738ebf7ee6b", "opus": "4343325d3ac2e2724bca0c1a2002c0a840bf5e0043c36b8b7cc0381fe66610a6"}
+
+## MSG-72 | 2026-08-13T04:44:31+00:00 | from: opus | type: verdict | thread: plan-three-agent-collateral-r2 | refs: -
+
+PASS — the round-1 folds hold and the plan's central claim is correct against my own reads of the pinned export.
+
+VERIFICATION COMMAND (run literally, no prefixes/pipes, from the export root):
+`python -m pytest -q tests/test_output_is_ascii.py`
+Result: `....                                                                     [100%]` / `4 passed in 0.22s`.
+
+CRITERION 1 — central factual claim: CONFIRMED.
+- Front door tells a two-agent story: README.md:14-15 hero ("One AI agent writes the code. A second agent - from a different company, in a different app - checks it"); README.md:2 banner alt text ("Two robot figures at opposing parliamentary dispatch boxes..."); README.md:57 intro flow alt text ("A builder agent and a reviewer agent - deliberately from different vendors - each post and read...").
+- Shipped topology is three agents with the author outside both seats: README.md:174-179 ("Exactly one independent seat is the minimum two-agent topology... Two independent seats are the recommended three-agent topology, where the interactive author/controller is outside both debate seats"), backed in code/tests by src/debate/controller.py:393 and tests/test_controller.py:578-591 ("recommended-three-agent" for two author-independent seats). The contradiction the plan names is real.
+
+TWO-SEAT ACCURACY / MINIMUM TOPOLOGY: preserved. Plan step 1 bullet 2 keeps "a channel seats exactly two debating parties; the author is OUTSIDE both seats" and keeps the minimum two-agent topology documented as the fallback; the non-goals restate "no N-party channel claims - the channel remains a two-seat debate". That matches README.md:185 ("each remains a two-seat debate with its own explicit channel id") and the Limits bullet's anti-N-party point at README.md:463-465, which the plan reframes to two *seats* rather than deleting.
+
+ROUND-1 FOLDS, each checked against the export:
+- (F1) Published entry-point strings are now in scope and do carry the retired sentence: pyproject.toml:8 description ("Two AI agents review each other's work...", the PyPI summary) and .claude-plugin/plugin.json:4 ("one AI agent writes the code, a second agent from a different vendor reviews it"). .claude-plugin/marketplace.json's two description strings ("through two shared text files", "hold your seat on a debate review channel") carry no retired claim, so naming the file is harmless over-coverage, not an error.
+- (F2) The "Limits, honestly" bullet at README.md:463 ("A review needs a builder and a reviewer") is explicitly named, and the sweep is now FULL-README rather than intro-scoped - needed, because the same flavor also sits at README.md:23 ("the way two developers review each other's pull requests") and README.md:30 ("those two agents can't talk to each other"), both of which the widened sweep covers.
+- (F3) The byte-lock is real: tests/test_setup.py:135-136 `test_packaged_template_matches_repo_protocol` asserts `setup.protocol_template() == (REPO / "PROTOCOL.md").read_text(...)`, and PROTOCOL.md:1 is byte-identical in the packaged src/debate/protocol_template.md:1. Plan step 1 requires lockstep edits, and the non-goal now reads "No behavior or code-logic changes" with metadata strings and the PROTOCOL/template lockstep declared IN scope - the round-1 contradiction is gone.
+
+MY OWN SWEEP for anything left contradicting the topology section after execution: I found no blocking gap. Residual "two agent" mentions outside the plan's enumerated scope remain accurate under the three-agent topology and do not contradict README.md:174-179: skills/debate/SKILL.md:11 ("coordinates two AI agents from different vendors" - describes the two seats, not the author); PROTOCOL.md:1 title ("a contract between two agents and their supervisor" - the two seats); docs/case-study.md:4-10 (a historical incident account of a real two-agent run); src/debate/__init__.py:1 docstring. Two non-blocking notes for execution: __init__.py:1's "two AI agents that review each other's work" carries the same mutual-review framing the plan retires from the PyPI summary and is cheap to align while touching metadata; and the GitHub repo "About" blurb is not in the export, so if it mirrors the hero sentence it needs the same edit in repo settings (step 5 mentions the repo page updating on merge but not that field).
+
+IMAGE/DIAGRAM STEPS vs repo conventions: consistent. docs/assets/ holds banner.png, social-preview.png, flow-light.svg, flow-dark.svg, broker-light.svg, broker-dark.svg; step 2 replaces files in place (filenames stay, hotlinks keep resolving) and requires OWNER PICKS before anything is committed, with the social preview regenerated to match. flow-light.svg is hand-authored markup (inline `<marker>` defs, section comments, GitHub palette #f6f8fa/#d0d7de/#57606a/#8250df), and step 3 preserves that style and palette. Alt texts are updated with the images (step 1 close, step 3), which is required since the <picture> block carries its alt only on the <img> at README.md:57. Leaving the broker pair as is checks out: its alt text (README.md:143) already describes a controller plus two seats and makes no author-in-seat claim.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: b5a71fab7eab3194e36828247cd1dfb2df5dfdc35c32cd483c569439e24c348e
+- phase: sealed
+- captured-at: 2026-08-13T04:44:31+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d
+- source-ref: 35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+- source-manifest-sha256: 4343325d3ac2e2724bca0c1a2002c0a840bf5e0043c36b8b7cc0381fe66610a6
+- docket-revision-sha256: 6ab590813c1c7a0f38e08dc26f0ec937e5eaf881f0ad8aaaea85fcf409e807ca
+- input-sha256: ef6916f0e3b92442eaa06c31887a83cfd5d1120662c79a33a11fc1bd31c4c66c
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-73 | 2026-08-13T04:44:31+00:00 | from: codex | type: verdict | thread: plan-three-agent-collateral-r2 | refs: -
+
+PASS. Fresh export inspection confirms README.md front door currently presents a two-agent story (hero alt text, lead, and intro-flow alt text), while its brokered section explicitly defines the recommended three-agent topology as an interactive author/controller outside two independent seats and preserves the minimum two-agent topology. The plan explicitly sweeps the full README (including Limits), keeps the channel two-seat, updates both flow SVGs and all relevant alt text, retains owner selection before raster-asset commit and stable filenames, and includes the previously omitted PyPI/plugin descriptions plus PROTOCOL.md and src/debate/protocol_template.md lockstep. I also confirmed the existing protocol/template are byte-identical. Exact verification run: `python -m pytest -q tests/test_output_is_ascii.py` -> `4 passed in 0.21s`.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: b5a71fab7eab3194e36828247cd1dfb2df5dfdc35c32cd483c569439e24c348e
+- phase: sealed
+- captured-at: 2026-08-13T04:42:15+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: 2b46bc56bd0799fdcbe4104f12fefaa19f66ea065e8926b0f16d03a1afc6a40d
+- source-ref: 35be8fde86c54f49a205ac0e0aef0806bb3caf5c
+- source-manifest-sha256: a9c42d8e1c7ffaff7fcf494423d1e9e2b316aa34c8fea8fed4df4738ebf7ee6b
+- docket-revision-sha256: 6ab590813c1c7a0f38e08dc26f0ec937e5eaf881f0ad8aaaea85fcf409e807ca
+- input-sha256: 5ffb4f23f1d49f19d737f64d4f51dd18dcf32b15d04f0f788c94e4c63170c5c2
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-74 | 2026-08-13T04:44:31+00:00 | from: owner | type: close | thread: plan-three-agent-collateral-r2 | refs: -
+
+Controller closed the managed case as PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: PASS
+- close-reason: party-vote-agreement
+
+## MSG-75 | 2026-08-13T05:23:19+00:00 | from: owner | type: review-request | thread: collateral-branch | refs: feature/three-agent-collateral@acbae9a89b6a59f17a1555e88b136dd6c2e8811a
+
+Branch gate: feature/three-agent-collateral@acbae9a under the APPROVED plan (MSG-74). Publishable front-door refresh to the three-agent story; docket collateral-branch-docket.md; sweep for any surviving two-agent claim yourself. Merge on PASS + green CI.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: a0e5780dbfe3e0a9a514f999d81e219675c247fd03add6998856317a56d270c8
+- source-ref: acbae9a89b6a59f17a1555e88b136dd6c2e8811a
+- docket-revision-sha256: d6e92601890233ae2db3cde9e43e9e174f21beec6d660a9ec3c26cbcc228d861
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-13-three-agent-collateral-refresh.md", "sha256": "8e3face1c2572247dbabb29521549a743b3b4d06d2615fbd45fac33da88c2dda", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/collateral-branch-docket.md", "sha256": "512e6838811eca276316316bc3300aa6446092fc913e4540b65b45df5bbab8f7", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/collateral.diff", "sha256": "b60be542016e264d6b18543abc45ede30d7b1661e4bf2ea0ad716ff722304f5f", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/collateral-branch-watcher.json", "sha256": "a0e5780dbfe3e0a9a514f999d81e219675c247fd03add6998856317a56d270c8", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "9fe4e296cb80ce1aab9a3aa43498d167d58e6c4d1fa7b7aeaf75ebb5dceebe60", "opus": "e815f9ad1ac04052686bd245869d6dbdfbc4504165353af055ef01b5e9dc34b6"}
+
+## MSG-76 | 2026-08-13T05:30:38+00:00 | from: opus | type: verdict | thread: collateral-branch | refs: -
+
+NO_PASS on `feature/three-agent-collateral@acbae9a`. The mandated command passes; two criterion-1 checks do not.
+
+## Mandated command — PASS
+
+Run literally from the export root `.../exports/acbae9a89b6a59f17a1555e88b136dd6c2e8811a/opus`:
+
+```
+python -m pytest -q
+```
+
+Result: `412 passed, 1 skipped in 17.71s` (fresh run, no prefixes/pipes). This matches the README's "413 tests as of this writing" (412 + 1 skipped collected).
+
+## Blocking finding 1 — both flow SVGs: the new author unit overlaps the watcher box
+
+Criterion: "the updated flow SVGs keep the hand-built style"; plan step 4 requires "both SVGs render in light and dark". The existing diagram is laid out with no overlapping elements. The new author+owner unit breaks that in **both** variants, at identical coordinates.
+
+`docs/assets/flow-light.svg:53` (and `flow-dark.svg:53`) — watcher box occupies x∈[330,550], y∈[270,340]:
+```
+<rect x="330" y="270" width="220" height="70" rx="10" fill="#fbf7ff" stroke="#8250df" stroke-width="1.5"/>
+```
+
+`docs/assets/flow-light.svg:84` (and `flow-dark.svg:84`):
+```
+<text x="330" y="330" text-anchor="middle" font-size="11.5" fill="#bc4c00">delivers the branch +</text>
+```
+`text-anchor="middle"` centers the string's advance width on x=330, so roughly half of a ~120px string (x≈330→390) lies inside the watcher rect's x-range, with baseline y=330 inside its y-range [270,340]. Because this `<text>` is declared after the watcher `<rect>`, it paints **on top of** the watcher's fill. Line 85 (`review-request`, baseline y=345) clips the rect's bottom edge with its ascenders.
+
+`docs/assets/flow-light.svg:83` (and `flow-dark.svg:83`):
+```
+<path d="M 260 380 C 330 380 350 260 385 224" .../>
+```
+Evaluating this cubic: it crosses x=330 at y≈326 (t≈0.45) and exits the rect's top edge y=270 at x≈358 (t≈0.72). So the orange arrow traverses the watcher box interior for roughly a quarter of its length, painted over the box.
+
+Honest scoping: this seat's shell is restricted to a narrow allowlist — `inkscape --query-all` and `python3 -c` were both denied — so I could not produce a rasterized render. The finding is derived from the exact coordinates quoted above, and the `text-anchor="middle"` overlap is unarguable from the numbers alone regardless of exact glyph metrics.
+
+## Blocking finding 2 — the retired two-agent sentence survives in the shipped package
+
+Criterion: "nothing anywhere still tells the retired builder/reviewer two-agent story — sweep yourself, do not trust the diff's coverage."
+
+`src/debate/__init__.py:1`:
+```
+"""debate — a tiny file-based protocol for two AI agents that review each other's work.
+```
+This is verbatim the retired story the branch deliberately removed from `pyproject.toml` ("Two AI agents review each other's work through two shared text files"). Under the recommended topology the two seats do not review *each other's* work — they debate a third agent's work, which is precisely the contradiction round-1 finding (1) was folded to eliminate. It is the top-level docstring of the shipped package (`pydoc debate` / `help(debate)`), not code logic, so editing it sits inside the plan's non-goals. It is not surfaced by `debate --help` (`src/debate/__main__.py:209` uses that module's own docstring, which is clean), which is why it is a sweep miss rather than a headline error — but it is exactly what the docket told me not to trust the diff for.
+
+## Non-blocking note
+
+`.claude-plugin/marketplace.json` is untouched by the diff although plan step 1 names it among the entry-point strings to update. Its current text ("cross-vendor AI code review through two shared text files"; "hold your seat on a debate review channel") is topology-neutral and carries no agent count, so it does not contradict the new story. Flagging it only because the plan named it explicitly; I do not treat it as blocking.
+
+## Checks that PASS
+
+- **PROTOCOL lockstep** — `cmp PROTOCOL.md src/debate/protocol_template.md` → byte-equal; both `sha256 26ead49eb64bc0e17b4a2b6d50052c4ccda0a317eb556d65ab7a9cf989e3703a`. The intro edit ("two agents"→"two debating seats", "both agents read it"→"both seats read it") is wording-only; no semantic change to the message-type contract.
+- **Hero images** — `file docs/assets/banner.png docs/assets/social-preview.png` → `1584 x 672` and `1344 x 672`. The social preview is exactly 2:1 and, on visual inspection, a centered crop of the banner (120px off each side).
+- **Banner alt text vs. the actual image** — I viewed `docs/assets/banner.png`. It shows three robots and one human: two at opposing dispatch boxes across an open ledger on a central lectern, a third at a desk beneath the balcony extending a purple document upward, and a robed human leaning over the balcony railing toward it. `README.md:2`'s alt text describes exactly that composition, matching the plan's chosen composition.
+- **Flow alt text vs. the SVG labels** — `README.md:61` ("The author agent and the owner build the work together outside both seats and deliver the branch plus a review-request into the channel. Two debating seats … independent of the author") matches the SVG's `author agent + owner` / `build the work together, outside both seats` / `delivers the branch + review-request` / `seat A - debater` / `independent of the author`.
+- **Dark palette map** — the new `arrowAuthor` marker and author unit use `#bc4c00`/`#f0883e` (light/dark) with fills `#fff8f0`/`#2b1a12`, consistent with the existing Primer pairings in the file (`#8250df`/`#a371f7`, `#1a7f37`/`#3fb950`, `#57606a`/`#8b949e`, and the supervisor strip's `#f0f7f0`/`#12261a`).
+- **Two-seat and topology claims** — README ~178-186 keeps "Exactly one independent seat is the minimum two-agent topology", "Two independent seats are the recommended three-agent topology, where the interactive author/controller is outside both debate seats", and "each remains a two-seat debate". The reframed "Limits, honestly" bullet preserves the anti-N-party point ("Getting N agents to agree is a different protocol"). No N-party claim anywhere.
+- **Language rules** — `README.md:478` says "tamper-evident, not tamper-proof"; no occurrence of "unforgeable" anywhere in the export. The only `final` hits are `README.md:534` ("the final CLIs reported"), `tests/test_watcher_identity.py:78` and a `release.yml` comment — none claims a verdict or record is final.
+- **Remaining builder/reviewer hits are legitimate** — `PROTOCOL.md`/`protocol_template.md:37-42` use builder/reviewer as message-type role names (PROTOCOL semantic changes are a plan non-goal); `docs/case-study.md`, `examples/`, and README "Where this comes from" are explicitly labeled historical provenance ("provenance, not prescription") describing a past run, not the current topology.
+
+Fix findings 1 and 2 and I expect this to clear on the next pass; nothing else in the diff blocks.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 0564563474cf20d8ef5f27318c5c600e6259edcbd023c6c4ff3f9dca2b57c97c
+- phase: sealed
+- captured-at: 2026-08-13T05:28:52+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: a0e5780dbfe3e0a9a514f999d81e219675c247fd03add6998856317a56d270c8
+- source-ref: acbae9a89b6a59f17a1555e88b136dd6c2e8811a
+- source-manifest-sha256: e815f9ad1ac04052686bd245869d6dbdfbc4504165353af055ef01b5e9dc34b6
+- docket-revision-sha256: d6e92601890233ae2db3cde9e43e9e174f21beec6d660a9ec3c26cbcc228d861
+- input-sha256: 81d81a81539bb336f362c068d91fd6e9d51f14458e9b572e8e57e11fc53e39a9
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-77 | 2026-08-13T05:30:38+00:00 | from: codex | type: verdict | thread: collateral-branch | refs: -
+
+`python -m pytest -q` completed successfully: `412 passed, 1 skipped in 18.44s`. However, the required full topology sweep fails: the retired builder/reviewer two-agent story remains in `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/acbae9a89b6a59f17a1555e88b136dd6c2e8811a/codex/skills/debate/SKILL.md:11`, `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/acbae9a89b6a59f17a1555e88b136dd6c2e8811a/codex/src/debate/__init__.py:1`, `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/acbae9a89b6a59f17a1555e88b136dd6c2e8811a/codex/examples/glm-kimi.md:4-5`, and the case-study. The sweep command `rg -n -i --glob '!*.png' --glob '!*.pyc' 'two AI agents|two agents|builder agent|reviewer agent|\bthe builder\b|\bthe reviewer\b|one AI agent writes|a second agent|writes the code|checks it|review each other' .` reported those results. It also showed the literal prohibited wording in `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/acbae9a89b6a59f17a1555e88b136dd6c2e8811a/codex/README.md:534` (`the final CLIs`). The protocol/template byte-lock and image dimensions do hold (`cmp -s PROTOCOL.md src/debate/protocol_template.md` returned `0`; banner is 1584x672 and social preview 1344x672), but not every docket criterion is satisfied.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 0564563474cf20d8ef5f27318c5c600e6259edcbd023c6c4ff3f9dca2b57c97c
+- phase: sealed
+- captured-at: 2026-08-13T05:30:38+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: a0e5780dbfe3e0a9a514f999d81e219675c247fd03add6998856317a56d270c8
+- source-ref: acbae9a89b6a59f17a1555e88b136dd6c2e8811a
+- source-manifest-sha256: 9fe4e296cb80ce1aab9a3aa43498d167d58e6c4d1fa7b7aeaf75ebb5dceebe60
+- docket-revision-sha256: d6e92601890233ae2db3cde9e43e9e174f21beec6d660a9ec3c26cbcc228d861
+- input-sha256: c5e86e074250b317a040513e22778cc253bfa34db196bf462048d6d00c1cf062
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-78 | 2026-08-13T05:30:38+00:00 | from: owner | type: close | thread: collateral-branch | refs: -
+
+Controller closed the managed case as NO_PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: NO_PASS
+- close-reason: party-vote-agreement
+
+## MSG-79 | 2026-08-13T05:33:42+00:00 | from: owner | type: review-request | thread: collateral-branch-r2 | refs: feature/three-agent-collateral@b2ce2a2e01dd005d2b929834c0520f2a5bdff127
+
+Branch gate round 2: feature/three-agent-collateral@b2ce2a2 with all MSG-76/77 findings folded (SVG geometry re-routed; package docstring, plugin SKILL, glm-kimi framing, case-study era marker, 'final CLIs' rewording). Sweep again yourselves. Merge on PASS + green CI.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: b4e677ca97da1bbf998dac5738cce2179f830e2e054ab8c8e7e23ffd6cb8bf07
+- source-ref: b2ce2a2e01dd005d2b929834c0520f2a5bdff127
+- docket-revision-sha256: 846feb52f97987e52456ceda9dfd4f80a93b9ec76cab6b0963ef8bb0a1ff4cdc
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-13-three-agent-collateral-refresh.md", "sha256": "8e3face1c2572247dbabb29521549a743b3b4d06d2615fbd45fac33da88c2dda", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/collateral-branch-docket.md", "sha256": "64f750311dc35ec32e74c99cb967dabb9f42ba85d993a41ef1d5ea521cf37c36", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/collateral.diff", "sha256": "ba96bad85bd57b165a46107f22e62831acb65e445f962261703a55de7b9e3971", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/collateral-branch-watcher.json", "sha256": "b4e677ca97da1bbf998dac5738cce2179f830e2e054ab8c8e7e23ffd6cb8bf07", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "fa05f9cf4c508aac7cc45c89fa92c1bd1de7b8be96a9cc8854f5c495b3471276", "opus": "ca2e85618b2d46aac0fa5af7b4037f7ee19a7633d0bc6a9a75fca96f45c9157f"}
+
+## MSG-80 | 2026-08-13T05:41:56+00:00 | from: opus | type: verdict | thread: collateral-branch-r2 | refs: -
+
+APPROVE — fresh export run at b2ce2a2, own inspection of the pinned read-only export plus the docket's exact command.
+
+COMMAND (run literally, no prefix/suffix/pipe, cwd = export root):
+`python -m pytest -q` → `412 passed, 1 skipped in 17.35s` (consistent with README:488's "413 tests as of this writing"; the byte-equality test in tests/test_setup.py is inside that green run).
+
+CRITERION-1 CHECKS (each verified against the export, not the diff):
+
+1. Lockstep/no-semantic-change. `sha256sum PROTOCOL.md src/debate/protocol_template.md` → both `26ead49eb64bc0e17b4a2b6d50052c4ccda0a317eb556d65ab7a9cf989e3703a`; `diff -q` printed nothing (BYTE_EQUAL). The only edit is the intro (title "two agents"→"two debating seats"; "make both agents read it"→"make both seats read it"). Section 2's `review-request`/`verdict`/`fix-report` role vocabulary (PROTOCOL.md:37-42) is untouched, so the protocol's semantics are unchanged, matching the plan's non-goal.
+
+2. Three-agent story accurate everywhere. Hero (README.md:14-18), intro (22-26), flow alt (61), brokered topology paragraph (178-183: "Exactly one independent seat is the minimum two-agent topology … Two independent seats are the recommended three-agent topology, where the interactive author/controller is outside both debate seats"), Limits bullet (467-470), pyproject.toml:8, .claude-plugin/plugin.json description, skills/debate/SKILL.md:11-13, src/debate/__init__.py:1, examples/claude-code.md:82-88 (both topologies documented). Channel stays two-SEAT in every claim (README.md:189 "each remains a two-seat debate"; 467 "Two seats by design"; 470 keeps the anti-N-party point). glm-kimi is framed as the two-agent MINIMUM topology (examples/glm-kimi.md:3-7). marketplace.json is topology-neutral, as the round-1 ruling allows.
+
+3. Independent sweep (not trusting the diff): grepped the whole export for `builder|reviewer agent|two agents|second agent|one AI agent|writes the code|checks it|review each other`. Remaining hits are all legitimately historical or role-name-only: docs/case-study.md (now era-marked at :5), README.md:490-522 "Where this comes from" (explicit past-tense provenance), CHANGELOG.md:287 (0.1.0 release note), examples/demo.py (party names of a scripted mechanics demo), PROTOCOL message kinds (per non-goal). No live front-door text still tells the retired builder/reviewer two-agent story.
+
+4. SVG folds — coordinates recomputed myself. Both variants are 880x510 with an `arrowAuthor` marker and a bottom-left author+owner box at (40,360,220x76). Author arrow `M 260 396 C 290 396 285 260 380 226`: evaluating the cubic, at y=340 (watcher top edge is y=270, box x=330..550, y=270..340) x≈305; at t=0.5 y≈323.8/x≈295.6; at y≈270 (t≈0.735) x≈323 — the curve's maximum x while inside the watcher's y-band is ≈323 < 330, so the arrow clears the watcher box on the left and terminates at (380,226), just under the channel box (bottom y=220). Labels at x=262,y=310/325 (~x 206-318 at 11.5px) are likewise left of x=330 and clear of the "wakes whoever's turn it is" text at y=268/283. "prints new entries" was moved to x=497,y=370 to clear the author box. Hand-built style preserved (same rect/rx/stroke-width/font idiom). Dark palette map is consistent with the existing pairs (#bc4c00→#f0883e stroke, #fff8f0→#2b1a12 fill, alongside #8250df→#a371f7 and #1a7f37→#3fb950). Box labels ("author agent + owner", "build the work together, outside both seats", "delivers the branch + review-request") match README.md:61's alt text.
+
+5. Raster assets. `file docs/assets/banner.png docs/assets/social-preview.png` → `PNG image data, 1584 x 672` and `PNG image data, 1344 x 672`; social-preview is exactly 2:1 at the banner's own height, i.e. a 120px-per-side centered crop (the author robot's chair, at x≈1500 in the banner, is cut at the social preview's right edge — consistent with that crop). Viewed both images: three robots + one robed human; two robots at opposing dispatch boxes leaning toward each other across an open ledger on the central lectern; a third robot seated at a desk beneath the balcony raising a purple document up toward the owner, who leans over the railing reaching down. README.md:2's alt text describes exactly that composition, and it matches the plan's chosen composition.
+
+6. Language rules. No "unforgeable" anywhere; README.md:478 and CHANGELOG.md:222 say tamper-evident/not tamper-proof. "the final CLIs" is reworded to "at case close the CLIs reported" (README.md:534). Remaining `final` hits are .github/workflows/release.yml:71 (a pre-release tag word) and tests/test_watcher_identity.py:78 ("final output") — neither is a finality claim.
+
+NON-BLOCKING NITS (no fix required for this gate):
+- docs/case-study.md:5-6 — the era marker is correct, but the parenthetical "(the epilogue records how these roles evolved)" overpromises: the Epilogue (:113-146) records how the three amendments became v0.5 machinery and uses seat language, yet never states the author-outside-both-seats/three-agent evolution.
+- docs/assets/subscription-wall.svg:20,33 still read "Fable 5 / Opus — the builder" and "reviewer agent"; grepping the export for `subscription-wall` returns no matches, so the asset is unreferenced by any doc and tells no reader the retired story.
+- README.md:117 "# The builder asks for a review:" in the version-1 quickstart is builder-flavored, though it is the retained two-party path and does not contradict the topology section.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: f3f9147f39300512c4167014153cae110a7c1c47b58077fb023a93b2df0f3490
+- phase: sealed
+- captured-at: 2026-08-13T05:41:56+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: b4e677ca97da1bbf998dac5738cce2179f830e2e054ab8c8e7e23ffd6cb8bf07
+- source-ref: b2ce2a2e01dd005d2b929834c0520f2a5bdff127
+- source-manifest-sha256: ca2e85618b2d46aac0fa5af7b4037f7ee19a7633d0bc6a9a75fca96f45c9157f
+- docket-revision-sha256: 846feb52f97987e52456ceda9dfd4f80a93b9ec76cab6b0963ef8bb0a1ff4cdc
+- input-sha256: 9781fcf794ca8af862f7e8367ccc19e44a8577e1643ac9ea664a4cfb3933bf25
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-81 | 2026-08-13T05:41:56+00:00 | from: codex | type: verdict | thread: collateral-branch-r2 | refs: -
+
+Blocking finding: `rg -n -i -C 1 'builder agent|reviewer agent|one AI agent writes|two AI agents review each other|a builder and a reviewer' README.md PROTOCOL.md docs examples skills .claude-plugin pyproject.toml src/debate --glob '!*.png'` returned `docs/assets/subscription-wall.svg:20` `Fable 5 / Opus — the builder` and `:33` `reviewer agent` (with its builder-to-channel-to-reviewer flow). This source asset has no historical/minimum-topology qualifier, so the retired builder/reviewer two-agent story still appears in the export, failing the docket's everywhere sweep criterion. Fresh required verification was run exactly as `python -m pytest -q`; result: `412 passed, 1 skipped in 18.09s` (exit 0). Other checked collateral was sound: `cmp -s PROTOCOL.md src/debate/protocol_template.md` returned 0; banner/social existed at 1584x672 and 1344x672, and centered-crop comparison returned 0.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: f3f9147f39300512c4167014153cae110a7c1c47b58077fb023a93b2df0f3490
+- phase: sealed
+- captured-at: 2026-08-13T05:36:39+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: b4e677ca97da1bbf998dac5738cce2179f830e2e054ab8c8e7e23ffd6cb8bf07
+- source-ref: b2ce2a2e01dd005d2b929834c0520f2a5bdff127
+- source-manifest-sha256: fa05f9cf4c508aac7cc45c89fa92c1bd1de7b8be96a9cc8854f5c495b3471276
+- docket-revision-sha256: 846feb52f97987e52456ceda9dfd4f80a93b9ec76cab6b0963ef8bb0a1ff4cdc
+- input-sha256: c0090dd415eca9c13369064f0f767e7dfe73593b4251a4a2947f2d335c3f4729
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-82 | 2026-08-13T05:46:42+00:00 | from: codex | type: verdict | thread: collateral-branch-r2 | refs: -
+
+Blocking finding: the full-export sweep found an unqualified retired builder/reviewer story in `docs/assets/subscription-wall.svg`: line 20 says `Fable 5 / Opus — the builder` and line 33 says `reviewer agent`. This is a shipped source asset and has neither a historical-era nor minimum-topology qualifier, so it violates the docket requirement that nothing anywhere still tell that story. I ran the required command exactly, `python -m pytest -q`, from the export root; it passed: `412 passed, 1 skipped in 17.96s`. The test result cannot satisfy the separate everywhere-sweep criterion.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Provenance:
+- phase: deliberation
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: b4e677ca97da1bbf998dac5738cce2179f830e2e054ab8c8e7e23ffd6cb8bf07
+- source-ref: b2ce2a2e01dd005d2b929834c0520f2a5bdff127
+- source-manifest-sha256: fa05f9cf4c508aac7cc45c89fa92c1bd1de7b8be96a9cc8854f5c495b3471276
+- docket-revision-sha256: 846feb52f97987e52456ceda9dfd4f80a93b9ec76cab6b0963ef8bb0a1ff4cdc
+- input-sha256: 9f1c10cbb76576d08db209135a426ed05e6c80c71fa45e5930f7d804ce76e895
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-83 | 2026-08-13T05:52:36+00:00 | from: opus | type: verdict | thread: collateral-branch-r2 | refs: -
+
+NO_PASS — I revise my sealed PASS (MSG-80). My own re-sweep confirms codex's finding, and on re-reading the docket I no longer think the mitigation I applied there survives scrutiny.
+
+COMMAND (run literally, no prefix/suffix/pipe, cwd = export root):
+`python -m pytest -q` → `412 passed, 1 skipped in 17.19s` (exit 0). The command criterion is met; it does not speak to the criterion-1 sweep.
+
+BLOCKING FINDING — `docs/assets/subscription-wall.svg` still tells the retired builder/reviewer two-agent story, unqualified:
+- :20 `<text …>Fable 5 / Opus — the builder</text>`
+- :33 `<text …>reviewer agent</text>` (:34 `GLM-based`)
+- :80 `<!-- document flow: builder down to channel, channel up to reviewer -->`, realized as the two arrows at :81/:83.
+These are rendered visible labels, not source comments, and the diagram's whole composition is one builder agent on the left, one reviewer agent on the right, channel between. Criterion 1 says "nothing anywhere still tells the retired builder/reviewer two-agent story — sweep yourself, do not trust the diff's coverage."
+
+Why I no longer treat this as a nit. In MSG-80 I discounted it because nothing references the file (I re-confirmed: grepping the export for `subscription-wall` returns zero hits — as it does for `bridge.png`). That imports a reader-facing qualifier the docket did not write, and it is inconsistent with how the same story is handled elsewhere in this very branch: `docs/case-study.md:3-7` was era-marked ("in the era before the three-agent topology") precisely because :13-14 name "The builder"/"The reviewer" as Claude Code and a Hermes-hosted GPT-5.5 seat. `subscription-wall.svg` depicts that identical era and pairing and carries no marker of any kind. Applied consistently, the rule that forced the case-study marker forces one here. It is also a shipped artifact under `docs/assets/` resolving at the same public raw URL pattern the README uses for `banner.png`, so "unreferenced in-repo" is not "unpublished". Fix is small: era-mark the diagram or relabel the two boxes as seats (glm-kimi.md:4-5 shows the accepted alternative — builder/reviewer role names are fine when framed as the two-agent MINIMUM topology).
+
+CRITERIA THAT DO HOLD (re-verified this pass at the pinned export):
+- Flow SVG folds: `docs/assets/flow-light.svg` rendered labels are correct — :29 "seat A - debater"/:30 "independent of the author", :34 "seat B - debater", :80-82 "author agent + owner / build the work together, / outside both seats", :84-85 "delivers the branch + review-request", matching README.md:61's alt text. I recomputed the author cubic `M 260 396 C 290 396 285 260 380 226` myself: within the watcher box's y-band (270..340) its maximum x is ≈323 (t≈0.735) versus the box's left edge x=330 — at y=340 x≈289, at t=0.5 (y≈323.8) x≈295.6 — so it clears the watcher on the left and terminates at (380,226) just under the channel box (bottom y=220). Labels at x=262 y=310/325 are likewise left of x=330 and clear of the "wakes whoever's turn it is" text at y=268/283; "prints new entries" moved to x=497,y=370 clears the author box. Hand-built style and the dark palette map (#bc4c00→#f0883e, #fff8f0→#2b1a12) are consistent with the existing pairs.
+- Three-agent story accurate at every front-door claim: README.md:14-18, 22-26, 61, 178-183, 467-470; pyproject.toml:8; .claude-plugin/plugin.json; skills/debate/SKILL.md:11-13; src/debate/__init__.py:1; examples/claude-code.md:82-88. Channel stays two-SEAT everywhere (README.md:189, 467-470); glm-kimi.md:3-7 is framed as the two-agent minimum.
+- PROTOCOL lockstep and the rest of the sweep: verified at this ref in MSG-80 (`sha256sum PROTOCOL.md src/debate/protocol_template.md` → both `26ead49eb64bc0e17b4a2b6d50052c4ccda0a317eb556d65ab7a9cf989e3703a`, `diff -q` silent); the byte-equality test in tests/test_setup.py is inside today's green run, and codex independently got `cmp -s` = 0. Section 2's role vocabulary (PROTOCOL.md:37-42) is untouched per the non-goal. Language rules hold: no "unforgeable"; README.md:534 reads "at case close the CLIs reported".
+- Banner/social preview: composition and 1584x672 / 1344x672 with the centered 2:1 crop were verified by me at this identical pinned manifest (MSG-80) and independently re-confirmed by codex (MSG-81); the export bytes are unchanged, so I did not re-shell for `file` this pass.
+
+NON-BLOCKING NITS (do not gate; fold if convenient with the blocking fix):
+- flow-light.svg:27,32,37,43 and flow-dark.svg (same lines) still carry structural comments `builder (left)` / `reviewer (right)` / `builder <-> channel`. Non-rendered, and these are in-scope edited files — worth renaming to seat A/B for consistency, but no reader sees them.
+- docs/case-study.md:5-6 — the parenthetical "(the epilogue records how these roles evolved)" overpromises: the Epilogue (:113-146) covers the three amendments becoming v0.5 machinery, never the author-outside-both-seats evolution.
+- README.md:117/122 "# The builder asks for a review:" / "# The reviewer answers" in the version-1 quickstart is builder-flavored, but it is the retained two-party path and does not contradict the topology section.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Provenance:
+- phase: deliberation
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: b4e677ca97da1bbf998dac5738cce2179f830e2e054ab8c8e7e23ffd6cb8bf07
+- source-ref: b2ce2a2e01dd005d2b929834c0520f2a5bdff127
+- source-manifest-sha256: ca2e85618b2d46aac0fa5af7b4037f7ee19a7633d0bc6a9a75fca96f45c9157f
+- docket-revision-sha256: 846feb52f97987e52456ceda9dfd4f80a93b9ec76cab6b0963ef8bb0a1ff4cdc
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Provenance:
+- phase: deliberation
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: b4e677ca97da1bbf998dac5738cce2179f830e2e054ab8c8e7e23ffd6cb8bf07
+- source-ref: b2ce2a2e01dd005d2b929834c0520f2a5bdff127
+- source-manifest-sha256: ca2e85618b2d46aac0fa5af7b4037f7ee19a7633d0bc6a9a75fca96f45c9157f
+- docket-revision-sha256: 846feb52f97987e52456ceda9dfd4f80a93b9ec76cab6b0963ef8bb0a1ff4cdc
+- input-sha256: e1308b3a814a454c19a0f195b8a310ea229255c8338841322cf021efc25a1895
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-84 | 2026-08-13T05:52:36+00:00 | from: owner | type: close | thread: collateral-branch-r2 | refs: -
+
+Controller closed the managed case as NO_PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: NO_PASS
+- close-reason: party-vote-agreement
+
+## MSG-85 | 2026-08-13T05:54:29+00:00 | from: owner | type: review-request | thread: collateral-branch-r3 | refs: feature/three-agent-collateral@7f51a2300a71bfdb746492c595ad2b1d8506970d
+
+Branch gate round 3: feature/three-agent-collateral@7f51a23 — the subscription-wall.svg finding folded (seat labels + era caption). Full re-sweep welcome. Merge on PASS + green CI.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 157b3af90c8e98a19febdbe126e0d5a185c48ab58bc76a959841327739f3294a
+- source-ref: 7f51a2300a71bfdb746492c595ad2b1d8506970d
+- docket-revision-sha256: 5b9392962805ed87db9b57d7741cad5df5bd2d48654c4cb649204ceedc3bb412
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-13-three-agent-collateral-refresh.md", "sha256": "8e3face1c2572247dbabb29521549a743b3b4d06d2615fbd45fac33da88c2dda", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/collateral-branch-docket.md", "sha256": "f5889096ed231465b6b5c4d84c03c1c4e897c5045c76f710633c993d60292e56", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/collateral.diff", "sha256": "6ba89ad9b58e0717400ecc56964ec0fb555dcf9041ed3c534a5f096760288f9b", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/collateral-branch-watcher.json", "sha256": "157b3af90c8e98a19febdbe126e0d5a185c48ab58bc76a959841327739f3294a", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "33cdc9415385a414485db7da8c75861a05afc1e3bd4fb582a41ca6451e9dd201", "opus": "27e0ecdbc345b43c02b9b07236b8fcc7dd96d2c1187e56e0c873d96baf6d5e1b"}
+
+## MSG-86 | 2026-08-13T06:01:31+00:00 | from: opus | type: verdict | thread: collateral-branch-r3 | refs: -
+
+PASS on `feature/three-agent-collateral@7f51a23`.
+
+## 2. Mandated command (run literally, in the export root)
+
+`python -m pytest -q`
+
+```
+........................................................................ [ 17%]
+........................................................................ [ 34%]
+........................................................................ [ 52%]
+........................................................................ [ 69%]
+s....................................................................... [ 87%]
+.....................................................                    [100%]
+412 passed, 1 skipped in 17.59s
+```
+
+413 collected matches README.md:488 ("413 tests as of this writing").
+
+## 1. Criterion checks (own sweep, not the diff's coverage)
+
+**Three-agent story everywhere.** Hero README.md:14-18 ("One AI agent builds the work at your side... two more... debate it"; "Three agents, one human"); intro README.md:22-26; flow alt README.md:61; Limits bullet README.md:467-470; pyproject.toml:8; .claude-plugin/plugin.json description; skills/debate/SKILL.md:11-13; src/debate/__init__.py:1. marketplace.json (read in full, 20 lines) carries no topology claim at all — "hold your seat on a debate review channel" — so the round-1 non-blocking ruling still holds on its face.
+
+**Independent sweep for the retired story.** `grep -rn -i "two agents\|two AI agents\|second agent\|a builder and a reviewer\|writes the code"` over md/toml/json/py/svg (tests excluded) returns exactly three hits, all correct: README.md:438 (two agents in a refusal loop = the two seats), docs/case-study.md:11 (inside the era-marked incident), src/debate/setup.py:4 ("makes two agents actually argue" = the two debating seats). A broader case-insensitive sweep for builder|reviewer shows the remainder are party names in CLI examples (examples/claude-code.md:18, examples/demo.py), message-type roles in PROTOCOL (`review-request` builder → reviewer), CHANGELOG history, and the era-marked origin section README.md:490-537.
+
+**Two SEATS / minimum topology / author outside.** README.md:189 "each remains a two-seat debate"; README.md:177-183 states the minimum two-agent topology (one independent seat, author-affiliated self-review honestly labeled) and the recommended three-agent topology with the author/controller outside both seats; examples/glm-kimi.md:5-7 now frames GLM/Kimi as the two-agent minimum with a pointer to the recommended topology; examples/claude-code.md:3-6 already says the interactive author/controller never fills a party turn.
+
+**PROTOCOL lockstep.** `cmp PROTOCOL.md src/debate/protocol_template.md` → IDENTICAL (exit 0). The edit is title + "both agents"→"both seats" only; §5, message types and mechanics are untouched — wording-only.
+
+**Round-1 SVG fold, coordinates verified myself.** In both variants the author path is `M 260 396 C 290 396 285 260 380 226` against a watcher rect of x 330-550, y 270-340. Evaluating the cubic: t=0.70 → (317.9, 277.7); t=0.75 → (325.4, 266.9); the curve crosses y=270 at t≈0.736, x≈323 — left of the x=330 edge — and x(t) is monotonically increasing, so it never enters the watcher box. Labels centered at x=262, font-size 11.5, span roughly x 207-317, also clear of x=330. Author box (40,360,220x76) clears the watcher box and the supervisor strip (y=460). Canvas grown 430→510 in width/height and viewBox together.
+
+**SVG style/palette.** Hand-built style preserved (same rect/text idiom, new `arrowAuthor` marker mirroring the existing two). Dark uses #f0883e stroke on #2b1a12 fill with #e6edf3/#8b949e text; light uses #bc4c00 on #fff8f0 with #1f2328/#57606a — the same light/dark pairing pattern as the existing purple (#8250df/#fbf7ff vs #a371f7/#1c1830) and green (#1a7f37/#f0f7f0 vs #3fb950/#12261a). Box labels ("author agent + owner", "build the work together, outside both seats", "delivers the branch + review-request") match the README flow alt text.
+
+**Round-2 fold (subscription-wall.svg).** Read in full: line 20 "Fable 5 / Opus — the builder seat", line 33 "reviewer seat", and the era caption at line 86, y=490, inside the 880x500 viewBox and clear of the channel box (bottom y=470). It points at README's "Where this comes from" (README.md:490), which exists and opens "provenance, not prescription".
+
+**Language rules.** `grep -i "unforgeable|tamper-evident"` → only README.md:478 "tamper-evident, not tamper-proof" and CHANGELOG.md:189; no "unforgeable" anywhere. README.md:534 now reads "at case close the CLIs reported"; every remaining "final" hit is Python `finally`, a test docstring, or a CI comment.
+
+**Hero images.** Both PNGs exist in the export and render. banner.png matches the plan's chosen composition and the README alt text: two robots opposed across an open ledger on the central lectern, a third robot at a desk beneath the balcony holding the purple document up toward the robed human, who leans over the railing and reaches down. social-preview.png is visibly the same scene as a centered 2:1 crop (both edges trimmed symmetrically; rendered ~1338x669 against the banner's ~1568x670).
+
+Scope note: I could not run a byte-level PNG header probe — `python -c` for the IHDR dimensions was denied by the sandbox, as were `ls` and the docket-root listing. Existence, rendering and aspect ratio are verified visually through the image reader rather than from IHDR bytes; no other criterion depended on a denied command.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: bfae952d4ac641f78fd81fd9c5ee63740a50dbc6078d56a2b23a4d04c838680a
+- phase: sealed
+- captured-at: 2026-08-13T05:58:28+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 157b3af90c8e98a19febdbe126e0d5a185c48ab58bc76a959841327739f3294a
+- source-ref: 7f51a2300a71bfdb746492c595ad2b1d8506970d
+- source-manifest-sha256: 27e0ecdbc345b43c02b9b07236b8fcc7dd96d2c1187e56e0c873d96baf6d5e1b
+- docket-revision-sha256: 5b9392962805ed87db9b57d7741cad5df5bd2d48654c4cb649204ceedc3bb412
+- input-sha256: a7cb5c3c6a2b06f35fb212da7f54c8deabbfb7ee02b00256b453a48bd7eaa5bf
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-87 | 2026-08-13T06:01:31+00:00 | from: codex | type: verdict | thread: collateral-branch-r3 | refs: -
+
+PASS. Fresh exact verification: `python -m pytest -q` → `412 passed, 1 skipped in 18.34s`. `patch -p1 --dry-run -R < .../collateral.diff` checked every listed text hunk against the export successfully. `cmp -s PROTOCOL.md src/debate/protocol_template.md` returned 0; the flow SVGs show both independent debating seats and the author+owner unit outside the watcher, with matching light/dark palette mappings. Sweep found no `unforgeable` claim or retired unqualified topology story; historical two-seat material is explicitly era/minimum-topology framed. `identify` confirmed `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/7f51a2300a71bfdb746492c595ad2b1d8506970d/codex/docs/assets/banner.png` is 1584x672 and `social-preview.png` is 1344x672; visual inspection matches the README alt text and required centered 2:1 crop.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: bfae952d4ac641f78fd81fd9c5ee63740a50dbc6078d56a2b23a4d04c838680a
+- phase: sealed
+- captured-at: 2026-08-13T06:01:31+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: 157b3af90c8e98a19febdbe126e0d5a185c48ab58bc76a959841327739f3294a
+- source-ref: 7f51a2300a71bfdb746492c595ad2b1d8506970d
+- source-manifest-sha256: 33cdc9415385a414485db7da8c75861a05afc1e3bd4fb582a41ca6451e9dd201
+- docket-revision-sha256: 5b9392962805ed87db9b57d7741cad5df5bd2d48654c4cb649204ceedc3bb412
+- input-sha256: 7e0d41dd841ae333dd0f40dc25493ae6c70231e94de38026c835c2d2d0bc589f
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-88 | 2026-08-13T06:01:31+00:00 | from: owner | type: close | thread: collateral-branch-r3 | refs: -
+
+Controller closed the managed case as PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: PASS
+- close-reason: party-vote-agreement
