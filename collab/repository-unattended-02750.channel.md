@@ -2683,3 +2683,375 @@ Controller closed the managed case as PASS. Reason: party-vote-agreement. Superv
 Controller-Terminal:
 - terminal-result: PASS
 - close-reason: party-vote-agreement
+
+## MSG-89 | 2026-08-13T14:59:50+00:00 | from: owner | type: review-request | thread: plan-competitive-landscape | refs: main@84d54a2638d245adcec4a53db9f2c145931d1567
+
+Doc gate: the competitive-landscape research/strategy doc. External repo facts are the author's sourcing (outside your sandbox, do not vote on them); verify the debate-side claims, the honest-weaknesses list, and the collateral hooks against the export. Criteria in plan-landscape-docket.md.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 7aed9b7e627ef7c8803da53f57f19c8c3e65ef0b577bf9b200962a0f7bcb0a6b
+- source-ref: 84d54a2638d245adcec4a53db9f2c145931d1567
+- docket-revision-sha256: d88be99d75e9d495239886f3ee96e21e0db8e08672530cb7b20fb1c3ea51a6ba
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-13-competitive-landscape.md", "sha256": "6e54d38f67f150f5099db04dd95bf999195735a8923a4a1af835a69b958ec496", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-landscape-docket.md", "sha256": "d8a686a5203ac2175bc98a4f510136469b8268d23357c53752d1844817c6c742", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-landscape-watcher.json", "sha256": "7aed9b7e627ef7c8803da53f57f19c8c3e65ef0b577bf9b200962a0f7bcb0a6b", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "cab14a45892076d158b158944f9ac8cdc05644e5d1dd8131d1dc2650ee3427cf", "opus": "5b5dba0698030f74f9105f1c9996e66c855fa4f9ac53ec3b9ccb81a6dd08422f"}
+
+## MSG-90 | 2026-08-13T15:06:43+00:00 | from: opus | type: verdict | thread: plan-competitive-landscape | refs: -
+
+## Verification run
+
+Command (run literally from the export root, no prefix/suffix/pipe):
+
+`python -m pytest -q tests/test_release_sync.py`
+
+Result: `.                          [100%]` / `1 passed in 0.08s`. The docket's command criterion is satisfied; the blockers below are documentary.
+
+## Criterion 1 — DEBATE column and debate-side claims (mostly holds)
+
+Verified by my own reads of the export:
+
+- "WRITER that refuses out-of-turn posts; gates; caps" — PROTOCOL.md:49 ("`debate post` refuses out-of-turn posts"), :52 (one open thread, supervisor-only force), :58 (thread cap 12); README.md:65-70, :409-413 ("Enforced, hard").
+- "sealed first positions, atomic paired reveal" — PROTOCOL.md:93-98 (`commit_reveal_pair` publishes both attributed entries in one mailbox replacement under one writer lock; positions private until both complete); README.md:450-451.
+- "brokered isolation, typed outcomes, deadlines, crash recovery" — PROTOCOL.md:88-92, :99-107, :114-117 (`case-deadline-expired`, idempotent close); README.md:414-418.
+- "append-only, tamper-evident, verifiable record" — README.md:42-43, :373-380 (`debate verify`), :478-485. The doc correctly says tamper-evident and never "unforgeable"; language rule holds.
+- stdlib-only — pyproject.toml:21-22 (`dependencies = []`); README.md:10, :18, :102. "Two files" mirrors README.md:18/:54 (the mailbox pair).
+- gated releases — CHANGELOG.md:5-7 (every release from v0.2.0 went through this project's own channel); README.md:528-529 (v0.5.0 release gated by the same machinery).
+- "six models have held seats without a code change" — I count exactly six distinct models, so the number stands, but only on one specific enumeration: Fable 5 and GPT-5.5 (origin channel, README.md:496-499), Opus and GLM (this repo's historical channel, README.md:520-521), `claude-opus-5` and `gpt-5.6-terra` (repository-unattended-02750 pinned profiles, README.md:523-533), with Kimi as the sixth only via README.md:539-540 ("both seats verified live") plus examples/glm-kimi.md, and with historical "Opus" folded into `claude-opus-5`. Not blocking, but the count is fragile: collateral must name the six, or it collapses to five if the two Codex-side GPT versions are counted as one seat lineage.
+
+## Blocking findings
+
+**B1 — line 104 asserts measurement results the repo explicitly says do not exist.** "our catch-rate numbers so far are directional, not proven" implies preliminary catch-rate data. README.md:30-32 states the opposite: "That is a hypothesis, not a measured result. It is being tested in a pre-registered study, which is underway and has no results yet." My grep for `catch rate|catch-rate|hit rate|false positive|directional` across every `.md` in the export returned only those two README lines — there is no catch-rate figure anywhere in the export. Even though the sentence sits in the "honest weaknesses" list, it overstates status in the favorable direction and breaks the docket's own language rule (study underway, not proven). Same issue in weaker form at line 37, where the table sells "measured (pre-registered study)" as a present property. Fix: "no catch-rate measurement yet; the pre-registered study is underway and has reported nothing."
+
+**B2 — the honest-weaknesses list omits the repo's most prominent self-declared limit.** README.md:478-485 states the record is "tamper-evident, not tamper-proof": anyone with write access who uses the next message number correctly "produces a record that verifies clean", and detection would need per-entry signatures the tool does not have. The doc's table (line 32) makes that record the headline moat but line 101-104 never concedes the limit. Related omissions: everything outside the mailbox is advisory (README.md:419-422), the writer lock is advisory (README.md:473-477), and version-2 seat isolation "is still advisory against undisclosed absolute-path reads unless the profile records and verifies an external OS sandbox" (PROTOCOL.md:136-139). Understated relative to what the repo shows, and criterion 2 asks exactly this.
+
+## Required qualification (not independently blocking)
+
+**Q1 — "no keys anywhere" (table line 31) is categorical and the repo contradicts it.** README.md:70 supports "no API keys" for debate's own infrastructure, but examples/glm-kimi.md:30-33 wires a live seat with `GLM_API_KEY` from `~/.secrets`, and README.md:193-198 documents API-authenticated seats "metered by their provider's current input/output-token prices" alongside subscription and local seats. The substantiable claim is "debate itself needs no keys, and seats can run on the subscriptions you already pay for" — not that no key exists anywhere. Please fix this before it reaches collateral, since it is stated as the differentiator against llm-council's metered OpenRouter keys.
+
+## Not voted on
+
+Per the docket I did not assess any external fact: star counts, commit dates, the Karpathy quote wording, or the characterizations of aider/ChatDev/sweep/Qodo. I also could not check "collateral drafts all predate v0.3" or the reserved bench-numbers slot in the X/HF drafts — those artifacts are not in the export; they remain the author's sourcing responsibility.
+
+Decision: NO_PASS on B1 and B2, with Q1 to be corrected in the same pass. The pinned command passes and the rest of the DEBATE column verifies cleanly, so I expect a short revision to clear this.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: b25f25c258cf61773a17d60083bec482bf9458f95275a602db3e2f4a768a8444
+- phase: sealed
+- captured-at: 2026-08-13T15:03:50+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 7aed9b7e627ef7c8803da53f57f19c8c3e65ef0b577bf9b200962a0f7bcb0a6b
+- source-ref: 84d54a2638d245adcec4a53db9f2c145931d1567
+- source-manifest-sha256: 5b5dba0698030f74f9105f1c9996e66c855fa4f9ac53ec3b9ccb81a6dd08422f
+- docket-revision-sha256: d88be99d75e9d495239886f3ee96e21e0db8e08672530cb7b20fb1c3ea51a6ba
+- input-sha256: fd5c4d53d319beb07b986c6c926cca3e8f15d58af07435a17cf2dcbd1a1e0e58
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-91 | 2026-08-13T15:06:43+00:00 | from: codex | type: verdict | thread: plan-competitive-landscape | refs: -
+
+Required fresh command passed: `python -m pytest -q tests/test_release_sync.py` → `1 passed in 0.07s`. The brokered mechanics, sealed paired reveal, typed outcomes, verification, stdlib-only packaging, and six documented seat models are supported by the pinned source. Blocking claims remain: the table's universal “no keys anywhere” is contradicted by `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/84d54a2638d245adcec4a53db9f2c145931d1567/codex/examples/glm-kimi.md`, which sources `GLM_API_KEY`; qualify this as the documented subscription deployment, not the product generally. The plan's claim of existing directional catch-rate numbers conflicts with `/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/84d54a2638d245adcec4a53db9f2c145931d1567/codex/README.md`, which says the pre-registered study is underway and has no results yet; remove the numbers claim and describe the study only as underway. “Single-digit users today” is also not evidenced in the pinned export. Finally, soften the collateral hook’s “gates its own releases”: the source says the human supervisor retains merge authority, so substantiate it as releases reviewed through Debate rather than an autonomous release gate.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: b25f25c258cf61773a17d60083bec482bf9458f95275a602db3e2f4a768a8444
+- phase: sealed
+- captured-at: 2026-08-13T15:06:43+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: 7aed9b7e627ef7c8803da53f57f19c8c3e65ef0b577bf9b200962a0f7bcb0a6b
+- source-ref: 84d54a2638d245adcec4a53db9f2c145931d1567
+- source-manifest-sha256: cab14a45892076d158b158944f9ac8cdc05644e5d1dd8131d1dc2650ee3427cf
+- docket-revision-sha256: d88be99d75e9d495239886f3ee96e21e0db8e08672530cb7b20fb1c3ea51a6ba
+- input-sha256: 4f87b124cb2d351905367fba7718d466bb5199557cb9c3c788773544f3bfe919
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-92 | 2026-08-13T15:06:43+00:00 | from: owner | type: close | thread: plan-competitive-landscape | refs: -
+
+Controller closed the managed case as NO_PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: NO_PASS
+- close-reason: party-vote-agreement
+
+## MSG-93 | 2026-08-13T15:11:56+00:00 | from: owner | type: review-request | thread: plan-competitive-landscape-r2 | refs: main@84d54a2638d245adcec4a53db9f2c145931d1567
+
+Doc gate round 2: the competitive-landscape doc with all four MSG-90/91 findings folded (credentials qualified; public no-results stance enforced for collateral; users claim removed; release hook softened; six models named). External facts remain author-sourced.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 7aed9b7e627ef7c8803da53f57f19c8c3e65ef0b577bf9b200962a0f7bcb0a6b
+- source-ref: 84d54a2638d245adcec4a53db9f2c145931d1567
+- docket-revision-sha256: 701b7cc04ece44a1301a9aed5a9c3d2d22b37d8d5f1855974d4cad78e9484b2c
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-13-competitive-landscape.md", "sha256": "27dafc79028af86d53f9cb7f7ab35fcca8ff6d8f9e6b56fdec313fb867c9d590", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-landscape-docket.md", "sha256": "2f7a90e399149caa15971deadde68dfbe3f8b81b224bc9d7bd63b65c4ca9c13e", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-landscape-watcher.json", "sha256": "7aed9b7e627ef7c8803da53f57f19c8c3e65ef0b577bf9b200962a0f7bcb0a6b", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "cab14a45892076d158b158944f9ac8cdc05644e5d1dd8131d1dc2650ee3427cf", "opus": "5b5dba0698030f74f9105f1c9996e66c855fa4f9ac53ec3b9ccb81a6dd08422f"}
+
+## MSG-94 | 2026-08-13T15:16:53+00:00 | from: opus | type: verdict | thread: plan-competitive-landscape-r2 | refs: -
+
+APPROVE — round-2 folds verified, criteria 1-3 hold for the checkable claims, and the docket command passes on my own fresh export run.
+
+COMMAND (run literally, no prefixes/pipes, cwd = my pinned export root
+/home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/84d54a2638d245adcec4a53db9f2c145931d1567/opus):
+
+  python -m pytest -q tests/test_release_sync.py
+
+RESULT:
+
+  .                                                                        [100%]
+  1 passed in 0.08s
+
+The test is substantive, not a stub: tests/test_release_sync.py:11-23 asserts pyproject `version`, `debate.__version__`, `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` all agree.
+
+SCOPING HONORED: I did not vote on the external facts (star counts, commit dates, Karpathy/aider/ChatDev/sweep/Qodo quotes and dates). They are unverifiable from my sandbox and remain the author's sourcing responsibility, as the docket directs.
+
+ROUND-1 FOLDS (all five present):
+1. Credentials qualified — doc line 31 now reads "the subscriptions you already pay, in the documented origin deployment (API-key seats exist, e.g. the GLM/Kimi example)". Matches README.md:505 ("No API key existed anywhere in the system", scoped to the origin setup) and examples/glm-kimi.md:30-33, where the wrapper sources GLM_API_KEY and exports ANTHROPIC_AUTH_TOKEN. The overstatement is gone.
+2. Effectiveness — doc lines 103-107 state the public position verbatim against README.md:31-32 ("underway and has no results yet"), and bar interim data from collateral. That bar is corroborated by .gitignore:46-47, which records the retired channel's "unpublished benchmark results ... never published".
+3. "single-digit users" replaced — doc line 104 now says "no adoption metrics collected at all". Nothing in the export contradicts this; no adoption/download metrics exist anywhere in the tree.
+4. Release-gate hook softened — doc lines 113-115 claim only "releases are reviewed through the tool itself — and a human always merges". Substantiated by CHANGELOG.md:5-7 ("Every release from v0.2.0 onward went through this project's own review channel"), README.md:528 (first production acts gated this repo's merge and the v0.5.0 release), README.md:428 ("keep merges in human hands") and collab/PROTOCOL.md:118 ("The human supervisor alone controls merges").
+5. Six models NAMED — doc lines 93-95 enumerate Fable 5, GPT-5.5, GLM, Kimi, claude-opus-5, gpt-5.6-terra.
+
+CRITERION 1 — I counted the distinct seat-holding models myself across the export's records, configs and examples, and get exactly six, matching the enumeration:
+- Fable 5 — README.md:496 (builder seat, Claude Code).
+- GPT-5.5 — README.md:498 and docs/case-study.md:14 (reviewer seat on Hermes, Codex subscription).
+- GLM — README.md:520-521 (historical headless GLM reviewer), CHANGELOG.md:101, collab/PROTOCOL.md:5-7.
+- Kimi — README.md:539-540 and CHANGELOG.md:242, both "both seats verified live", per examples/glm-kimi.md.
+- claude-opus-5 and gpt-5.6-terra — README.md:532-534 (pinned profiles, Claude Code 2.1.223 / Codex CLI 0.146.1), examples/claude-code.md:89-90.
+No seventh: GPT-5.6 Sol is the interactive author/controller explicitly outside both seats (collab/PROTOCOL.md:72-73, README.md:185-186), and examples/claude-code.md:92 offers "Fable 5 or an older Opus" only as a hypothetical future profile. "Without a code change" is the repo's own phrasing at README.md:187-188.
+Other DEBATE-column claims all check out: writer refuses out-of-turn posts (README.md:65-70, 132-133, 409-413); sealed first positions + one atomic paired reveal (README.md:228-231, rule 8 at README.md:450-451, collab/PROTOCOL.md:37-46); stdlib-only / two files (README.md:18, 38-46, 102); record as PRIMARY artifact with verify (README.md:378-381, 461); unattended brokered isolation, typed outcomes, deadlines, crash recovery (README.md:204-247, 415-418); pre-registered study exists and is mid-run (README.md:31-32).
+
+CRITERION 2 — the honest-weaknesses list (lines 103-108) is not overstated: each item is a genuine gap the export confirms, and none of the README's own limits is contradicted. The "tamper-evident" limit is carried inline in the table (line 32) consistent with README.md:478-485.
+
+CRITERION 3 — language rules hold: the doc says "tamper-evident" and never "unforgeable" or "tamper-proof" (line 32); the study is "underway"/"mid-run" and never "proven" (lines 100, 105-106). Every claim in the collateral-hooks section is substantiable from this export, and the hooks self-gate ("Verify quote wording before publication; gate the post"; drafts "need the full fact-check pass").
+
+NON-BLOCKING NOTES (offered as improvements, not conditions):
+a) Fable 5 and GPT-5.5 held seats on the *predecessor* setup that debate was extracted from (README.md:492-498), i.e. before the packaged library existed. "Without a code change" is defensible for the protocol but slightly loose for the shipped tool; the doc's own instruction to name the six rather than lean on the count already contains this risk.
+b) The moat sentence "unattended operation with isolation and typed outcomes" (line 98) omits the qualifier the repo insists on — isolation is contamination resistance, not hostile-code containment (README.md:253-259, collab/PROTOCOL.md:113-116). The collateral hooks make no isolation claim, so nothing unsubstantiable is queued for publication, but any future post using that line should carry the qualifier.
+c) The weaknesses list omits maturity ("Young ... read the code before trusting it", README.md:486-488), which is a real competitive gap against hosted/platform-native rivals. It is largely implied by the no-metrics and no-results items.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 8fe63a07f0efd5220a1139db8c36b7f88956f30886b1065012c42f4e68db7768
+- phase: sealed
+- captured-at: 2026-08-13T15:16:53+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 7aed9b7e627ef7c8803da53f57f19c8c3e65ef0b577bf9b200962a0f7bcb0a6b
+- source-ref: 84d54a2638d245adcec4a53db9f2c145931d1567
+- source-manifest-sha256: 5b5dba0698030f74f9105f1c9996e66c855fa4f9ac53ec3b9ccb81a6dd08422f
+- docket-revision-sha256: 701b7cc04ece44a1301a9aed5a9c3d2d22b37d8d5f1855974d4cad78e9484b2c
+- input-sha256: 9ba3d00c606d6d9ffa77f394edb8cbfdb6e96bb7acd7f1f96c8f895e3c725253
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-95 | 2026-08-13T15:16:53+00:00 | from: codex | type: verdict | thread: plan-competitive-landscape-r2 | refs: -
+
+PASS. Fresh required command run exactly: `python -m pytest -q tests/test_release_sync.py` → `1 passed in 0.08s`. I inspected the pinned source and verified the docket hashes with `sha256sum collab/PROTOCOL.md collab/repository-unattended-02750.debate.json docs/plans/2026-08-13-competitive-landscape.md var/debate/repository-unattended-02750/plan-landscape-docket.md var/debate/repository-unattended-02750/seat-result.schema.json var/debate/repository-unattended-02750/seat_adapter.py var/debate/repository-unattended-02750/plan-landscape-watcher.json`; all seven matched the docket. The source supports the qualified debate claims: controller-only party posts, sealed paired reveal, append-only/tamper-evident verification, brokered typed outcomes, subscription and API-key configurations, and stdlib-only implementation. README, examples, and current profile evidence enumerate six distinct seat models: Fable 5, GPT-5.5, GLM, Kimi, claude-opus-5, and gpt-5.6-terra. The study is described as underway with no results, and the collateral language retains tamper-evident rather than unforgeable wording. The stated weaknesses are not contradicted by the checked source.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 8fe63a07f0efd5220a1139db8c36b7f88956f30886b1065012c42f4e68db7768
+- phase: sealed
+- captured-at: 2026-08-13T15:14:05+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: 7aed9b7e627ef7c8803da53f57f19c8c3e65ef0b577bf9b200962a0f7bcb0a6b
+- source-ref: 84d54a2638d245adcec4a53db9f2c145931d1567
+- source-manifest-sha256: cab14a45892076d158b158944f9ac8cdc05644e5d1dd8131d1dc2650ee3427cf
+- docket-revision-sha256: 701b7cc04ece44a1301a9aed5a9c3d2d22b37d8d5f1855974d4cad78e9484b2c
+- input-sha256: 3987d04f99d94444f8e3e06b11085896970b33d3ca7df29c755308f4ff466124
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-96 | 2026-08-13T15:16:53+00:00 | from: owner | type: close | thread: plan-competitive-landscape-r2 | refs: -
+
+Controller closed the managed case as PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: PASS
+- close-reason: party-vote-agreement
+
+## MSG-97 | 2026-08-13T15:17:35+00:00 | from: owner | type: review-request | thread: plan-sealed-reversal-finding | refs: main@84d54a2638d245adcec4a53db9f2c145931d1567
+
+Doc gate: the sealed-reversal finding (production dataset author-extracted from controller case state, outside your export; you verify the mechanism claims, the existing-vs-proposed cap mechanics distinction, the hypothesis hedging, and language rules). Criteria in plan-reversal-docket.md.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 723ad85266f876eb5169a38876f7e6017aa0e31ff07eb3b31eae53c5f5d04899
+- source-ref: 84d54a2638d245adcec4a53db9f2c145931d1567
+- docket-revision-sha256: 3aa91d9e7a195108753a76716a7ca6e366cd47a63a1b486b22c41e68f16f5dec
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-13-sealed-reversal-finding.md", "sha256": "10f8bb80ae72d3f8f1384de996117a1af165498b575aec4947839ed787d23428", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-reversal-docket.md", "sha256": "06898e6a378d683d7f2907a111675fe2c882da8eb3795b73fedf324fdb37309b", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-reversal-watcher.json", "sha256": "723ad85266f876eb5169a38876f7e6017aa0e31ff07eb3b31eae53c5f5d04899", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706", "opus": "fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.223", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 540}}
+- source-manifest-sha256: {"codex": "cab14a45892076d158b158944f9ac8cdc05644e5d1dd8131d1dc2650ee3427cf", "opus": "5b5dba0698030f74f9105f1c9996e66c855fa4f9ac53ec3b9ccb81a6dd08422f"}
+
+## MSG-98 | 2026-08-13T15:22:40+00:00 | from: opus | type: verdict | thread: plan-sealed-reversal-finding | refs: -
+
+## Verification command
+
+Ran literally, from the export root, no prefixes/pipes/diagnostics:
+
+`python -m pytest -q tests/test_release_sync.py`
+
+Result:
+
+```
+.                                                                        [100%]
+1 passed in 0.08s
+```
+
+(`tests/test_release_sync.py` asserts version lockstep across `pyproject.toml`, `debate.__version__`, `.claude-plugin/plugin.json`, and `.claude-plugin/marketplace.json`.)
+
+Note on tooling: Bash was denied for general shell use in this seat; the pytest invocation above executed and is the only shell command that ran. All source inspection below was done with the read/grep/glob file tools against the pinned export at `84d54a2638d245adcec4a53db9f2c145931d1567`.
+
+## Criterion 1 — mechanism claims vs. controller.py / channel.py
+
+Every mechanism the doc asserts as shipped is present in the export.
+
+- **Sealed capture before reveal.** `capture_sealed` (`src/debate/controller.py:1283-1342`) invokes the adapter with `transcript=None` (line 1312) and writes the record only into project-local case state (`state.update({"phase": "sealed", "sealed_submissions": submissions})`, line 1330) — it publishes nothing, matching its docstring at line 1293. The isolation is enforced, not merely conventional: `render_input` refuses a sealed input carrying an opponent transcript (`controller.py:890-891`). Phase gating at lines 1302-1305 restricts capture to `docket`/`sealed`/`reveal`. So "each seat's first verdict is captured SEALED (before it can see the other seat's)" is accurate.
+- **Atomic paired reveal.** `channel.commit_reveal_pair` (`src/debate/channel.py:749-866`) runs under `exclusive(root, name)` (line 792), renders both entry blocks and appends them in a *single* `_atomic_write` of the mailbox (lines 833-848), then replaces the signal (lines 850-865). Crash-repair is idempotent and refuses half-reveals: `refused: partial or malformed paired reveal` (lines 799-822). PROTOCOL.md:95-98 states the same. "Revealed atomically" is accurate.
+- **Deliberation on disagreement.** `reveal_pair` (`controller.py:1511-1602`) records both sealed votes, and closes immediately only if `_agreement` holds (1593-1601); otherwise it returns `DriveOutcome("deliberation", ...)` (line 1602). `drive_case` then runs deliberation turns with the current thread as transcript (1696-1718). `_agreement` (1490-1509) additionally requires at least one agreeing `author-independent` seat for a substantive PASS.
+- **Cap exhaustion closes NO_PASS (fail-closed).** Confirmed twice in `drive_case`: pre-turn at `controller.py:1688-1695` and post-turn at `1729-1736`, both `result="NO_PASS", close_reason="thread-cap-exhausted"`; `commit_reveal_pair` also refuses a reveal that would exceed `thread_cap` (`channel.py:827-830`). PROTOCOL.md:105-106 documents it. The doc's "the v2 cap fails CLOSED (exhaustion = NO_PASS, a human looks)" is correct.
+- **Provenance making sealed timestamps tamper-evident in the published record.** `_published_body` (`controller.py:1196-1232`) emits a `Controller-Sealed-Reveal` block carrying `reveal-id`, `phase: sealed`, and `captured-at`, plus a `Controller-Provenance` block with source-manifest, docket-revision, input, and profile hashes. `captured_at` is bound into `record_sha256` (`_result_record`, 1249-1260), and `reveal_id` is a canonical hash over the per-seat `record_sha256` values (1521-1533), so both published entries are cross-linked to the private capture records. `reveal_pair` also rejects a missing, unparseable, or naive-timezone `captured_at` (1543-1551), and `commit_reveal_pair` requires exactly one reveal marker per entry (`channel.py:782-785`). This supports **tamper-evident** — the doc's chosen word — and nothing stronger.
+
+## Criterion 2 — existing vs. proposed in the cap-design section
+
+Grepping the whole export for `oscillat|revision-of|revision_of|reversal|unforgeable` (case-insensitive) returns **no matches**. So the oscillation guard and the `revision-of` marker are indeed unimplemented — and the doc does not claim otherwise:
+
+- Cap-design item 2 tags only the outer bound as shipped — "fixed outer bound (cost/deadline; **exists**)" — and leaves the progress rule ("the bench loop's escalation logic is the model") and the oscillation guard untagged, inside a section headed "Cap design (answers to the owner's three questions)". The `(exists)` annotation is the doc's own device for the existing/proposed split, and it is applied to exactly the one component that exists (`_deadline_from` / whole-case deadline, PROTOCOL.md:114-117; `thread_cap`, `controller.py:288`).
+- Exploitation-plan item 2 describes the `revision-of` marker as "a small gated change making revision a first-class typed event" — unambiguously proposed.
+
+## Criterion 3 — internal logic and language rules
+
+- **Hypothesis not overstated.** The section is headed "The hypothesis (testable)" and the honest-limits section genuinely limits it: n=3 called "an anecdote", same session / same seat pair / one repository, an explicitly named mundane rival explanation, and transfer to A8's cheap-seat/code-patch setting flagged as "an assumption until measured". Nothing in the exploitation plan is stated as established — item 1 is conditional ("If the direction asymmetry holds ... the finding generalizes").
+- **Novelty hedged pending related work.** "as far as we can determine, the only one that can MAKE the distinction", immediately followed by "Related work must be re-checked before any publication claim of novelty."
+- **Language rules hold.** "tamper-evident timestamps" is used; "unforgeable" appears nowhere in the doc or export. The scale study is described as underway ("is measuring the distribution at scale", analyzer "in review"), never proven. No interim numbers are sanctioned for release — the write-up is gated: "the framing must not leak before the registered analysis lands (same discipline as the bench numbers)."
+
+## Scoping honored
+
+The 39-verdict / 20-case production table, the three MSG citations, "zero oscillation", and the A8 `n≈158` figures derive from `var/debate/.../controller/cases/*/case.json` and `harness/analyze_reversals.py`, none of which are in this export. I treated them as author-sourced and did not vote on them.
+
+## Non-blocking tightenings (recommended, not conditions of this PASS)
+
+1. Cap-design item 2 would be clearer with an explicit `(proposed)` tag on the progress rule and oscillation guard, mirroring the `(exists)` tag; the present-tense spec phrasing "a second flip or a position swap terminates to NO_PASS" reads as descriptive in isolation, even though the section framing and the `(exists)` contrast make the status recoverable.
+2. Exploitation-plan item 2's "a marketable primitive nobody else has" is the one unhedged landscape assertion in the doc. The related-work gate one section earlier plainly governs it, but matching that sentence's hedging would remove the asymmetry.
+
+Both are wording refinements to a doc already marked DRAFT and gated behind a launch review; neither contradicts the source, so neither blocks.
+
+**Decision: PASS** — the docket command passes and criteria 1-3 hold on my own inspection of the pinned export.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 5b495311c5a3662506e0a5eb0a8261b1710d0161b3f1886450479ac187815e32
+- phase: sealed
+- captured-at: 2026-08-13T15:20:28+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: fd2633ee8e875b63af8e4b9e1edf265f494b5b15375c877ce893967ab6907215
+- controller-config-sha256: 723ad85266f876eb5169a38876f7e6017aa0e31ff07eb3b31eae53c5f5d04899
+- source-ref: 84d54a2638d245adcec4a53db9f2c145931d1567
+- source-manifest-sha256: 5b5dba0698030f74f9105f1c9996e66c855fa4f9ac53ec3b9ccb81a6dd08422f
+- docket-revision-sha256: 3aa91d9e7a195108753a76716a7ca6e366cd47a63a1b486b22c41e68f16f5dec
+- input-sha256: fc0341a133d33f9da4dd5d8927105f4a5e11996680eb2812049c5231edd0ac6b
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.223
+- isolation-mode: advisory
+
+## MSG-99 | 2026-08-13T15:22:40+00:00 | from: codex | type: verdict | thread: plan-sealed-reversal-finding | refs: -
+
+PASS. Inspection confirms sealed inputs exclude opponent transcripts; both private captures precede the locked atomic paired reveal; disagreement enters deliberation; deliberation cap exhaustion closes typed NO_PASS; and published sealed entries include capture timestamps plus provenance hashes. The plan correctly labels the outer deadline/cap as existing while presenting the oscillation guard and revision marker as proposed, and its novelty/hypothesis language is appropriately hedged with explicit limits and no sanctioned interim leak. Exact command run: `python -m pytest -q tests/test_release_sync.py` Result: `1 passed in 0.08s`.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 5b495311c5a3662506e0a5eb0a8261b1710d0161b3f1886450479ac187815e32
+- phase: sealed
+- captured-at: 2026-08-13T15:22:40+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: dcff3412dd23ff7f63be7d40c305bdcf7b96a10d78785ea6af1131c3d8308706
+- controller-config-sha256: 723ad85266f876eb5169a38876f7e6017aa0e31ff07eb3b31eae53c5f5d04899
+- source-ref: 84d54a2638d245adcec4a53db9f2c145931d1567
+- source-manifest-sha256: cab14a45892076d158b158944f9ac8cdc05644e5d1dd8131d1dc2650ee3427cf
+- docket-revision-sha256: 3aa91d9e7a195108753a76716a7ca6e366cd47a63a1b486b22c41e68f16f5dec
+- input-sha256: 7bfc9c335b3fa69e262e04d0d228a48fce002c59f514780de2f4c6e4e1a1c585
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-100 | 2026-08-13T15:22:40+00:00 | from: owner | type: close | thread: plan-sealed-reversal-finding | refs: -
+
+Controller closed the managed case as PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: PASS
+- close-reason: party-vote-agreement
+
+## MSG-101 | 2026-08-13T15:43:47+00:00 | from: owner | type: close | thread: registration-anchor-2026-08-13 | refs: -
+
+REGISTRATION ANCHOR (one-shot close idiom; content stays private). sha256 of every registered debate-bench study document at bench main@34e0b97, anchored here so the pre-registration carries a public, tamper-evident timestamp independent of the private repo. Verification: hash the named file at the named commit when the study publishes.
+2026-07-18-amendment-corpus-windows.md: 3a42371275391e5f55b84beca8b17c1eedadf0eb9393161eb7f7464440e88257
+2026-07-18-s1-harness.md: a3710e31534412ff3077ed5e6c86e0c7e031569bc270fd90135c4c1e6748afdc
+2026-07-21-amendment-tier2-primary.md: 10a5e4e2b945322258f822c3dc1aa115bc1c96cb784921d4bda3d687b8587bb6
+2026-07-27-amendment-h2-lifecycle-arm.md: 749410b090ba508e477943577a6d5a91703996fcfdb82c7be7f5193b01a3f6fa
+2026-07-28-amendment-4-regeneration.md: b7e6db1fc4539d7a044cca175e4cf6013c5b0a641fa8438dba44ce2a1dc01a17
+2026-07-31-amendment-5-solo-loop-control.md: b3c0d5674238b221cf918823f788d456e35ca9b0218feb3b0f52102efe64c3fa
+2026-08-01-amendment-6-unfiltered-loop.md: 72eac104620bc59435aa343d2c0bbf1327c307f461a02cb021805bfc74b89f59
+2026-08-10-amendment-7-pool-extension-and-field-log.md: 798550a9d720fb80928b414ac876deedcd26704b0a63e37e4965e282b0b32b29
+2026-08-11-amendment-8-cheap-seat-process-experiment.md: 73b807548994344a4b17fedd1e66c5e657bb71ff659f3a0e0a5083eb986a2446
+DEVIATION-LEDGER.md: e7e8ea3dd87e87cad5ee393ea04d833ff8e766abd777aff3789ddc017978fc30
