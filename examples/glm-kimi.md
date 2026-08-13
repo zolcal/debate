@@ -2,7 +2,9 @@
 
 This is a managed-version 1 compatibility example using two model backends, neither
 Anthropic nor OpenAI: GLM (Zhipu) as the builder, Kimi
-(Moonshot) as the reviewer — coordinating through the same two-file mailbox as any other
+(Moonshot) as the reviewer — the two-agent minimum topology, where one seat is the
+author (in the recommended three-agent topology both seats are independent of the
+author; see the README) — coordinating through the same two-file mailbox as any other
 pairing. (GLM's documented harness is Claude Code; the *backend* is what escapes the
 duopoly, and the identity check below proves which backend answered.) The tool is
 vendor-neutral; only the `commands` and `prompts` in the watcher change.

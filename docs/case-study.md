@@ -2,7 +2,8 @@
 
 *This is the incident that shaped debate's design rules. It happened on the production
 predecessor of this library — the same protocol, running real code-review cycles between two
-agents in a private research repository. Timestamps are real. The lessons are §5 of
+agents in a private research repository, in the era before the three-agent topology (the
+epilogue records how these roles evolved). Timestamps are real. The lessons are §5 of
 PROTOCOL.md and the trust-model section of the README.*
 
 ## The setup

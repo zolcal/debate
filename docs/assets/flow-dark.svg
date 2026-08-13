@@ -80,7 +80,7 @@
   <text x="150" y="386" text-anchor="middle" font-size="14.5" font-weight="600" fill="#e6edf3">author agent + owner</text>
   <text x="150" y="404" text-anchor="middle" font-size="12" fill="#8b949e">build the work together,</text>
   <text x="150" y="420" text-anchor="middle" font-size="12" fill="#8b949e">outside both seats</text>
-  <path d="M 260 380 C 330 380 350 260 385 224" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowAuthor)"/>
-  <text x="330" y="330" text-anchor="middle" font-size="11.5" fill="#f0883e">delivers the branch +</text>
-  <text x="330" y="345" text-anchor="middle" font-size="11.5" fill="#f0883e">review-request</text>
+  <path d="M 260 396 C 290 396 285 260 380 226" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#arrowAuthor)"/>
+  <text x="262" y="310" text-anchor="middle" font-size="11.5" fill="#f0883e">delivers the branch +</text>
+  <text x="262" y="325" text-anchor="middle" font-size="11.5" fill="#f0883e">review-request</text>
 </svg>

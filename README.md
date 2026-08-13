@@ -531,7 +531,7 @@ adapter-integration attempts remain
 visible as bounded `ERROR` closes rather than being rewritten. The pinned profiles were
 Claude Code 2.1.223 /
 `claude-opus-5` high and Codex CLI 0.146.1 / `gpt-5.6-terra` high, both
-author-independent and subscription-authenticated; the final CLIs reported a `$0.355168`
+author-independent and subscription-authenticated; at case close the CLIs reported a `$0.355168`
 Opus usage-equivalent and 43,729 Codex tokens. Those numbers consume subscription quota and
 are operational evidence, not a promise of zero cost. Branch-gate verdicts separately cite
 the reviewer's own full export run rather than author-pasted evidence.
