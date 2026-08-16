@@ -438,3 +438,61 @@ def smoke_seat(
     for line in failures:
         emit(f"smoke {seat_id}: {line}")
     return result
+
+
+# --- Slice 4: the project profile (section 2.10's second layer, ruling 5) ---
+
+PROFILE_NAME = "debate-profile.json"
+
+
+@dataclass
+class Profile:
+    """The per-project allowlist: which subset of the host registry may
+    debate in this project. References registry entries by id, never
+    redefines them (section 2.10 verbatim); pinned-effort ids ARE the pin
+    mechanism. Opt-in per project: no file, no restriction."""
+
+    allowlist: tuple[str, ...]
+
+
+def load_profile(project: str, registry: Registry) -> Profile | None:
+    """Fail-closed: a malformed file, an unknown version, an id the registry
+    does not carry, or an EMPTY allowlist all refuse with the offender named.
+    A missing file is simply no restriction."""
+    path = Path(project) / PROFILE_NAME
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    except ValueError as error:
+        raise channel.ChannelError(
+            f"refused: unreadable project profile {path}: {error}"
+        ) from error
+    if not isinstance(raw, dict):
+        raise channel.ChannelError(
+            f"refused: project profile {path} must be a JSON object"
+        )
+    if raw.get("profile_version") != 1:
+        raise channel.ChannelError(
+            f"refused: project profile {path} has profile_version "
+            f"{raw.get('profile_version')!r}; this tool speaks 1"
+        )
+    allowlist_raw = raw.get("allowlist")
+    if not isinstance(allowlist_raw, list) or not all(
+        isinstance(item, str) for item in allowlist_raw
+    ):
+        raise channel.ChannelError(
+            f"refused: project profile {path} 'allowlist' must be a list of seat ids"
+        )
+    if not allowlist_raw:
+        raise channel.ChannelError(
+            f"refused: project profile {path} has an EMPTY allowlist, which would "
+            "ban every seat; delete the file instead"
+        )
+    for seat_id in allowlist_raw:
+        if seat_id not in registry.seats:
+            raise channel.ChannelError(
+                f"refused: project profile {path} allowlists {seat_id!r}, which is "
+                "not in the registry; run: debate seats discover"
+            )
+    return Profile(allowlist=tuple(allowlist_raw))

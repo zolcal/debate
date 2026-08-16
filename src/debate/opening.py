@@ -107,11 +107,20 @@ def pick_pair(
     ask: Callable[[str], str],
     allow_identical: bool = False,
 ) -> tuple[str, str]:
-    """The owner picks; the previous pick is the one-Enter default."""
+    """The owner picks; the previous pick is the one-Enter default. When the
+    project carries a `debate-profile.json`, the picker is RESTRICTED to its
+    allowlist (section 2.10's second layer, ruling 5)."""
+    from .seats import PROFILE_NAME, load_profile
+
+    profile = load_profile(project, registry)
+
+    def allowed(seat_id: str) -> bool:
+        return profile is None or seat_id in profile.allowlist
+
     if requested is None:
         default = registry.last_pair.get(project) or registry.last_pair.get("")
         usable = None
-        if default and len(default) == 2:
+        if default and len(default) == 2 and all(allowed(sid) for sid in default):
             try:
                 _seatable(registry, default[0])
                 _seatable(registry, default[1])
@@ -127,7 +136,8 @@ def pick_pair(
             requested = usable
         else:
             listing = ", ".join(
-                sid for sid, seat in sorted(registry.seats.items()) if seat.present
+                sid for sid, seat in sorted(registry.seats.items())
+                if seat.present and allowed(sid)
             )
             prompt = f"seatable: {listing}\npick two seats (a,b)"
             prompt += f" [default: {usable[0]},{usable[1]}]: " if usable else ": "
@@ -144,6 +154,12 @@ def pick_pair(
                     )
                 requested = (parts[0], parts[1])
 
+    for seat_id in requested:
+        if not allowed(seat_id):
+            raise channel.ChannelError(
+                f"refused: {seat_id!r} is outside this project's allowlist "
+                f"({Path(project) / PROFILE_NAME})"
+            )
     first = _seatable(registry, requested[0])
     second = _seatable(registry, requested[1])
     for seat in (first, second):

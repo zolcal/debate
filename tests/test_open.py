@@ -323,3 +323,76 @@ def test_cli_open_on_multichannel_root(
     assert rc == 0
     out = capsys.readouterr().out
     assert "market-research-" in out
+
+
+# --- Slice 4: the project profile (section 2.10's second layer, ruling 5) ---
+
+
+def _write_profile(project_dir: Path, payload: object) -> Path:
+    path = project_dir / seats.PROFILE_NAME
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_load_profile_missing_file_is_none(tmp_path: Path) -> None:
+    assert seats.load_profile(str(tmp_path), seats.Registry()) is None
+
+
+def test_load_profile_fail_closed(tmp_path: Path) -> None:
+    reg = seats.Registry()
+    reg.seats["alpha/one"] = seats.Seat(
+        seat_id="alpha/one", vendor="alpha", submodel="one", effort=None,
+        commands=[["/x/a", "{prompt}"]], source="manual", present=True, smoke=None,
+    )
+    path = tmp_path / seats.PROFILE_NAME
+    path.write_text("{not json", encoding="utf-8")
+    with pytest.raises(channel.ChannelError, match=str(path.name)):
+        seats.load_profile(str(tmp_path), reg)
+    _write_profile(tmp_path, {"profile_version": 2, "allowlist": ["alpha/one"]})
+    with pytest.raises(channel.ChannelError, match="profile_version"):
+        seats.load_profile(str(tmp_path), reg)
+    _write_profile(tmp_path, {"profile_version": 1, "allowlist": ["ghost/nine"]})
+    with pytest.raises(channel.ChannelError, match="ghost/nine"):
+        seats.load_profile(str(tmp_path), reg)
+    _write_profile(tmp_path, {"profile_version": 1, "allowlist": []})
+    with pytest.raises(channel.ChannelError, match="delete"):
+        seats.load_profile(str(tmp_path), reg)
+    _write_profile(tmp_path, {"profile_version": 1, "allowlist": ["alpha/one"]})
+    profile = seats.load_profile(str(tmp_path), reg)
+    assert profile is not None and profile.allowlist == ("alpha/one",)
+
+
+def test_pick_pair_profile_restricts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    reg = _two_seat_registry(tmp_path)
+    tool = tmp_path / "agent-c"
+    tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    tool.chmod(0o755)
+    reg.seats["gamma/three"] = _seat("gamma/three", [str(tool), "{prompt}"], smoke=_smoked())
+    _write_profile(tmp_path, {"profile_version": 1, "allowlist": ["alpha/one", "beta/two"]})
+    # --pair outside the allowlist: refused naming the profile file
+    with pytest.raises(channel.ChannelError, match=seats.PROFILE_NAME):
+        opening.pick_pair(
+            reg, project=str(tmp_path), requested=("gamma/three", "beta/two"),
+            assume_yes=True, ask=_no_ask,
+        )
+    # allowlisted pair passes
+    pair = opening.pick_pair(
+        reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
+        assume_yes=True, ask=_no_ask,
+    )
+    assert pair == ("alpha/one", "beta/two")
+    # a last_pair default outside the allowlist is DROPPED (no default offered)
+    reg.last_pair[str(tmp_path)] = ["gamma/three", "beta/two"]
+    with pytest.raises(channel.ChannelError, match="default"):
+        opening.pick_pair(
+            reg, project=str(tmp_path), requested=None, assume_yes=True, ask=_no_ask,
+        )
+    # the interactive listing shows only allowlisted seats
+    prompts: list[str] = []
+
+    def capture(prompt: str) -> str:
+        prompts.append(prompt)
+        return "alpha/one,beta/two"
+
+    opening.pick_pair(reg, project=str(tmp_path), requested=None, assume_yes=False, ask=capture)
+    assert "gamma/three" not in prompts[0]
