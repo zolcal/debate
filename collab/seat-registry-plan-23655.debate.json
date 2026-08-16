@@ -1,0 +1,11 @@
+{
+  "parties": [
+    "codex",
+    "kimi"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "seat-registry-plan-23655",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 1
+}
