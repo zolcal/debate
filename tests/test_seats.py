@@ -215,3 +215,181 @@ def test_cli_seats_output_is_ascii(
     main(["seats", "list"])
     out = capsys.readouterr().out
     out.encode("ascii")
+
+
+# --- Slice 2: freshness (H1 semantics), upgrade trigger, add/remove, smoke --
+
+
+def test_check_clean_registry_is_empty_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t1")
+    reg.seats["glm/glm-5.3"].smoke = seats.SmokeStatus(at="2026-08-16T00:00:00+00:00", result="pass")
+    report = seats.check(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="2026-08-16T01:00:00+00:00")
+    assert report.fails == [] and report.warns == [] and report.infos == []
+
+
+def test_check_missing_binary_is_fail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t1")
+    report = seats.check(reg, which=_which_from({}), now="2026-08-16T01:00:00+00:00")
+    assert any("glm/glm-5.3" in line for line in report.fails)
+
+
+def test_check_failed_smoke_is_fail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t1")
+    reg.seats["glm/glm-5.3"].smoke = seats.SmokeStatus(at="2026-08-16T00:00:00+00:00", result="fail")
+    report = seats.check(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="2026-08-16T01:00:00+00:00")
+    assert any("smoke" in line for line in report.fails)
+
+
+def test_check_never_smoked_is_info_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fresh post-discover registry MUST exit clean: smoke is opt-in (ruling 1)."""
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t1")
+    report = seats.check(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="2026-08-16T01:00:00+00:00")
+    assert report.fails == []
+    assert report.warns == []
+    assert any("never smoked" in line for line in report.infos)
+
+
+def test_check_stale_smoke_is_warn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t1")
+    reg.seats["glm/glm-5.3"].smoke = seats.SmokeStatus(at="2026-07-01T00:00:00+00:00", result="pass")
+    report = seats.check(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="2026-08-16T00:00:00+00:00")
+    assert report.fails == []
+    assert any("stale" in line for line in report.warns)
+
+
+def test_ensure_current_same_version_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from debate import __version__
+
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({}), now="t1")
+    assert reg.tool_version == __version__
+    reg, diff = seats.ensure_current(reg, which=_which_from({}), now="t2")
+    assert diff == []
+    assert reg.discovered_at == "t1", "no re-scan when versions match"
+
+
+def test_ensure_current_version_mismatch_rescans(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg.tool_version = "0.0.1"
+    reg, diff = seats.ensure_current(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t2")
+    from debate import __version__
+
+    assert reg.tool_version == __version__
+    assert any("glm" in line for line in diff)
+
+
+def test_add_manual_seat_and_append_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    tool = tmp_path / "mytool"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    tool.chmod(0o755)
+    reg = seats.load_registry()
+    seats.add_seat(reg, "custom/one", f"{tool} {{prompt}}", which=_which_from({str(tool): str(tool)}))
+    assert reg.seats["custom/one"].source == "manual"
+    assert reg.seats["custom/one"].commands == [[str(tool), "{prompt}"]]
+    # a second serving on an EXISTING manual seat appends an endpoint option
+    seats.add_seat(reg, "custom/one", f"{tool} --alt {{prompt}}", which=_which_from({str(tool): str(tool)}))
+    assert len(reg.seats["custom/one"].commands) == 2, "append, selection stays first-listed"
+
+
+def test_add_effort_derivation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({"claude": "/x/claude"}), now="t1")
+    seats.add_effort_seat(reg, "claude/opus@high")
+    derived = reg.seats["claude/opus@high"]
+    assert derived.effort == "high"
+    assert derived.commands[0][-2:] == ["--effort", "high"]
+    with pytest.raises(channel.ChannelError, match="known_efforts"):
+        seats.add_effort_seat(reg, "claude/opus@turbo")
+    with pytest.raises(channel.ChannelError, match="refused"):
+        seats.add_effort_seat(reg, "glm/glm-5.3@high")  # effort not argv-reachable
+    with pytest.raises(channel.ChannelError, match="refused"):
+        seats.add_effort_seat(reg, "claude/nope@high")  # base seat missing
+
+
+def test_remove_manual_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t1")
+    reg.seats["custom/one"] = seats.Seat(
+        seat_id="custom/one", vendor="custom", submodel="one", effort=None,
+        commands=[["/x/c", "{prompt}"]], source="manual", present=True, smoke=None,
+    )
+    seats.remove_seat(reg, "custom/one")
+    assert "custom/one" not in reg.seats
+    with pytest.raises(channel.ChannelError, match="absent"):
+        seats.remove_seat(reg, "glm/glm-5.3")
+
+
+def test_smoke_seat_records_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The smoke reuses setup's scratch-channel machinery with the seat's
+    FIRST-LISTED argv; the result lands in the registry either way."""
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg.seats["fake/one"] = seats.Seat(
+        seat_id="fake/one", vendor="fake", submodel="one", effort=None,
+        commands=[["/bin/false", "{prompt}"]], source="manual", present=True, smoke=None,
+    )
+    result = seats.smoke_seat(
+        reg, "fake/one", scratch_base=tmp_path / "scratch", now="2026-08-16T02:00:00+00:00"
+    )
+    assert result == "fail"
+    assert reg.seats["fake/one"].smoke is not None
+    assert reg.seats["fake/one"].smoke.result == "fail"
+    assert reg.seats["fake/one"].smoke.at == "2026-08-16T02:00:00+00:00"
+
+
+def test_cli_seats_check_exit_codes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from debate.__main__ import main
+
+    _registry_env(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    main(["seats", "discover"])
+    capsys.readouterr()
+    # Fresh post-discover registry: never-smoked is INFO only -> exit 0 (H1).
+    assert main(["seats", "check"]) == 0
+    out = capsys.readouterr().out
+    assert "re-discovery" in out or "discover" in out
+    # A seat whose binary is gone -> FAIL -> exit 3.
+    reg = seats.load_registry()
+    reg.seats["gone/one"] = seats.Seat(
+        seat_id="gone/one", vendor="gone", submodel="one", effort=None,
+        commands=[["/nonexistent-tool-xyz", "{prompt}"]], source="manual",
+        present=True, smoke=None,
+    )
+    seats.save_registry(reg)
+    assert main(["seats", "check"]) == 3
+    out = capsys.readouterr().out
+    assert "FAIL" in out
+
+
+def test_cli_seats_add_and_remove(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from debate.__main__ import main
+
+    _registry_env(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    tool = tmp_path / "mytool"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    tool.chmod(0o755)
+    assert main(["seats", "add", "custom/one", "--command", f"{tool} {{prompt}}"]) == 0
+    reg = seats.load_registry()
+    assert "custom/one" in reg.seats
+    assert main(["seats", "remove", "custom/one"]) == 0
+    assert "custom/one" not in seats.load_registry().seats

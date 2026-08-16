@@ -227,6 +227,29 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_seats_list = seats_sub.add_parser("list", help="print the registry")
     p_seats_list.add_argument("--json", action="store_true", dest="as_json")
+    seats_sub.add_parser(
+        "check",
+        help="session-start freshness: exit 3 = real breakage only (missing binary, failed smoke)",
+    )
+    seats_sub.add_parser(
+        "doctor", help="re-validate everything; offers a smoke refresh per stale seat"
+    )
+    p_seats_smoke = seats_sub.add_parser(
+        "smoke", help="scratch-channel round trip per named seat: ONE model call each"
+    )
+    p_seats_smoke.add_argument("seat_ids", nargs="+", metavar="SEAT")
+    p_seats_add = seats_sub.add_parser(
+        "add", help="manual seat, an appended endpoint option, or a SEAT@EFFORT derivation"
+    )
+    p_seats_add.add_argument("seat_id", metavar="SEAT")
+    p_seats_add.add_argument(
+        "--command",
+        dest="seats_add_command_text",
+        default=None,
+        help="seat argv, e.g. '/home/me/.local/bin/my-agent {prompt}'; omit for @EFFORT derivations",
+    )
+    p_seats_remove = seats_sub.add_parser("remove", help="remove a MANUAL seat")
+    p_seats_remove.add_argument("seat_id", metavar="SEAT")
 
     p_init = sub.add_parser("init", help="create a channel directory")
     p_init.add_argument("--root", type=Path, default=Path("."))
@@ -417,6 +440,59 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "seats":
             registry = seats.load_registry()
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            if args.seats_command != "discover":
+                # The upgrade trigger: a tool-version mismatch re-scans first
+                # (scan only -- smoke is never automatic).
+                registry, upgrade_diff = seats.ensure_current(registry, now=now)
+                if upgrade_diff:
+                    seats.save_registry(registry)
+                    for line in upgrade_diff:
+                        _flushing_print(f"upgrade re-scan: {line}")
+            if args.seats_command == "check":
+                report = seats.check(registry, now=now)
+                for line in report.fails + report.warns + report.infos:
+                    _flushing_print(line)
+                _flushing_print("full re-discovery: debate seats discover")
+                return 3 if report.fails else 0
+            if args.seats_command == "doctor":
+                report = seats.check(registry, now=now)
+                for line in report.fails + report.warns + report.infos:
+                    _flushing_print(line)
+                stale = [line.split()[1].rstrip(":") for line in report.warns]
+                for seat_id in stale:
+                    _flushing_print(f"refresh: debate seats smoke {seat_id}")
+                if not (report.fails or report.warns or report.infos):
+                    _flushing_print("doctor: every seat resolves and smoke is fresh")
+                return 3 if report.fails else 0
+            if args.seats_command == "smoke":
+                worst = 0
+                for seat_id in args.seat_ids:
+                    result = seats.smoke_seat(
+                        registry, seat_id, now=now, emit=_flushing_print
+                    )
+                    if result != "pass":
+                        worst = 1
+                seats.save_registry(registry)
+                return worst
+            if args.seats_command == "add":
+                if args.seats_add_command_text is not None:
+                    seats.add_seat(registry, args.seat_id, args.seats_add_command_text)
+                elif "@" in args.seat_id:
+                    seats.add_effort_seat(registry, args.seat_id)
+                else:
+                    raise channel.ChannelError(
+                        "refused: a plain seat id needs --command; only "
+                        "vendor/submodel@effort derives without one"
+                    )
+                seats.save_registry(registry)
+                _flushing_print(f"added {args.seat_id}")
+                return 0
+            if args.seats_command == "remove":
+                seats.remove_seat(registry, args.seat_id)
+                seats.save_registry(registry)
+                _flushing_print(f"removed {args.seat_id}")
+                return 0
             if args.seats_command == "discover":
                 now = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 registry, diff = seats.discover(registry, now=now)

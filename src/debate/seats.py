@@ -220,3 +220,221 @@ def discover(
     registry.discovered_at = now
     registry.tool_version = __version__
     return registry, diff
+
+
+# --- Slice 2: freshness, upgrade trigger, manual seats, smoke ---------------
+
+STALE_AFTER_DAYS = 30
+
+
+@dataclass
+class CheckReport:
+    """Exit 3 iff ``fails`` is nonempty -- real breakage only (plan fold H1):
+    a binary that no longer resolves, or a smoke that RAN AND FAILED.
+    Never-smoked is informational and stale smoke a warning, both exit 0 --
+    smoke is opt-in (owner ruling 1), and an exit code that stays red until
+    the owner pays for smoke would convert opt-in into a toll."""
+
+    fails: list[str] = field(default_factory=list)
+    warns: list[str] = field(default_factory=list)
+    infos: list[str] = field(default_factory=list)
+
+
+def _days_between(earlier: str, later: str) -> float | None:
+    from datetime import datetime
+
+    try:
+        delta = datetime.fromisoformat(later) - datetime.fromisoformat(earlier)
+    except ValueError:
+        return None
+    return delta.total_seconds() / 86400.0
+
+
+def check(
+    registry: Registry,
+    *,
+    which: Callable[[str], str | None] = shutil.which,
+    now: str,
+) -> CheckReport:
+    report = CheckReport()
+    for seat_id, seat in sorted(registry.seats.items()):
+        binary = seat.commands[0][0]
+        resolvable = (
+            which(binary) is not None
+            or which(Path(binary).name) is not None
+            or Path(binary).exists()
+        )
+        if not resolvable:
+            report.fails.append(f"FAIL {seat_id}: binary missing ({binary})")
+            continue
+        if seat.smoke is None:
+            report.infos.append(
+                f"INFO {seat_id}: never smoked (opt-in: debate seats smoke {seat_id})"
+            )
+            continue
+        if seat.smoke.result != "pass":
+            report.fails.append(f"FAIL {seat_id}: smoke failed at {seat.smoke.at}")
+            continue
+        age = _days_between(seat.smoke.at, now)
+        if age is not None and age > STALE_AFTER_DAYS:
+            report.warns.append(
+                f"WARN {seat_id}: smoke stale ({age:.0f}d; refresh via debate seats smoke)"
+            )
+    return report
+
+
+def ensure_current(
+    registry: Registry,
+    *,
+    which: Callable[[str], str | None] = shutil.which,
+    now: str,
+) -> tuple[Registry, list[str]]:
+    """The upgrade trigger: a version mismatch re-runs the catalog scan --
+    scan only, smoke is never automatic."""
+    from . import __version__
+
+    if registry.tool_version == __version__:
+        return registry, []
+    return discover(registry, which=which, now=now)
+
+
+def add_seat(
+    registry: Registry,
+    seat_id: str,
+    command_text: str,
+    *,
+    which: Callable[[str], str | None] = shutil.which,
+) -> None:
+    """Create a manual seat, or APPEND an endpoint option to an existing
+    manual one (another provider account of the SAME serving, section 2.9;
+    a different serving is its own seat -- section 2.10). Selection stays
+    first-listed (owner ruling 4)."""
+    from .setup import split_argv
+
+    if "/" not in seat_id:
+        raise channel.ChannelError(
+            f"refused: seat id {seat_id!r} must be vendor/submodel"
+        )
+    argv = split_argv(command_text)
+    if not argv or "{prompt}" not in " ".join(argv):
+        raise channel.ChannelError(
+            "refused: a seat command needs an executable and a {prompt} placeholder"
+        )
+    head = argv[0]
+    if which(head) is None and not Path(head).exists():
+        raise channel.ChannelError(f"refused: seat command {head!r} does not resolve")
+    for part in argv:
+        if SECRET_PATTERN.search(part):
+            raise channel.ChannelError(
+                "refused: command looks credential-shaped; credentials belong in a "
+                "self-sourcing wrapper, never the registry"
+            )
+    existing = registry.seats.get(seat_id)
+    if existing is not None:
+        if existing.source != "manual":
+            raise channel.ChannelError(
+                f"refused: {seat_id!r} is a catalog seat; endpoint options on catalog "
+                "seats come from discovery"
+            )
+        existing.commands.append(argv)
+        return
+    vendor, _, submodel = seat_id.partition("/")
+    base_id, _, effort = seat_id.partition("@")
+    registry.seats[seat_id] = Seat(
+        seat_id=seat_id,
+        vendor=vendor,
+        submodel=submodel.split("@", 1)[0],
+        effort=effort or None,
+        commands=[argv],
+        source="manual",
+        present=True,
+        smoke=None,
+    )
+
+
+def add_effort_seat(registry: Registry, seat_id: str) -> None:
+    """Derive vendor/submodel@effort from its base seat: derived argv = the
+    base's FIRST-LISTED endpoint option plus the catalog's effort fragment."""
+    base_id, sep, effort = seat_id.partition("@")
+    if not sep or not effort:
+        raise channel.ChannelError(
+            f"refused: {seat_id!r} is not a vendor/submodel@effort id"
+        )
+    base = registry.seats.get(base_id)
+    if base is None:
+        raise channel.ChannelError(
+            f"refused: base seat {base_id!r} is not in the registry"
+        )
+    entry = next((e for e in CATALOG if e.vendor == base.vendor), None)
+    if entry is None or not entry.effort_argv:
+        raise channel.ChannelError(
+            f"refused: {base.vendor!r} takes no effort via argv "
+            "(a wrapper-internal effort is a different wrapper: use seats add --command)"
+        )
+    if effort not in entry.known_efforts:
+        raise channel.ChannelError(
+            f"refused: effort {effort!r} is not in {base.vendor!r} known_efforts "
+            f"{list(entry.known_efforts)}"
+        )
+    derived_argv = list(base.commands[0]) + [
+        part.replace("{effort}", effort) for part in entry.effort_argv
+    ]
+    registry.seats[seat_id] = Seat(
+        seat_id=seat_id,
+        vendor=base.vendor,
+        submodel=base.submodel,
+        effort=effort,
+        commands=[derived_argv],
+        source="manual",
+        present=base.present,
+        smoke=None,
+    )
+
+
+def remove_seat(registry: Registry, seat_id: str) -> None:
+    seat = registry.seats.get(seat_id)
+    if seat is None:
+        raise channel.ChannelError(f"refused: no seat {seat_id!r} in the registry")
+    if seat.source != "manual":
+        raise channel.ChannelError(
+            f"refused: {seat_id!r} is a catalog seat; discovery marks it absent instead"
+        )
+    del registry.seats[seat_id]
+
+
+def smoke_seat(
+    registry: Registry,
+    seat_id: str,
+    *,
+    scratch_base: Path | None = None,
+    now: str,
+    emit: Callable[[str], None] = print,
+) -> str:
+    """One scratch-channel round trip for one seat's FIRST-LISTED argv,
+    through setup's own smoke machinery. The result is recorded in the
+    registry either way; returns "pass" or "fail"."""
+    from .setup import SetupSpec
+    from . import setup as setup_module
+
+    seat = registry.seats.get(seat_id)
+    if seat is None:
+        raise channel.ChannelError(f"refused: no seat {seat_id!r} in the registry")
+    if scratch_base is not None:
+        scratch_base.mkdir(parents=True, exist_ok=True)
+    party = seat.vendor if seat.vendor != "probe" else "seatprobe"
+    spec = SetupSpec(
+        channel_root=Path("."),
+        channel_name=f"smoke-{party}",
+        parties=(party, "probe"),
+        commands={party: list(seat.commands[0]), "probe": None},
+        config_path=Path("unused-config.json"),
+        state_path=Path("unused-state.json"),
+        thread_cap=12,
+        timeout_seconds=300,
+    )
+    failures = setup_module.smoke(spec, scratch_base=scratch_base, emit=emit)
+    result = "fail" if failures else "pass"
+    seat.smoke = SmokeStatus(at=now, result=result)
+    for line in failures:
+        emit(f"smoke {seat_id}: {line}")
+    return result
