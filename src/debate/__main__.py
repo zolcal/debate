@@ -487,8 +487,8 @@ def main(argv: list[str] | None = None) -> int:
                 _flushing_print(line)
             requested: tuple[str, str] | None = None
             if args.pair is not None:
-                parts = tuple(part.strip() for part in args.pair.split(",") if part.strip())
-                if len(parts) != 2:
+                parts = tuple(part.strip() for part in args.pair.split(","))
+                if len(parts) != 2 or not all(parts):
                     raise channel.ChannelError(
                         f"refused: --pair needs exactly two seat ids, got {args.pair!r}"
                     )

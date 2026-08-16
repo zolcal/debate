@@ -75,6 +75,12 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
         if not isinstance(smoke_raw, dict) or not smoke_raw.get("at") or not smoke_raw.get("result"):
             raise channel.ChannelError(f"refused: registry seat {seat_id!r} has a malformed smoke record")
         smoke = SmokeStatus(at=str(smoke_raw["at"]), result=str(smoke_raw["result"]))
+    present_raw = raw.get("present", True)
+    if not isinstance(present_raw, bool):
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} 'present' must be true or false, "
+            f"got {present_raw!r}"
+        )
     effort = raw.get("effort")
     return Seat(
         seat_id=seat_id,
@@ -83,7 +89,7 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
         effort=str(effort) if effort is not None else None,
         commands=[list(argv) for argv in commands_raw],
         source=str(raw.get("source", "manual")),
-        present=bool(raw.get("present", True)),
+        present=present_raw,
         smoke=smoke,
     )
 
@@ -121,8 +127,8 @@ def load_registry() -> Registry:
     return registry
 
 
-def save_registry(registry: Registry) -> Path:
-    """Validate fully -- credential screen included -- then write once."""
+def screen_credentials(registry: Registry) -> None:
+    """Refuse anything key-shaped in any endpoint argv (wizard rule)."""
     for seat in registry.seats.values():
         for argv in seat.commands:
             for part in argv:
@@ -131,6 +137,11 @@ def save_registry(registry: Registry) -> Path:
                         f"refused: seat {seat.seat_id!r} command looks credential-shaped; "
                         "seat credentials belong in a self-sourcing wrapper, never the registry"
                     )
+
+
+def save_registry(registry: Registry) -> Path:
+    """Validate fully -- credential screen included -- then write once."""
+    screen_credentials(registry)
     path = registry_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, object] = {
@@ -245,8 +256,8 @@ def _days_between(earlier: str, later: str) -> float | None:
 
     try:
         delta = datetime.fromisoformat(later) - datetime.fromisoformat(earlier)
-    except ValueError:
-        return None
+    except (ValueError, TypeError):
+        return None  # unparseable or naive-vs-aware: no staleness verdict
     return delta.total_seconds() / 86400.0
 
 
@@ -259,11 +270,11 @@ def check(
     report = CheckReport()
     for seat_id, seat in sorted(registry.seats.items()):
         binary = seat.commands[0][0]
-        resolvable = (
-            which(binary) is not None
-            or which(Path(binary).name) is not None
-            or Path(binary).exists()
-        )
+        if Path(binary).is_absolute():
+            # A same-named binary elsewhere on PATH must not mask a broken pin.
+            resolvable = Path(binary).exists()
+        else:
+            resolvable = which(binary) is not None
         if not resolvable:
             report.fails.append(f"FAIL {seat_id}: binary missing ({binary})")
             continue
@@ -359,6 +370,11 @@ def add_effort_seat(registry: Registry, seat_id: str) -> None:
     if not sep or not effort:
         raise channel.ChannelError(
             f"refused: {seat_id!r} is not a vendor/submodel@effort id"
+        )
+    if seat_id in registry.seats:
+        raise channel.ChannelError(
+            f"refused: {seat_id!r} is already in the registry; remove it first "
+            "(the registry never clobbers an existing seat)"
         )
     base = registry.seats.get(base_id)
     if base is None:
@@ -460,10 +476,14 @@ def load_profile(project: str, registry: Registry) -> Profile | None:
     does not carry, or an EMPTY allowlist all refuse with the offender named.
     A missing file is simply no restriction."""
     path = Path(project) / PROFILE_NAME
+    if not path.exists():
+        return None
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except OSError:
-        return None
+    except OSError as error:
+        raise channel.ChannelError(
+            f"refused: unreadable project profile {path}: {error}"
+        ) from error
     except ValueError as error:
         raise channel.ChannelError(
             f"refused: unreadable project profile {path}: {error}"

@@ -139,7 +139,8 @@ report — and each debate deserves its own pair of arguing agents, picked at
 its birth. The machinery is two levels of setup and one minting command:
 
 ```bash
-# Level 1 — install time, repeatable, re-run automatically on a tool upgrade:
+# Level 1 — run once after installing, repeatable any time, and re-run
+# automatically when the tool version changes:
 # scan PATH against the packaged catalog of known vendor CLIs and write the
 # host seat registry (~/.config/debate/seats.json). No model calls.
 debate seats discover
@@ -158,7 +159,7 @@ debate seats doctor
 # Mint a debate: a fresh channel with its pair picked from the registry and
 # pinned for the debate's life. The previous pick is the one-Enter default;
 # --pair answers non-interactively. The exact seat, effort, and command of
-# each pick are recorded verbatim in the channel's own config — "glm said X"
+# each pick are recorded verbatim in the channel's own record (its .debate.json) — "glm said X"
 # always answers WHICH glm, through WHICH pipe.
 debate open --root ./collab --label market-research \
     --pair codex/gpt-5.6-sol,glm/glm-5.3 --yes

@@ -220,12 +220,19 @@ def test_cli_seats_output_is_ascii(
 # --- Slice 2: freshness (H1 semantics), upgrade trigger, add/remove, smoke --
 
 
+def _real_tool(tmp_path: Path) -> str:
+    tool = tmp_path / "glm-agent"
+    tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    tool.chmod(0o755)
+    return str(tool)
+
+
 def test_check_clean_registry_is_empty_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _registry_env(tmp_path, monkeypatch)
     reg = seats.load_registry()
-    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t1")
+    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": _real_tool(tmp_path)}), now="t1")
     reg.seats["glm/glm-5.3"].smoke = seats.SmokeStatus(at="2026-08-16T00:00:00+00:00", result="pass")
-    report = seats.check(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="2026-08-16T01:00:00+00:00")
+    report = seats.check(reg, which=_which_from({}), now="2026-08-16T01:00:00+00:00")
     assert report.fails == [] and report.warns == [] and report.infos == []
 
 
@@ -240,9 +247,9 @@ def test_check_missing_binary_is_fail(tmp_path: Path, monkeypatch: pytest.Monkey
 def test_check_failed_smoke_is_fail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _registry_env(tmp_path, monkeypatch)
     reg = seats.load_registry()
-    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t1")
+    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": _real_tool(tmp_path)}), now="t1")
     reg.seats["glm/glm-5.3"].smoke = seats.SmokeStatus(at="2026-08-16T00:00:00+00:00", result="fail")
-    report = seats.check(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="2026-08-16T01:00:00+00:00")
+    report = seats.check(reg, which=_which_from({}), now="2026-08-16T01:00:00+00:00")
     assert any("smoke" in line for line in report.fails)
 
 
@@ -250,8 +257,8 @@ def test_check_never_smoked_is_info_only(tmp_path: Path, monkeypatch: pytest.Mon
     """A fresh post-discover registry MUST exit clean: smoke is opt-in (ruling 1)."""
     _registry_env(tmp_path, monkeypatch)
     reg = seats.load_registry()
-    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t1")
-    report = seats.check(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="2026-08-16T01:00:00+00:00")
+    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": _real_tool(tmp_path)}), now="t1")
+    report = seats.check(reg, which=_which_from({}), now="2026-08-16T01:00:00+00:00")
     assert report.fails == []
     assert report.warns == []
     assert any("never smoked" in line for line in report.infos)
@@ -260,9 +267,9 @@ def test_check_never_smoked_is_info_only(tmp_path: Path, monkeypatch: pytest.Mon
 def test_check_stale_smoke_is_warn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _registry_env(tmp_path, monkeypatch)
     reg = seats.load_registry()
-    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="t1")
+    reg, _ = seats.discover(reg, which=_which_from({"glm-agent": _real_tool(tmp_path)}), now="t1")
     reg.seats["glm/glm-5.3"].smoke = seats.SmokeStatus(at="2026-07-01T00:00:00+00:00", result="pass")
-    report = seats.check(reg, which=_which_from({"glm-agent": "/x/glm-agent"}), now="2026-08-16T00:00:00+00:00")
+    report = seats.check(reg, which=_which_from({}), now="2026-08-16T00:00:00+00:00")
     assert report.fails == []
     assert any("stale" in line for line in report.warns)
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +75,16 @@ def _seatable(registry: Registry, seat_id: str) -> Seat:
             f"refused: seat {seat_id!r} is marked ABSENT (its binary vanished); "
             "run: debate seats discover"
         )
+    head = seat.commands[0][0]
+    if Path(head).is_absolute():
+        resolvable = Path(head).exists()
+    else:
+        resolvable = shutil.which(head) is not None
+    if not resolvable:
+        raise channel.ChannelError(
+            f"refused: seat {seat_id!r} command {head!r} no longer resolves; "
+            "run: debate seats discover"
+        )
     return seat
 
 
@@ -118,15 +129,17 @@ def pick_pair(
         return profile is None or seat_id in profile.allowlist
 
     if requested is None:
-        default = registry.last_pair.get(project) or registry.last_pair.get("")
         usable = None
-        if default and len(default) == 2 and all(allowed(sid) for sid in default):
+        for default in (registry.last_pair.get(project), registry.last_pair.get("")):
+            if not default or len(default) != 2 or not all(allowed(sid) for sid in default):
+                continue  # a default outside the allowlist is DROPPED
             try:
                 _seatable(registry, default[0])
                 _seatable(registry, default[1])
                 usable = (default[0], default[1])
+                break
             except channel.ChannelError:
-                usable = None  # a default containing an unseatable seat is DROPPED
+                continue  # a default containing an unseatable seat is DROPPED
         if assume_yes:
             if usable is None:
                 raise channel.ChannelError(
@@ -194,14 +207,22 @@ def open_debate(
 ) -> OpenResult:
     """Validate everything, then write, in order: channel scaffold,
     PROTOCOL.md (only if absent), watcher config, provenance block."""
+    from .seats import screen_credentials
+
+    screen_credentials(registry)
     first = _seatable(registry, spec.pair[0])
     second = _seatable(registry, spec.pair[1])
     _identity_guard(first, second, allow_identical=spec.allow_identical_seats)
 
     if first.vendor != second.vendor:
-        parties = (first.vendor, second.vendor)
+        parties = (slugify_seat_id(first.vendor), slugify_seat_id(second.vendor))
     else:
         parties = (slugify_seat_id(first.seat_id), slugify_seat_id(second.seat_id))
+    if parties[0] == parties[1]:
+        raise channel.ChannelError(
+            f"refused: both seats slugify to the party name {parties[0]!r}; "
+            "rename one seat so the channel can tell them apart"
+        )
 
     name = channel.generate_channel_id(spec.root, label=spec.label)
     project = project_key(spec.root)
