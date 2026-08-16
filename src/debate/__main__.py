@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from debate import channel
+from debate import channel, seats
 from debate.controller import AdapterProfile, BrokerConfig, BrokerController, TimingPolicy, doctor_lines
 from debate.watcher import WatcherConfig, read_status, run_once, watch
 
@@ -217,6 +217,17 @@ def main(argv: list[str] | None = None) -> int:
             help="channel instance id; needed only when the root folder holds more than one channel",
         )
 
+    p_seats = sub.add_parser(
+        "seats",
+        help="the host seat registry: discover what this machine can seat",
+    )
+    seats_sub = p_seats.add_subparsers(dest="seats_command", required=True)
+    seats_sub.add_parser(
+        "discover", help="catalog x PATH scan merged into the registry; no model calls"
+    )
+    p_seats_list = seats_sub.add_parser("list", help="print the registry")
+    p_seats_list.add_argument("--json", action="store_true", dest="as_json")
+
     p_init = sub.add_parser("init", help="create a channel directory")
     p_init.add_argument("--root", type=Path, default=Path("."))
     p_init.add_argument("--parties", required=True, help="two comma-separated party names, e.g. claude,glm")
@@ -398,11 +409,58 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         # One resolution, up front: which channel in --root is being addressed?
-        # None means the legacy layout; init is the one command that CREATES
-        # a channel and therefore never discovers one.
+        # None means the legacy layout; init CREATES a channel and never
+        # discovers one, and `seats` addresses the host registry, not a root.
         name: str | None = None
-        if args.command not in ("init", "migrate"):
+        if args.command not in ("init", "migrate", "seats"):
             name = channel.discover_channel(args.root, getattr(args, "channel", None))
+
+        if args.command == "seats":
+            registry = seats.load_registry()
+            if args.seats_command == "discover":
+                now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                registry, diff = seats.discover(registry, now=now)
+                seats.save_registry(registry)
+                for line in diff:
+                    _flushing_print(line)
+                _flushing_print(
+                    f"registry: {len(registry.seats)} seat(s) at {seats.registry_path()}"
+                )
+                return 0
+            if args.seats_command == "list":
+                if args.as_json:
+                    payload = {
+                        seat_id: {
+                            "present": seat.present,
+                            "effort": seat.effort,
+                            "commands": seat.commands,
+                            "source": seat.source,
+                            "smoke": (
+                                {"at": seat.smoke.at, "result": seat.smoke.result}
+                                if seat.smoke is not None
+                                else None
+                            ),
+                        }
+                        for seat_id, seat in sorted(registry.seats.items())
+                    }
+                    _flushing_print(json.dumps(payload, indent=2))
+                    return 0
+                if not registry.seats:
+                    _flushing_print("registry empty; run: debate seats discover")
+                    return 0
+                for seat_id, seat in sorted(registry.seats.items()):
+                    smoke = (
+                        f"smoke {seat.smoke.result} at {seat.smoke.at}"
+                        if seat.smoke is not None
+                        else "never smoked"
+                    )
+                    presence = "present" if seat.present else "ABSENT"
+                    _flushing_print(
+                        f"{seat_id}  [{presence}]  {smoke}  "
+                        f"{' '.join(seat.commands[0])}"
+                    )
+                return 0
+            raise channel.ChannelError(f"unknown seats command {args.seats_command!r}")
 
         if args.command == "init":
             parties = tuple(part.strip() for part in args.parties.split(",") if part.strip())
