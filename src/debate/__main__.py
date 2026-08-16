@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from debate import channel, seats
+from debate import channel, opening, seats
 from debate.controller import AdapterProfile, BrokerConfig, BrokerController, TimingPolicy, doctor_lines
 from debate.watcher import WatcherConfig, read_status, run_once, watch
 
@@ -70,7 +70,12 @@ def _seconds(raw: dict[str, Any], key: str, default: int, config_path: Path) -> 
         ) from error
 
 
-def _watcher_config(root: Path, config_path: Path, channel_name: str | None = None) -> WatcherConfig:
+def _watcher_config(
+    root: Path,
+    config_path: Path,
+    channel_name: str | None = None,
+    channel_config: channel.ChannelConfig | None = None,
+) -> WatcherConfig:
     """Load watcher.json, refusing in the CLI's own vocabulary.
 
     `main` converts `ChannelError` and NOTHING else, so every other exception
@@ -122,7 +127,11 @@ def _watcher_config(root: Path, config_path: Path, channel_name: str | None = No
             )
         commands[party] = list(argv)
 
-    channel_config = channel.load_config(root, channel_name)
+    # The round-6 gate seam: `open` supplies the in-memory record it will
+    # write verbatim after validation, because a freshly minted channel has
+    # no record on disk yet. Every other caller omits it and reads the disk.
+    if channel_config is None:
+        channel_config = channel.load_config(root, channel_name)
     broker: BrokerConfig | None = None
     adapter_raw = _mapping(raw, "adapters", config_path)
     if adapter_raw:
@@ -250,6 +259,33 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_seats_remove = seats_sub.add_parser("remove", help="remove a MANUAL seat")
     p_seats_remove.add_argument("seat_id", metavar="SEAT")
+
+    p_open = sub.add_parser(
+        "open",
+        help="mint a debate: a fresh channel with its pair picked from the registry",
+    )
+    p_open.add_argument("--root", type=Path, default=Path("."))
+    p_open.add_argument("--label", required=True, help="the debate's subject slug")
+    p_open.add_argument(
+        "--pair",
+        default=None,
+        help="two comma-separated seat ids, e.g. codex/gpt-5.6-sol,glm/glm-5.3",
+    )
+    p_open.add_argument("--supervisor", default="owner")
+    p_open.add_argument("--thread-cap", type=int, default=12)
+    p_open.add_argument(
+        "--yes",
+        action="store_true",
+        dest="assume_yes",
+        help="non-interactive: accept the last-pair default; covers the unsmoked "
+        "warning, never the identity guard",
+    )
+    p_open.add_argument(
+        "--allow-identical-seats",
+        action="store_true",
+        help="seat the same vendor/submodel twice anyway (a monologue risk, "
+        "always an explicit choice)",
+    )
 
     p_init = sub.add_parser("init", help="create a channel directory")
     p_init.add_argument("--root", type=Path, default=Path("."))
@@ -435,8 +471,57 @@ def main(argv: list[str] | None = None) -> int:
         # None means the legacy layout; init CREATES a channel and never
         # discovers one, and `seats` addresses the host registry, not a root.
         name: str | None = None
-        if args.command not in ("init", "migrate", "seats"):
+        if args.command not in ("init", "migrate", "seats", "open"):
             name = channel.discover_channel(args.root, getattr(args, "channel", None))
+
+        if args.command == "open":
+            registry = seats.load_registry()
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            registry, upgrade_diff = seats.ensure_current(registry, now=now)
+            if upgrade_diff:
+                seats.save_registry(registry)
+                for line in upgrade_diff:
+                    _flushing_print(f"upgrade re-scan: {line}")
+            report = seats.check(registry, now=now)
+            for line in report.fails + report.warns:
+                _flushing_print(line)
+            requested: tuple[str, str] | None = None
+            if args.pair is not None:
+                parts = tuple(part.strip() for part in args.pair.split(",") if part.strip())
+                if len(parts) != 2:
+                    raise channel.ChannelError(
+                        f"refused: --pair needs exactly two seat ids, got {args.pair!r}"
+                    )
+                requested = (parts[0], parts[1])
+            pair = opening.pick_pair(
+                registry,
+                project=opening.project_key(args.root),
+                requested=requested,
+                assume_yes=args.assume_yes,
+                ask=input,
+                allow_identical=args.allow_identical_seats,
+            )
+            from debate import __version__
+
+            result = opening.open_debate(
+                opening.OpenSpec(
+                    root=args.root,
+                    label=args.label,
+                    pair=pair,
+                    supervisor=args.supervisor,
+                    thread_cap=args.thread_cap,
+                    allow_identical_seats=args.allow_identical_seats,
+                    assume_yes=args.assume_yes,
+                ),
+                registry,
+                load_config_fn=_watcher_config,
+                now=now,
+                tool_version=__version__,
+            )
+            seats.save_registry(registry)
+            for line in result.hints:
+                _flushing_print(line)
+            return 0
 
         if args.command == "seats":
             registry = seats.load_registry()
@@ -468,10 +553,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.seats_command == "smoke":
                 worst = 0
                 for seat_id in args.seat_ids:
-                    result = seats.smoke_seat(
+                    smoke_result = seats.smoke_seat(
                         registry, seat_id, now=now, emit=_flushing_print
                     )
-                    if result != "pass":
+                    if smoke_result != "pass":
                         worst = 1
                 seats.save_registry(registry)
                 return worst

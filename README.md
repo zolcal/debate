@@ -132,6 +132,48 @@ debate post --root ./collab --channel myproject-48213 --from claude --type close
 Try posting twice in a row from the same party: the tool refuses. That refusal is the
 protocol.
 
+## Picking the seats: discovery, the registry, and `debate open`
+
+One repository can carry several debates — a plan, a branch, a research
+report — and each debate deserves its own pair of arguing agents, picked at
+its birth. The machinery is two levels of setup and one minting command:
+
+```bash
+# Level 1 — install time, repeatable, re-run automatically on a tool upgrade:
+# scan PATH against the packaged catalog of known vendor CLIs and write the
+# host seat registry (~/.config/debate/seats.json). No model calls.
+debate seats discover
+debate seats list
+
+# Level 2 — session start: a zero-call freshness check. Exit 3 means real
+# breakage only (a binary that vanished, a smoke that ran and FAILED);
+# never-smoked is informational — smoke stays opt-in.
+debate seats check
+
+# Opt-in, one model call per seat, cost announced first:
+debate seats smoke codex/gpt-5.6-sol
+# Re-validate everything, with a refresh offer per stale seat:
+debate seats doctor
+
+# Mint a debate: a fresh channel with its pair picked from the registry and
+# pinned for the debate's life. The previous pick is the one-Enter default;
+# --pair answers non-interactively. The exact seat, effort, and command of
+# each pick are recorded verbatim in the channel's own config — "glm said X"
+# always answers WHICH glm, through WHICH pipe.
+debate open --root ./collab --label market-research \
+    --pair codex/gpt-5.6-sol,glm/glm-5.3 --yes
+```
+
+A seat is `vendor/submodel`, optionally `vendor/submodel@effort` — two
+efforts of one model are two pickable seats, but they remain ONE model to the
+identity guard: seating the same weights on both sides of a debate is refused
+unless you say `--allow-identical-seats`, and two seats running the identical
+command are refused always. A committable `debate-profile.json` at the repo
+toplevel can restrict which registry seats may debate in that project (no
+file, no restriction). Wrapper seats whose model is pinned inside the wrapper
+(a `glm-agent`-style script) appear as exactly one seat named by their
+verified pin — the registry never claims a selection the pipe cannot make.
+
 ## Running it unattended
 
 There are two recorded managed versions. **Version 2 is the brokered path for new isolated
