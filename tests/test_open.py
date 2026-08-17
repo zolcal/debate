@@ -559,3 +559,24 @@ def test_discover_preserves_manual_seat_that_merely_extends_base_argv(
     assert reg.seats["claude/opus@low"].commands[0][0] == str(new), (
         "the exact derived shape IS re-derived"
     )
+
+
+def test_upgrade_stamp_persists_on_clean_rescan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Round-6 converged finding: the version stamp persists even when the
+    re-scan diff is empty, so the mismatch re-scan cannot refire forever."""
+    from debate import __version__
+
+    _registry_env(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    main(["seats", "discover"])
+    reg = seats.load_registry()
+    reg.tool_version = "0.0.1"
+    seats.save_registry(reg)
+    capsys.readouterr()
+    assert main(["seats", "check"]) == 0
+    capsys.readouterr()
+    assert seats.load_registry().tool_version == __version__, (
+        "the stamp must reach the FILE, not just memory"
+    )

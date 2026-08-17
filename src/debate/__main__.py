@@ -485,8 +485,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "open":
             registry = seats.load_registry()
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            pre_version = registry.tool_version
             registry, upgrade_diff = seats.ensure_current(registry, now=now)
-            if upgrade_diff:
+            if upgrade_diff or registry.tool_version != pre_version:
                 seats.save_registry(registry)
                 for line in upgrade_diff:
                     _flushing_print(f"upgrade re-scan: {line}")
@@ -539,9 +540,13 @@ def main(argv: list[str] | None = None) -> int:
                 # The upgrade trigger: a tool-version mismatch re-scans first
                 # (scan only -- smoke is never automatic). On a --json surface
                 # the diagnostics go to stderr so stdout stays machine-readable.
+                # The stamp PERSISTS even when the re-scan changes nothing --
+                # an unpersisted stamp refires the re-scan forever (round-6
+                # gate finding).
+                pre_version = registry.tool_version
                 registry, upgrade_diff = seats.ensure_current(registry, now=now)
                 as_json = bool(getattr(args, "as_json", False))
-                if upgrade_diff:
+                if upgrade_diff or registry.tool_version != pre_version:
                     seats.save_registry(registry)
                     for line in upgrade_diff:
                         if as_json:
