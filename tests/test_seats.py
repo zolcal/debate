@@ -159,6 +159,10 @@ def test_rediscover_marks_absent_never_deletes(
     reg, diff = seats.discover(reg, which=_which_from({}), now="t2")
     assert reg.seats["glm/glm-5.3"].present is False, "vanished binaries are marked absent"
     assert "glm/glm-5.3" in reg.seats, "never deleted"
+    # round-7 fold: an absent seat is a MISSING BINARY -> FAIL, with the
+    # removal remedy named in the line
+    report = seats.check(reg, which=_which_from({}), now="t3")
+    assert any("glm/glm-5.3" in line and "remove" in line for line in report.fails)
     assert reg.seats["custom/one"].present is True, "manual entries untouched"
     assert any("absent" in line for line in diff)
 
@@ -337,8 +341,12 @@ def test_remove_manual_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     )
     seats.remove_seat(reg, "custom/one")
     assert "custom/one" not in reg.seats
-    with pytest.raises(channel.ChannelError, match="absent"):
+    with pytest.raises(channel.ChannelError, match="PRESENT"):
         seats.remove_seat(reg, "glm/glm-5.3")
+    # round-7 fold: an ABSENT catalog seat may be removed as cleanup
+    reg.seats["glm/glm-5.3"].present = False
+    seats.remove_seat(reg, "glm/glm-5.3")
+    assert "glm/glm-5.3" not in reg.seats
 
 
 def test_smoke_seat_records_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

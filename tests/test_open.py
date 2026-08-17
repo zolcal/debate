@@ -580,3 +580,30 @@ def test_upgrade_stamp_persists_on_clean_rescan(
     assert seats.load_registry().tool_version == __version__, (
         "the stamp must reach the FILE, not just memory"
     )
+
+
+def test_profile_version_bool_refuses(tmp_path: Path) -> None:
+    """Round-7 fold: JSON true must not pass the version-1 check (bool==int)."""
+    reg = seats.Registry()
+    (tmp_path / seats.PROFILE_NAME).write_text(
+        json.dumps({"profile_version": True, "allowlist": ["x/y"]}), encoding="utf-8"
+    )
+    with pytest.raises(channel.ChannelError, match="profile_version"):
+        seats.load_profile(str(tmp_path), reg)
+
+
+def test_open_provenance_carries_smoke_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round-7 fold: the provenance block records the smoke STATE verbatim."""
+    _registry_env(tmp_path, monkeypatch)
+    reg = _two_seat_registry(tmp_path)
+    root = tmp_path / "collab"
+    root.mkdir()
+    result = opening.open_debate(
+        _open_spec(root), reg, load_config_fn=_watcher_config,
+        now="t", tool_version="v",
+    )
+    record = json.loads((root / f"{result.channel_name}.debate.json").read_text(encoding="utf-8"))
+    assert record["seats"]["alpha"]["smoke_result"] == "pass"
+    assert record["seats"]["alpha"]["smoke_at"] is not None

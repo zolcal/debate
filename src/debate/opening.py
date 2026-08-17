@@ -310,12 +310,14 @@ def open_debate(
             "effort": first.effort,
             "command": list(first.commands[0]),
             "smoke_at": first.smoke.at if first.smoke is not None else None,
+            "smoke_result": first.smoke.result if first.smoke is not None else None,
         },
         parties[1]: {
             "seat": second.seat_id,
             "effort": second.effort,
             "command": list(second.commands[0]),
             "smoke_at": second.smoke.at if second.smoke is not None else None,
+            "smoke_result": second.smoke.result if second.smoke is not None else None,
         },
     }
     record_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")

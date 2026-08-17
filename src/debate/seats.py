@@ -326,8 +326,9 @@ def check(
     report = CheckReport()
     for seat_id, seat in sorted(registry.seats.items()):
         if not seat.present:
-            report.infos.append(
-                f"INFO {seat_id}: absent since discovery (run: debate seats discover)"
+            report.fails.append(
+                f"FAIL {seat_id}: binary missing (absent since discovery; "
+                f"re-install it, or clean up via: debate seats remove {seat_id})"
             )
             continue
         binary = seat.commands[0][0]
@@ -470,9 +471,10 @@ def remove_seat(registry: Registry, seat_id: str) -> None:
     seat = registry.seats.get(seat_id)
     if seat is None:
         raise channel.ChannelError(f"refused: no seat {seat_id!r} in the registry")
-    if seat.source != "manual":
+    if seat.source != "manual" and seat.present:
         raise channel.ChannelError(
-            f"refused: {seat_id!r} is a catalog seat; discovery marks it absent instead"
+            f"refused: {seat_id!r} is a PRESENT catalog seat; discovery owns it "
+            "(an ABSENT catalog seat may be removed as cleanup)"
         )
     del registry.seats[seat_id]
 
@@ -574,10 +576,11 @@ def load_profile(project: str, registry: Registry) -> Profile | None:
         raise channel.ChannelError(
             f"refused: project profile {path} must be a JSON object"
         )
-    if raw.get("profile_version") != 1:
+    version_raw = raw.get("profile_version")
+    if not isinstance(version_raw, int) or isinstance(version_raw, bool) or version_raw != 1:
         raise channel.ChannelError(
             f"refused: project profile {path} has profile_version "
-            f"{raw.get('profile_version')!r}; this tool speaks 1"
+            f"{version_raw!r}; this tool speaks 1"
         )
     allowlist_raw = raw.get("allowlist")
     if not isinstance(allowlist_raw, list) or not all(
