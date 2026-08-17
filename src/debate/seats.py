@@ -38,7 +38,9 @@ class Seat:
     submodel: str
     effort: str | None
     commands: list[list[str]]  # endpoint options; v1 selection = commands[0]
-    source: str  # "catalog" | "manual"
+    source: str  # "catalog" (discovery-owned) | "derived" (tool-derived
+    # @effort entries, re-derived when their base argv moves) | "manual"
+    # (operator-authored -- NEVER touched by the tool)
     present: bool
     smoke: SmokeStatus | None
 
@@ -234,6 +236,8 @@ def discover(
                 existing.commands = [argv] + existing.commands[1:]
                 if base_changed:
                     for derived in registry.seats.values():
+                        if derived.source != "derived":
+                            continue  # manual entries are NEVER touched (D2)
                         if derived.effort is None or not entry.effort_argv:
                             continue
                         if derived.seat_id.split("@", 1)[0] != seat_id:
@@ -461,7 +465,7 @@ def add_effort_seat(registry: Registry, seat_id: str) -> None:
         submodel=base.submodel,
         effort=effort,
         commands=[derived_argv],
-        source="manual",
+        source="derived",
         present=base.present,
         smoke=None,
     )
@@ -471,7 +475,7 @@ def remove_seat(registry: Registry, seat_id: str) -> None:
     seat = registry.seats.get(seat_id)
     if seat is None:
         raise channel.ChannelError(f"refused: no seat {seat_id!r} in the registry")
-    if seat.source != "manual" and seat.present:
+    if seat.source == "catalog" and seat.present:
         raise channel.ChannelError(
             f"refused: {seat_id!r} is a PRESENT catalog seat; discovery owns it "
             "(an ABSENT catalog seat may be removed as cleanup)"

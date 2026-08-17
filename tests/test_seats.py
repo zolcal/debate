@@ -435,3 +435,35 @@ def test_discover_prefers_first_listed_binary(
         reg, which=_which_from({"dual-agent": str(wrapper), "dual": str(bare)}), now="t"
     )
     assert reg.seats["dual/one"].commands[0][0] == str(wrapper)
+
+
+def test_derived_source_taxonomy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round-8 fold: derived @effort entries carry source='derived' and are
+    the ONLY entries the refresh may touch; manual means operator-authored
+    and is absolutely untouched (D2 literal)."""
+    _registry_env(tmp_path, monkeypatch)
+    old = tmp_path / "claude"
+    old.write_text("#!/bin/sh\n", encoding="utf-8")
+    old.chmod(0o755)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({"claude": str(old)}), now="t0")
+    seats.add_effort_seat(reg, "claude/opus@high")
+    assert reg.seats["claude/opus@high"].source == "derived"
+    base = list(reg.seats["claude/opus"].commands[0])
+    # an operator-authored seat that HAPPENS to have the exact derived shape
+    reg.seats["claude/opus@low"] = seats.Seat(
+        "claude/opus@low", "claude", "opus", "low",
+        [base + ["--effort", "low"]], "manual", True, None,
+    )
+    new = tmp_path / "moved" / "claude"
+    new.parent.mkdir()
+    new.write_text("#!/bin/sh\n", encoding="utf-8")
+    new.chmod(0o755)
+    reg, _ = seats.discover(reg, which=_which_from({"claude": str(new)}), now="t1")
+    assert reg.seats["claude/opus@high"].commands[0][0] == str(new), "derived refreshes"
+    assert reg.seats["claude/opus@low"].commands[0][0] == str(old), (
+        "manual is NEVER touched, even in the exact derived shape"
+    )
+    # a derived seat is recreatable, so removal is allowed
+    seats.remove_seat(reg, "claude/opus@high")
+    assert "claude/opus@high" not in reg.seats
