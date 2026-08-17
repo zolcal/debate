@@ -82,7 +82,7 @@ def test_pick_pair_requested_pair_validated(tmp_path: Path) -> None:
     reg = _two_seat_registry(tmp_path)
     pair = opening.pick_pair(
         reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
-        assume_yes=True, ask=_no_ask,
+        assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
     assert pair == ("alpha/one", "beta/two")
 
@@ -93,8 +93,8 @@ def test_pick_pair_absent_seat_refused(tmp_path: Path) -> None:
     with pytest.raises(channel.ChannelError, match="alpha/one"):
         opening.pick_pair(
             reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
-            assume_yes=True, ask=_no_ask,
-        )
+            assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
+    )
 
 
 def test_pick_pair_unknown_seat_refused(tmp_path: Path) -> None:
@@ -102,8 +102,8 @@ def test_pick_pair_unknown_seat_refused(tmp_path: Path) -> None:
     with pytest.raises(channel.ChannelError, match="gamma/three"):
         opening.pick_pair(
             reg, project=str(tmp_path), requested=("gamma/three", "beta/two"),
-            assume_yes=True, ask=_no_ask,
-        )
+            assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
+    )
 
 
 def test_pick_pair_unsmoked_needs_confirmation_yes_covers(tmp_path: Path) -> None:
@@ -112,7 +112,7 @@ def test_pick_pair_unsmoked_needs_confirmation_yes_covers(tmp_path: Path) -> Non
     # --yes covers the unsmoked warning...
     pair = opening.pick_pair(
         reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
-        assume_yes=True, ask=_no_ask,
+        assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
     assert pair == ("alpha/one", "beta/two")
     # ...interactively it asks, and a refusal answer refuses.
@@ -120,8 +120,8 @@ def test_pick_pair_unsmoked_needs_confirmation_yes_covers(tmp_path: Path) -> Non
     with pytest.raises(channel.ChannelError, match="unsmoked"):
         opening.pick_pair(
             reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
-            assume_yes=False, ask=lambda prompt: next(answers),
-        )
+            assume_yes=False, ask=lambda prompt: next(answers), now="2026-08-17T00:00:00+00:00",
+    )
 
 
 def test_pick_pair_identity_guard(tmp_path: Path) -> None:
@@ -135,19 +135,19 @@ def test_pick_pair_identity_guard(tmp_path: Path) -> None:
     with pytest.raises(channel.ChannelError, match="same"):
         opening.pick_pair(
             reg, project=str(tmp_path), requested=("alpha/one", "alpha/one"),
-            assume_yes=True, ask=_no_ask,
-        )
+            assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
+    )
     # same vendor/submodel at two DIFFERENT efforts: the warning fires all the
     # same -- effort ignored, same weights
     with pytest.raises(channel.ChannelError, match="weights|identical|monologue"):
         opening.pick_pair(
             reg, project=str(tmp_path), requested=("alpha/one", "alpha/one@low"),
-            assume_yes=True, ask=_no_ask,
-        )
+            assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
+    )
     # --allow-identical-seats covers vendor/submodel identity...
     pair = opening.pick_pair(
         reg, project=str(tmp_path), requested=("alpha/one", "alpha/one@low"),
-        assume_yes=True, ask=_no_ask, allow_identical=True,
+        assume_yes=True, ask=_no_ask, allow_identical=True, now="2026-08-17T00:00:00+00:00",
     )
     assert pair == ("alpha/one", "alpha/one@low")
     # ...but identical SELECTED argv refuses ALWAYS.
@@ -155,8 +155,8 @@ def test_pick_pair_identity_guard(tmp_path: Path) -> None:
     with pytest.raises(channel.ChannelError, match="argv"):
         opening.pick_pair(
             reg, project=str(tmp_path), requested=("alpha/one", "alpha/clone"),
-            assume_yes=True, ask=_no_ask, allow_identical=True,
-        )
+            assume_yes=True, ask=_no_ask, allow_identical=True, now="2026-08-17T00:00:00+00:00",
+    )
 
 
 def test_pick_pair_default_from_last_pair(tmp_path: Path) -> None:
@@ -165,7 +165,7 @@ def test_pick_pair_default_from_last_pair(tmp_path: Path) -> None:
     # Enter accepts the project default
     pair = opening.pick_pair(
         reg, project=str(tmp_path), requested=None,
-        assume_yes=False, ask=lambda prompt: "",
+        assume_yes=False, ask=lambda prompt: "", now="2026-08-17T00:00:00+00:00",
     )
     assert pair == ("alpha/one", "beta/two")
     # a default containing an unseatable seat is DROPPED, not offered; with
@@ -174,8 +174,8 @@ def test_pick_pair_default_from_last_pair(tmp_path: Path) -> None:
     with pytest.raises(channel.ChannelError, match="default"):
         opening.pick_pair(
             reg, project=str(tmp_path), requested=None,
-            assume_yes=True, ask=_no_ask,
-        )
+            assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
+    )
 
 
 # --- open_debate ------------------------------------------------------------
@@ -373,20 +373,20 @@ def test_pick_pair_profile_restricts(tmp_path: Path, monkeypatch: pytest.MonkeyP
     with pytest.raises(channel.ChannelError, match=seats.PROFILE_NAME):
         opening.pick_pair(
             reg, project=str(tmp_path), requested=("gamma/three", "beta/two"),
-            assume_yes=True, ask=_no_ask,
-        )
+            assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
+    )
     # allowlisted pair passes
     pair = opening.pick_pair(
         reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
-        assume_yes=True, ask=_no_ask,
+        assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
     assert pair == ("alpha/one", "beta/two")
     # a last_pair default outside the allowlist is DROPPED (no default offered)
     reg.last_pair[str(tmp_path)] = ["gamma/three", "beta/two"]
     with pytest.raises(channel.ChannelError, match="default"):
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=None, assume_yes=True, ask=_no_ask,
-        )
+            reg, project=str(tmp_path), requested=None, assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
+    )
     # the interactive listing shows only allowlisted seats
     prompts: list[str] = []
 
@@ -394,7 +394,8 @@ def test_pick_pair_profile_restricts(tmp_path: Path, monkeypatch: pytest.MonkeyP
         prompts.append(prompt)
         return "alpha/one,beta/two"
 
-    opening.pick_pair(reg, project=str(tmp_path), requested=None, assume_yes=False, ask=capture)
+    opening.pick_pair(reg, project=str(tmp_path), requested=None, assume_yes=False, ask=capture, now="2026-08-17T00:00:00+00:00",
+    )
     assert "gamma/three" not in prompts[0]
 
 
@@ -489,3 +490,37 @@ def test_smoke_requires_confirmation(tmp_path: Path, monkeypatch: pytest.MonkeyP
         reg, "fake/one", scratch_base=tmp_path / "s", now="t", assume_yes=True
     )
     assert result == "fail"
+
+
+def test_stale_warning_cannot_be_bypassed_without_clock(tmp_path: Path) -> None:
+    """Round-3 salvaged codex finding: the clock is REQUIRED -- a caller
+    cannot silently skip the stale warning by omitting it."""
+    import inspect
+
+    sig = inspect.signature(opening.pick_pair)
+    assert sig.parameters["now"].default is inspect.Parameter.empty
+
+
+def test_discover_never_clobbers_manual_custom_effort_seat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round-3 salvaged codex finding: derived-refresh touches only seats
+    actually DERIVED from the old base argv; a manual custom command stays."""
+    monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(tmp_path / "r.json"))
+    wrapper = tmp_path / "claude"
+    wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
+    wrapper.chmod(0o755)
+    custom = tmp_path / "echo-agent"
+    custom.write_text("#!/bin/sh\n", encoding="utf-8")
+    custom.chmod(0o755)
+    reg = seats.Registry()
+    reg, _ = seats.discover(reg, which=lambda n: {"claude": str(wrapper)}.get(n), now="t1")
+    seats.add_seat(reg, "claude/opus@high", f"{custom} {{prompt}}")
+    moved = tmp_path / "elsewhere" / "claude"
+    moved.parent.mkdir()
+    moved.write_text("#!/bin/sh\n", encoding="utf-8")
+    moved.chmod(0o755)
+    reg, _ = seats.discover(reg, which=lambda n: {"claude": str(moved)}.get(n), now="t2")
+    assert reg.seats["claude/opus@high"].commands[0] == [str(custom), "{prompt}"], (
+        "a manual custom-command @effort seat is the operator's own"
+    )

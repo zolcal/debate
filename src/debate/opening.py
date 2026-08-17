@@ -113,8 +113,8 @@ def pick_pair(
     requested: tuple[str, str] | None,
     assume_yes: bool,
     ask: Callable[[str], str],
+    now: str,
     allow_identical: bool = False,
-    now: str | None = None,
 ) -> tuple[str, str]:
     """The owner picks; the previous pick is the one-Enter default. When the
     project carries a `debate-profile.json`, the picker is RESTRICTED to its
@@ -186,7 +186,7 @@ def pick_pair(
         state = None
         if seat.smoke is None:
             state = "unsmoked"
-        elif now is not None:
+        else:
             age = _days_between(seat.smoke.at, now)
             if age is not None and age > STALE_AFTER_DAYS:
                 state = f"stale (smoke pass {age:.0f}d old)"

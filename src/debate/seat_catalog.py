@@ -13,7 +13,13 @@ proven production invocation, never from memory (plan rule, "no guessing"):
   single-seat rule applies.
 - glm: the ``glm-agent`` wrapper env-pins glm-5.3 (verified 2026-08-15) --
   single-seat rule.
-- kimi: the kimi-code CLI selects its model alias via ``-m`` (aliases read
+- kimi: DECLARED DEVIATION from the plan's wrapper-first seed order, under
+  the Slice-1 correct-the-seeds mandate: the ``kimi-agent`` wrapper execs
+  ``kimi -p "$1"`` and forwards ONLY the prompt (verified 2026-08-15), so
+  it cannot carry the ``-m`` selection flag -- listing it ahead of the bare
+  CLI would break submodel selection and collapse the vendor to a single
+  pin. The bare, selectable CLI is seeded instead. The kimi-code CLI
+  selects its model alias via ``-m`` (aliases read
   from ``~/.kimi-code/config.toml`` 2026-08-16); thinking effort lives in
   that config's ``[thinking]`` table, NOT in argv -- so the entry records
   the config-level tier in ``known_efforts`` for DISPLAY while its

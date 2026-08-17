@@ -229,7 +229,8 @@ def discover(
                 if not existing.present:
                     diff.append(f"~ {seat_id} present again")
                 existing.present = True
-                base_changed = existing.commands[0] != argv
+                old_argv = list(existing.commands[0])
+                base_changed = old_argv != argv
                 existing.commands = [argv] + existing.commands[1:]
                 if base_changed:
                     for derived in registry.seats.values():
@@ -237,6 +238,10 @@ def discover(
                             derived.effort is not None
                             and derived.seat_id.split("@", 1)[0] == seat_id
                             and entry.effort_argv
+                            # Only a seat DERIVED from the old base argv is
+                            # re-derived; a manual custom command is the
+                            # operator's own and is never clobbered.
+                            and derived.commands[0][: len(old_argv)] == old_argv
                         ):
                             derived.commands[0] = argv + [
                                 part.replace("{effort}", derived.effort)
