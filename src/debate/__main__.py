@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from debate import channel
+from debate import channel, opening, seats
 from debate.controller import AdapterProfile, BrokerConfig, BrokerController, TimingPolicy, doctor_lines
 from debate.watcher import WatcherConfig, read_status, run_once, watch
 
@@ -70,7 +70,12 @@ def _seconds(raw: dict[str, Any], key: str, default: int, config_path: Path) -> 
         ) from error
 
 
-def _watcher_config(root: Path, config_path: Path, channel_name: str | None = None) -> WatcherConfig:
+def _watcher_config(
+    root: Path,
+    config_path: Path,
+    channel_name: str | None = None,
+    channel_config: channel.ChannelConfig | None = None,
+) -> WatcherConfig:
     """Load watcher.json, refusing in the CLI's own vocabulary.
 
     `main` converts `ChannelError` and NOTHING else, so every other exception
@@ -122,7 +127,11 @@ def _watcher_config(root: Path, config_path: Path, channel_name: str | None = No
             )
         commands[party] = list(argv)
 
-    channel_config = channel.load_config(root, channel_name)
+    # The round-6 gate seam: `open` supplies the in-memory record it will
+    # write verbatim after validation, because a freshly minted channel has
+    # no record on disk yet. Every other caller omits it and reads the disk.
+    if channel_config is None:
+        channel_config = channel.load_config(root, channel_name)
     broker: BrokerConfig | None = None
     adapter_raw = _mapping(raw, "adapters", config_path)
     if adapter_raw:
@@ -216,6 +225,75 @@ def main(argv: list[str] | None = None) -> int:
             metavar="ID",
             help="channel instance id; needed only when the root folder holds more than one channel",
         )
+
+    p_seats = sub.add_parser(
+        "seats",
+        help="the host seat registry: discover what this machine can seat",
+    )
+    seats_sub = p_seats.add_subparsers(dest="seats_command", required=True)
+    p_seats_discover = seats_sub.add_parser(
+        "discover", help="catalog x PATH scan merged into the registry; no model calls"
+    )
+    p_seats_discover.add_argument("--json", action="store_true", dest="as_json")
+    p_seats_list = seats_sub.add_parser("list", help="print the registry")
+    p_seats_list.add_argument("--json", action="store_true", dest="as_json")
+    p_seats_check = seats_sub.add_parser(
+        "check",
+        help="session-start freshness: exit 3 = real breakage only (missing binary, failed smoke)",
+    )
+    p_seats_check.add_argument("--json", action="store_true", dest="as_json")
+    p_seats_doctor = seats_sub.add_parser(
+        "doctor", help="re-validate everything; offers a smoke refresh per stale seat"
+    )
+    p_seats_doctor.add_argument("--json", action="store_true", dest="as_json")
+    p_seats_smoke = seats_sub.add_parser(
+        "smoke", help="scratch-channel round trip per named seat: ONE model call each, confirmed first"
+    )
+    p_seats_smoke.add_argument("seat_ids", nargs="+", metavar="SEAT")
+    p_seats_smoke.add_argument(
+        "--yes", action="store_true", dest="assume_yes",
+        help="auto-confirm the announced model spend",
+    )
+    p_seats_add = seats_sub.add_parser(
+        "add", help="manual seat, an appended endpoint option, or a SEAT@EFFORT derivation"
+    )
+    p_seats_add.add_argument("seat_id", metavar="SEAT")
+    p_seats_add.add_argument(
+        "--command",
+        dest="seats_add_command_text",
+        default=None,
+        help="seat argv, e.g. '/home/me/.local/bin/my-agent {prompt}'; omit for @EFFORT derivations",
+    )
+    p_seats_remove = seats_sub.add_parser("remove", help="remove a MANUAL seat")
+    p_seats_remove.add_argument("seat_id", metavar="SEAT")
+
+    p_open = sub.add_parser(
+        "open",
+        help="mint a debate: a fresh channel with its pair picked from the registry",
+    )
+    p_open.add_argument("--root", type=Path, default=Path("."))
+    p_open.add_argument("--label", required=True, help="the debate's subject slug")
+    p_open.add_argument(
+        "--pair",
+        default=None,
+        help="two comma-separated seat ids, e.g. codex/gpt-5.6-sol,glm/glm-5.3",
+    )
+    p_open.add_argument("--supervisor", default="owner")
+    p_open.add_argument("--cap", type=int, default=12, dest="thread_cap",
+                        help="maximum entries in one thread")
+    p_open.add_argument(
+        "--yes",
+        action="store_true",
+        dest="assume_yes",
+        help="non-interactive: accept the last-pair default; covers the unsmoked "
+        "warning, never the identity guard",
+    )
+    p_open.add_argument(
+        "--allow-identical-seats",
+        action="store_true",
+        help="seat the same vendor/submodel twice anyway (a monologue risk, "
+        "always an explicit choice)",
+    )
 
     p_init = sub.add_parser("init", help="create a channel directory")
     p_init.add_argument("--root", type=Path, default=Path("."))
@@ -398,11 +476,195 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         # One resolution, up front: which channel in --root is being addressed?
-        # None means the legacy layout; init is the one command that CREATES
-        # a channel and therefore never discovers one.
+        # None means the legacy layout; init CREATES a channel and never
+        # discovers one, and `seats` addresses the host registry, not a root.
         name: str | None = None
-        if args.command not in ("init", "migrate"):
+        if args.command not in ("init", "migrate", "seats", "open"):
             name = channel.discover_channel(args.root, getattr(args, "channel", None))
+
+        if args.command == "open":
+            registry = seats.load_registry()
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            pre_version = registry.tool_version
+            registry, upgrade_diff = seats.ensure_current(registry, now=now)
+            if upgrade_diff or registry.tool_version != pre_version:
+                seats.save_registry(registry)
+                for line in upgrade_diff:
+                    _flushing_print(f"upgrade re-scan: {line}")
+            report = seats.check(registry, now=now)
+            for line in report.fails + report.warns:
+                _flushing_print(line)
+            requested: tuple[str, str] | None = None
+            if args.pair is not None:
+                parts = tuple(part.strip() for part in args.pair.split(","))
+                if len(parts) != 2 or not all(parts):
+                    raise channel.ChannelError(
+                        f"refused: --pair needs exactly two seat ids, got {args.pair!r}"
+                    )
+                requested = (parts[0], parts[1])
+            pair = opening.pick_pair(
+                registry,
+                project=opening.project_key(args.root),
+                requested=requested,
+                assume_yes=args.assume_yes,
+                ask=input,
+                allow_identical=args.allow_identical_seats,
+                now=now,
+            )
+            from debate import __version__
+
+            result = opening.open_debate(
+                opening.OpenSpec(
+                    root=args.root,
+                    label=args.label,
+                    pair=pair,
+                    supervisor=args.supervisor,
+                    thread_cap=args.thread_cap,
+                    allow_identical_seats=args.allow_identical_seats,
+                    assume_yes=args.assume_yes,
+                ),
+                registry,
+                load_config_fn=_watcher_config,
+                now=now,
+                tool_version=__version__,
+            )
+            seats.save_registry(registry)
+            for line in result.hints:
+                _flushing_print(line)
+            return 0
+
+        if args.command == "seats":
+            registry = seats.load_registry()
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            if args.seats_command != "discover":
+                # The upgrade trigger: a tool-version mismatch re-scans first
+                # (scan only -- smoke is never automatic). On a --json surface
+                # the diagnostics go to stderr so stdout stays machine-readable.
+                # The stamp PERSISTS even when the re-scan changes nothing --
+                # an unpersisted stamp refires the re-scan forever (round-6
+                # gate finding).
+                pre_version = registry.tool_version
+                registry, upgrade_diff = seats.ensure_current(registry, now=now)
+                as_json = bool(getattr(args, "as_json", False))
+                if upgrade_diff or registry.tool_version != pre_version:
+                    seats.save_registry(registry)
+                    for line in upgrade_diff:
+                        if as_json:
+                            print(f"upgrade re-scan: {line}", file=sys.stderr, flush=True)
+                        else:
+                            _flushing_print(f"upgrade re-scan: {line}")
+            if args.seats_command in ("check", "doctor"):
+                report = seats.check(registry, now=now)
+                if args.as_json:
+                    _flushing_print(json.dumps({
+                        "fails": report.fails,
+                        "warns": report.warns,
+                        "infos": report.infos,
+                        "hint": "full re-discovery: debate seats discover",
+                    }, indent=2))
+                    return 3 if report.fails else 0
+                for line in report.fails + report.warns + report.infos:
+                    _flushing_print(line)
+                if args.seats_command == "doctor":
+                    stale = [line.split()[1].rstrip(":") for line in report.warns]
+                    for seat_id in stale:
+                        _flushing_print(f"refresh: debate seats smoke {seat_id}")
+                    if not (report.fails or report.warns or report.infos):
+                        _flushing_print("doctor: every seat resolves and smoke is fresh")
+                _flushing_print("full re-discovery: debate seats discover")
+                return 3 if report.fails else 0
+            if args.seats_command == "smoke":
+                for seat_id in args.seat_ids:
+                    if seat_id not in registry.seats:
+                        raise channel.ChannelError(
+                            f"refused: no seat {seat_id!r} in the registry"
+                        )
+                worst = 0
+                for seat_id in args.seat_ids:
+                    smoke_result = seats.smoke_seat(
+                        registry, seat_id, now=now, emit=_flushing_print,
+                        assume_yes=args.assume_yes,
+                    )
+                    seats.save_registry(registry)
+                    if smoke_result != "pass":
+                        worst = 1
+                return worst
+            if args.seats_command == "add":
+                if args.seats_add_command_text is not None:
+                    seats.add_seat(registry, args.seat_id, args.seats_add_command_text)
+                elif "@" in args.seat_id:
+                    seats.add_effort_seat(registry, args.seat_id)
+                else:
+                    raise channel.ChannelError(
+                        "refused: a plain seat id needs --command; only "
+                        "vendor/submodel@effort derives without one"
+                    )
+                seats.save_registry(registry)
+                _flushing_print(f"added {args.seat_id}")
+                return 0
+            if args.seats_command == "remove":
+                seats.remove_seat(registry, args.seat_id)
+                seats.save_registry(registry)
+                _flushing_print(f"removed {args.seat_id}")
+                return 0
+            if args.seats_command == "discover":
+                now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                registry, diff = seats.discover(registry, now=now)
+                seats.save_registry(registry)
+                if args.as_json:
+                    _flushing_print(json.dumps({
+                        "diff": diff,
+                        "seats": len(registry.seats),
+                        "registry": str(seats.registry_path()),
+                    }, indent=2))
+                    return 0
+                for line in diff:
+                    _flushing_print(line)
+                _flushing_print(
+                    f"registry: {len(registry.seats)} seat(s) at {seats.registry_path()}"
+                )
+                return 0
+            if args.seats_command == "list":
+                if args.as_json:
+                    payload = {}
+                    for seat_id, seat in sorted(registry.seats.items()):
+                        notes, known_efforts = seats.vendor_display(seat.vendor)
+                        payload[seat_id] = {
+                            "present": seat.present,
+                            "effort": seat.effort,
+                            "commands": seat.commands,
+                            "source": seat.source,
+                            "notes": notes,
+                            "known_efforts": list(known_efforts),
+                            "smoke": (
+                                {"at": seat.smoke.at, "result": seat.smoke.result}
+                                if seat.smoke is not None
+                                else None
+                            ),
+                        }
+                    _flushing_print(json.dumps(payload, indent=2))
+                    return 0
+                if not registry.seats:
+                    _flushing_print("registry empty; run: debate seats discover")
+                    return 0
+                for seat_id, seat in sorted(registry.seats.items()):
+                    smoke = (
+                        f"smoke {seat.smoke.result} at {seat.smoke.at}"
+                        if seat.smoke is not None
+                        else "never smoked"
+                    )
+                    presence = "present" if seat.present else "ABSENT"
+                    notes, known_efforts = seats.vendor_display(seat.vendor)
+                    efforts = (
+                        f"  efforts: {','.join(known_efforts)}" if known_efforts else ""
+                    )
+                    _flushing_print(
+                        f"{seat_id}  [{presence}]  {smoke}  "
+                        f"{' '.join(seat.commands[0])}{efforts}\n"
+                        f"    note: {notes}"
+                    )
+                return 0
+            raise channel.ChannelError(f"unknown seats command {args.seats_command!r}")
 
         if args.command == "init":
             parties = tuple(part.strip() for part in args.parties.split(",") if part.strip())

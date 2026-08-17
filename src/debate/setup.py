@@ -189,10 +189,11 @@ def validate(spec: SetupSpec) -> None:
         if ancestor.parent == ancestor:
             break
         ancestor = ancestor.parent
-    if not os.access(ancestor, os.W_OK):
+    if not ancestor.is_dir() or not os.access(ancestor, os.W_OK):
+        blocker = "not a directory" if not ancestor.is_dir() else "not writable"
         raise channel.ChannelError(
             f"refused: state directory {spec.state_path.parent} is not creatable "
-            f"({ancestor} is not writable)")
+            f"({ancestor} is {blocker})")
 
 
 def apply(spec: SetupSpec,
