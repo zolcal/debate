@@ -415,7 +415,7 @@ def test_open_refuses_existing_toplevel_config(
         channel, "generate_channel_id", lambda r, label=None: f"{label}-99999"
     )
     (tmp_path / "market-research-99999.watcher.json").write_text("{}", encoding="utf-8")
-    with pytest.raises(channel.ChannelError, match="already exists"):
+    with pytest.raises(channel.ChannelError, match="exists"):
         op.open_debate(spec, reg, load_config_fn=_watcher_config, now="t", tool_version="v")
     assert list(root.iterdir()) == [], "nothing written behind the refusal"
 

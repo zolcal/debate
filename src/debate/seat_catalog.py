@@ -15,8 +15,9 @@ proven production invocation, never from memory (plan rule, "no guessing"):
   single-seat rule.
 - kimi: the kimi-code CLI selects its model alias via ``-m`` (aliases read
   from ``~/.kimi-code/config.toml`` 2026-08-16); thinking effort lives in
-  that config's ``[thinking]`` table, NOT in argv, so ``known_efforts`` is
-  recorded with an empty ``effort_argv``.
+  that config's ``[thinking]`` table, NOT in argv -- so the entry records
+  the config-level tier in ``known_efforts`` for DISPLAY while its
+  ``effort_argv`` stays empty (config-level tiers are never derivable).
 - deepseek: the ``deepseek-flash-agent`` wrapper env-pins deepseek-v4-flash
   (verified 2026-08-16) -- single-seat rule.
 
@@ -56,7 +57,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         invocation=("{binary}", "-p", "{prompt}"),
         submodel_argv=("--model", "{submodel}"),
         effort_argv=("--effort", "{effort}"),
-        notes="flags from claude --help; opus/high proven by the 02750 brokered seat",
+        notes="--model/--effort flags read from claude --help 2026-08-16; the opus alias at high effort is production-proven by the 02750 brokered seat; other aliases and tiers are from the same help text",
     ),
     CatalogEntry(
         vendor="codex",

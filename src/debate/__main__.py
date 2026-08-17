@@ -231,18 +231,21 @@ def main(argv: list[str] | None = None) -> int:
         help="the host seat registry: discover what this machine can seat",
     )
     seats_sub = p_seats.add_subparsers(dest="seats_command", required=True)
-    seats_sub.add_parser(
+    p_seats_discover = seats_sub.add_parser(
         "discover", help="catalog x PATH scan merged into the registry; no model calls"
     )
+    p_seats_discover.add_argument("--json", action="store_true", dest="as_json")
     p_seats_list = seats_sub.add_parser("list", help="print the registry")
     p_seats_list.add_argument("--json", action="store_true", dest="as_json")
-    seats_sub.add_parser(
+    p_seats_check = seats_sub.add_parser(
         "check",
         help="session-start freshness: exit 3 = real breakage only (missing binary, failed smoke)",
     )
-    seats_sub.add_parser(
+    p_seats_check.add_argument("--json", action="store_true", dest="as_json")
+    p_seats_doctor = seats_sub.add_parser(
         "doctor", help="re-validate everything; offers a smoke refresh per stale seat"
     )
+    p_seats_doctor.add_argument("--json", action="store_true", dest="as_json")
     p_seats_smoke = seats_sub.add_parser(
         "smoke", help="scratch-channel round trip per named seat: ONE model call each, confirmed first"
     )
@@ -276,7 +279,8 @@ def main(argv: list[str] | None = None) -> int:
         help="two comma-separated seat ids, e.g. codex/gpt-5.6-sol,glm/glm-5.3",
     )
     p_open.add_argument("--supervisor", default="owner")
-    p_open.add_argument("--thread-cap", type=int, default=12)
+    p_open.add_argument("--cap", type=int, default=12, dest="thread_cap",
+                        help="maximum entries in one thread")
     p_open.add_argument(
         "--yes",
         action="store_true",
@@ -504,6 +508,7 @@ def main(argv: list[str] | None = None) -> int:
                 assume_yes=args.assume_yes,
                 ask=input,
                 allow_identical=args.allow_identical_seats,
+                now=now,
             )
             from debate import __version__
 
@@ -543,21 +548,25 @@ def main(argv: list[str] | None = None) -> int:
                             print(f"upgrade re-scan: {line}", file=sys.stderr, flush=True)
                         else:
                             _flushing_print(f"upgrade re-scan: {line}")
-            if args.seats_command == "check":
+            if args.seats_command in ("check", "doctor"):
                 report = seats.check(registry, now=now)
+                if args.as_json:
+                    _flushing_print(json.dumps({
+                        "fails": report.fails,
+                        "warns": report.warns,
+                        "infos": report.infos,
+                        "hint": "full re-discovery: debate seats discover",
+                    }, indent=2))
+                    return 3 if report.fails else 0
                 for line in report.fails + report.warns + report.infos:
                     _flushing_print(line)
+                if args.seats_command == "doctor":
+                    stale = [line.split()[1].rstrip(":") for line in report.warns]
+                    for seat_id in stale:
+                        _flushing_print(f"refresh: debate seats smoke {seat_id}")
+                    if not (report.fails or report.warns or report.infos):
+                        _flushing_print("doctor: every seat resolves and smoke is fresh")
                 _flushing_print("full re-discovery: debate seats discover")
-                return 3 if report.fails else 0
-            if args.seats_command == "doctor":
-                report = seats.check(registry, now=now)
-                for line in report.fails + report.warns + report.infos:
-                    _flushing_print(line)
-                stale = [line.split()[1].rstrip(":") for line in report.warns]
-                for seat_id in stale:
-                    _flushing_print(f"refresh: debate seats smoke {seat_id}")
-                if not (report.fails or report.warns or report.infos):
-                    _flushing_print("doctor: every seat resolves and smoke is fresh")
                 return 3 if report.fails else 0
             if args.seats_command == "smoke":
                 for seat_id in args.seat_ids:
@@ -597,6 +606,13 @@ def main(argv: list[str] | None = None) -> int:
                 now = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 registry, diff = seats.discover(registry, now=now)
                 seats.save_registry(registry)
+                if args.as_json:
+                    _flushing_print(json.dumps({
+                        "diff": diff,
+                        "seats": len(registry.seats),
+                        "registry": str(seats.registry_path()),
+                    }, indent=2))
+                    return 0
                 for line in diff:
                     _flushing_print(line)
                 _flushing_print(

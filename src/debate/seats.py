@@ -72,7 +72,7 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
     smoke_raw = raw.get("smoke")
     smoke = None
     if smoke_raw is not None:
-        if not isinstance(smoke_raw, dict) or not smoke_raw.get("at") or not smoke_raw.get("result"):
+        if not isinstance(smoke_raw, dict) or not smoke_raw.get("at") or smoke_raw.get("result") not in ("pass", "fail"):
             raise channel.ChannelError(f"refused: registry seat {seat_id!r} has a malformed smoke record")
         smoke = SmokeStatus(at=str(smoke_raw["at"]), result=str(smoke_raw["result"]))
     present_raw = raw.get("present", True)
@@ -96,15 +96,21 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
 
 def load_registry() -> Registry:
     path = registry_path()
+    if not path.exists():
+        return Registry()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-    except OSError:
-        return Registry()
-    except ValueError as error:
+    except (OSError, ValueError) as error:
         raise channel.ChannelError(f"refused: unreadable seat registry {path}: {error}") from error
     if not isinstance(raw, dict):
         raise channel.ChannelError(
             f"refused: seat registry {path} must be a JSON object, got {type(raw).__name__}"
+        )
+    version = raw.get("registry_version", REGISTRY_VERSION)
+    if version != REGISTRY_VERSION:
+        raise channel.ChannelError(
+            f"refused: seat registry {path} has registry_version {version!r}; "
+            f"this tool speaks {REGISTRY_VERSION}"
         )
     seats_raw = raw.get("seats", {})
     if not isinstance(seats_raw, dict):
@@ -183,9 +189,11 @@ def discover(
 ) -> tuple[Registry, list[str]]:
     """Catalog x PATH -> merged registry plus human-readable diff lines.
 
-    Seeds one seat per submodel ONLY for entries whose argv can select one
-    (the single-seat rule); marks vanished catalog seats absent, deletes
-    nothing, and never touches a manual entry.
+    A submodel-selectable entry seeds one seat per submodel; a pin-internal
+    entry (empty submodel_argv) seeds EXACTLY ONE seat named by its verified
+    pin -- the single-seat rule. Marks vanished catalog seats absent, deletes
+    nothing, never touches a manual entry, and refreshes the derived @effort
+    seats of any catalog seat whose argv it rewrites.
     """
     from . import __version__
 
@@ -221,7 +229,20 @@ def discover(
                 if not existing.present:
                     diff.append(f"~ {seat_id} present again")
                 existing.present = True
+                base_changed = existing.commands[0] != argv
                 existing.commands = [argv] + existing.commands[1:]
+                if base_changed:
+                    for derived in registry.seats.values():
+                        if (
+                            derived.effort is not None
+                            and derived.seat_id.split("@", 1)[0] == seat_id
+                            and entry.effort_argv
+                        ):
+                            derived.commands[0] = argv + [
+                                part.replace("{effort}", derived.effort)
+                                for part in entry.effort_argv
+                            ]
+                            diff.append(f"~ {derived.seat_id} re-derived from the new base argv")
     for seat in registry.seats.values():
         if seat.source == "catalog" and seat.seat_id not in seen_ids and seat.present:
             base = seat.seat_id.split("@", 1)[0]
@@ -251,6 +272,33 @@ class CheckReport:
     infos: list[str] = field(default_factory=list)
 
 
+def head_resolves(head: str, which: Callable[[str], str | None] = shutil.which) -> bool:
+    """The project's ONE definition of a resolvable seat command head
+    (setup.validate's, used by add, check, and the open pick path alike):
+    an ABSOLUTE head must itself be an executable file (a same-named binary
+    elsewhere on PATH must not mask a broken pin); any other head resolves
+    on PATH or as an existing executable file after ~ expansion. A 0644 file
+    is never a seat."""
+    if Path(head).is_absolute():
+        return Path(head).is_file() and os.access(head, os.X_OK)
+    if which(head) is not None:
+        return True
+    candidate = Path(head).expanduser()
+    return candidate.is_file() and os.access(candidate, os.X_OK)
+
+
+def slug(text: str) -> str:
+    """The channel slug rule applied to a name: [a-z0-9-] only, runs
+    collapsed, edges stripped."""
+    import re as _re
+
+    cleaned = _re.sub(r"[^a-z0-9-]+", "-", text.lower())
+    cleaned = _re.sub(r"-{2,}", "-", cleaned).strip("-")
+    if not cleaned:
+        raise channel.ChannelError(f"refused: {text!r} slugifies to nothing")
+    return cleaned
+
+
 def _days_between(earlier: str, later: str) -> float | None:
     from datetime import datetime
 
@@ -269,13 +317,13 @@ def check(
 ) -> CheckReport:
     report = CheckReport()
     for seat_id, seat in sorted(registry.seats.items()):
+        if not seat.present:
+            report.infos.append(
+                f"INFO {seat_id}: absent since discovery (run: debate seats discover)"
+            )
+            continue
         binary = seat.commands[0][0]
-        if Path(binary).is_absolute():
-            # A same-named binary elsewhere on PATH must not mask a broken pin.
-            resolvable = Path(binary).exists()
-        else:
-            resolvable = which(binary) is not None
-        if not resolvable:
+        if not head_resolves(binary, which):
             report.fails.append(f"FAIL {seat_id}: binary missing ({binary})")
             continue
         if seat.smoke is None:
@@ -332,8 +380,11 @@ def add_seat(
             "refused: a seat command needs an executable and a {prompt} placeholder"
         )
     head = argv[0]
-    if which(head) is None and not Path(head).exists():
-        raise channel.ChannelError(f"refused: seat command {head!r} does not resolve")
+    if not head_resolves(head, which):
+        raise channel.ChannelError(
+            f"refused: seat command {head!r} is neither on PATH nor an existing "
+            "executable file"
+        )
     for part in argv:
         if SECRET_PATTERN.search(part):
             raise channel.ChannelError(
@@ -449,7 +500,9 @@ def smoke_seat(
             )
     if scratch_base is not None:
         scratch_base.mkdir(parents=True, exist_ok=True)
-    party = seat.vendor if seat.vendor != "probe" else "seatprobe"
+    party = slug(seat.vendor)
+    if party == "probe":
+        party = "seatprobe"
     spec = SetupSpec(
         channel_root=Path("."),
         channel_name=f"smoke-{party}",

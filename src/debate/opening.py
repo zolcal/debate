@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,7 +19,7 @@ from typing import Callable, Protocol
 
 from . import channel
 from .seats import Registry, Seat
-from .setup import build_prompt, derive_paths, scaffold_protocol
+from .setup import SetupSpec, build_prompt, derive_paths, scaffold_protocol, validate
 
 _SLUG_KEEP = re.compile(r"[^a-z0-9-]+")
 
@@ -75,12 +74,10 @@ def _seatable(registry: Registry, seat_id: str) -> Seat:
             f"refused: seat {seat_id!r} is marked ABSENT (its binary vanished); "
             "run: debate seats discover"
         )
+    from .seats import head_resolves
+
     head = seat.commands[0][0]
-    if Path(head).is_absolute():
-        resolvable = Path(head).exists()
-    else:
-        resolvable = shutil.which(head) is not None
-    if not resolvable:
+    if not head_resolves(head):
         raise channel.ChannelError(
             f"refused: seat {seat_id!r} command {head!r} no longer resolves; "
             "run: debate seats discover"
@@ -117,6 +114,7 @@ def pick_pair(
     assume_yes: bool,
     ask: Callable[[str], str],
     allow_identical: bool = False,
+    now: str | None = None,
 ) -> tuple[str, str]:
     """The owner picks; the previous pick is the one-Enter default. When the
     project carries a `debate-profile.json`, the picker is RESTRICTED to its
@@ -148,9 +146,11 @@ def pick_pair(
                 )
             requested = usable
         else:
+            from .seats import head_resolves as _resolves
+
             listing = ", ".join(
                 sid for sid, seat in sorted(registry.seats.items())
-                if seat.present and allowed(sid)
+                if seat.present and allowed(sid) and _resolves(seat.commands[0][0])
             )
             prompt = f"seatable: {listing}\npick two seats (a,b)"
             prompt += f" [default: {usable[0]},{usable[1]}]: " if usable else ": "
@@ -175,24 +175,33 @@ def pick_pair(
             )
     first = _seatable(registry, requested[0])
     second = _seatable(registry, requested[1])
+    from .seats import STALE_AFTER_DAYS, _days_between
+
     for seat in (first, second):
-        if seat.smoke is None or seat.smoke.result != "pass":
-            state = "unsmoked" if seat.smoke is None else "smoke-failed"
-            if assume_yes and seat.smoke is None:
-                continue  # --yes covers the unsmoked warning, never identity
-            if seat.smoke is not None and seat.smoke.result != "pass":
-                raise channel.ChannelError(
-                    f"refused: seat {seat.seat_id!r} last smoke FAILED at "
-                    f"{seat.smoke.at}; fix the seat or re-smoke it first"
-                )
-            answer = ask(
-                f"seat {seat.seat_id!r} is {state} (smoke is opt-in; a pass "
-                "proves only the seat contract). Seat it anyway? [y/N]: "
-            ).strip().lower()
-            if answer not in ("y", "yes"):
-                raise channel.ChannelError(
-                    f"refused: {seat.seat_id!r} is unsmoked and was not confirmed"
-                )
+        if seat.smoke is not None and seat.smoke.result != "pass":
+            raise channel.ChannelError(
+                f"refused: seat {seat.seat_id!r} last smoke FAILED at "
+                f"{seat.smoke.at}; fix the seat or re-smoke it first"
+            )
+        state = None
+        if seat.smoke is None:
+            state = "unsmoked"
+        elif now is not None:
+            age = _days_between(seat.smoke.at, now)
+            if age is not None and age > STALE_AFTER_DAYS:
+                state = f"stale (smoke pass {age:.0f}d old)"
+        if state is None:
+            continue
+        if assume_yes:
+            continue  # --yes covers the unsmoked/stale warning, never identity
+        answer = ask(
+            f"seat {seat.seat_id!r} is {state} (smoke is opt-in; a pass "
+            "proves only the seat contract). Seat it anyway? [y/N]: "
+        ).strip().lower()
+        if answer not in ("y", "yes"):
+            raise channel.ChannelError(
+                f"refused: {seat.seat_id!r} is {state} and was not confirmed"
+            )
     _identity_guard(first, second, allow_identical=allow_identical)
     return requested
 
@@ -207,9 +216,17 @@ def open_debate(
 ) -> OpenResult:
     """Validate everything, then write, in order: channel scaffold,
     PROTOCOL.md (only if absent), watcher config, provenance block."""
-    from .seats import screen_credentials
+    from .seats import PROFILE_NAME, load_profile, screen_credentials
 
     screen_credentials(registry)
+    profile = load_profile(project_key(spec.root), registry)
+    if profile is not None:
+        for seat_id in spec.pair:
+            if seat_id not in profile.allowlist:
+                raise channel.ChannelError(
+                    f"refused: {seat_id!r} is outside this project's allowlist "
+                    f"({Path(project_key(spec.root)) / PROFILE_NAME})"
+                )
     first = _seatable(registry, spec.pair[0])
     second = _seatable(registry, spec.pair[1])
     _identity_guard(first, second, allow_identical=spec.allow_identical_seats)
@@ -227,18 +244,21 @@ def open_debate(
     name = channel.generate_channel_id(spec.root, label=spec.label)
     project = project_key(spec.root)
     config_path, state_path = derive_paths(spec.root, name, Path(project))
-    if config_path.exists():
-        raise channel.ChannelError(
-            f"refused: {config_path} already exists; a freshly minted id should "
-            "never collide at the project toplevel -- inspect the stale config "
-            "before anything is written"
+    validate(
+        SetupSpec(
+            channel_root=spec.root,
+            channel_name=name,
+            parties=parties,
+            commands={
+                parties[0]: list(first.commands[0]),
+                parties[1]: list(second.commands[0]),
+            },
+            config_path=config_path,
+            state_path=state_path,
+            thread_cap=spec.thread_cap,
+            supervisor=spec.supervisor,
         )
-    try:
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
-        raise channel.ChannelError(
-            f"refused: cannot create the state directory {state_path.parent}: {error}"
-        ) from error
+    )
 
     config = {
         "state_path": str(state_path),
@@ -277,6 +297,7 @@ def open_debate(
         name=name, managed_version=channel.MANAGED_VERSION,
     )
     scaffold_protocol(spec.root, spec.thread_cap)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
 
     record_path = spec.root / f"{name}.debate.json"

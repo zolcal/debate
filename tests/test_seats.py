@@ -401,3 +401,29 @@ def test_cli_seats_add_and_remove(
     assert "custom/one" in reg.seats
     assert main(["seats", "remove", "custom/one"]) == 0
     assert "custom/one" not in seats.load_registry().seats
+
+
+def test_discover_prefers_first_listed_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Slice 1: 'wrapper binary preferred over bare CLI when both resolve' --
+    binaries are probed in catalog order, first hit wins."""
+    from debate import seat_catalog
+
+    entry = seat_catalog.CatalogEntry(
+        vendor="dual", binaries=("dual-agent", "dual"), submodels=("one",),
+        known_efforts=(), invocation=("{binary}", "{prompt}"),
+        submodel_argv=(), effort_argv=(), notes="synthetic two-binary entry",
+    )
+    monkeypatch.setattr(seats, "CATALOG", (entry,))
+    _registry_env(tmp_path, monkeypatch)
+    wrapper = tmp_path / "dual-agent"
+    bare = tmp_path / "dual"
+    for tool in (wrapper, bare):
+        tool.write_text("#!/bin/sh\n", encoding="utf-8")
+        tool.chmod(0o755)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(
+        reg, which=_which_from({"dual-agent": str(wrapper), "dual": str(bare)}), now="t"
+    )
+    assert reg.seats["dual/one"].commands[0][0] == str(wrapper)
