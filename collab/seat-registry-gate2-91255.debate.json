@@ -1,0 +1,11 @@
+{
+  "parties": [
+    "codex",
+    "glm"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "seat-registry-gate2-91255",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 2
+}

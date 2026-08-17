@@ -2079,3 +2079,273 @@ Controller closed the managed case as PASS. Reason: party-vote-agreement. Superv
 Controller-Terminal:
 - terminal-result: PASS
 - close-reason: party-vote-agreement
+
+## MSG-82 | 2026-08-16T22:01:59+00:00 | from: owner | type: review-request | thread: branch-seat-registry | refs: feature/seat-registry@e1824767c9f104c9b3a9492c87183479930abf08
+
+REVIEW REQUEST - branch gate for feature/seat-registry@e182476 implementing the APPROVED seat-registry plan (MSG-33), slices 1-4. GOAL: faithful and safe implementation - nothing more. The export is the branch tree; the plan and criteria travel in branch-docket.md. Run the full suite literally; judge plan conformance and safety; exhaustive enumeration applies (R2); adversarial sealed, analytical deliberation. A DeepSeek R4 advisory pre-pass ran and its verified findings are already folded (commit five) - it carries no verdict weight here.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: af4c61202d538bb4e9211a12f3d8a1b604ba1b860da7b1a25f292540f5c9710c
+- source-ref: e1824767c9f104c9b3a9492c87183479930abf08
+- docket-revision-sha256: d28e61f3fa1b21640f53252f2c9a947d0aa957d54bc8019c5c90b473e374c690
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/seat-registry-gate-11434.debate.json", "sha256": "bbc32d644f323104d89808dffc09beb2fe1c3b0c34aad7a439720c7b3db90088", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-15-seat-registry-and-debate-open.md", "sha256": "427699664af12e94cf00beea2cb22783b96dc27d991e20b90bbc74f81db580c7", "tracked_at_source_ref": false}, {"path": "var/debate/seat-registry-gate-11434/branch-docket.md", "sha256": "d734f5cab031735a54c87fb01705a2478f24c228f9d8d264a2d2d7fead3eb18f", "tracked_at_source_ref": false}, {"path": "var/debate/seat-registry-gate-11434/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "94192286326efd384cc38d09e116c0b46696b84067dfbd8b1c6959eeaae21f2e", "kimi": "a1461f3c91d16dbb60da1e219c5694262b15cf93685f861935a22b377942b291"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "2f505b31255f2f43335f7feb149b4a0961a0d9e509ccc2b6a92fbedad91c487c", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 1200}, "kimi": {"authentication_mode": "Kimi Code subscription auth state in ~/.kimi-code exposed only to the local bridge; session store read only to verify the runtime model from the tool's own wire record", "author_relationship": "author-independent", "cli_version": "kimi-code 0.36.1", "command_sha256": "fe31f9458ac84f52ebde554fe406d97cc5a46dae06211b31dd24179de9a10892", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "k3", "isolation_mode": "advisory", "party": "kimi", "permission_policy": "read-only source export; prompt-mode tool auto-approval used for reads inside the export; result path written by the bridge, controller-owned; runtime model verified fail-closed from agents/main/wire.jsonl", "provider": "moonshot", "reasoning_effort": "cli-default-thinking", "requested_model": "k3", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 1200}}
+- source-manifest-sha256: {"codex": "1f112421c87ee82bb4b6f1641a78720ac0436471816b7a37d118beefdacd9071", "kimi": "f5321a0ec0abf3af163f1aa8ffdce2b08bff7fb501f8aa52b09252187862b5cd"}
+
+## MSG-83 | 2026-08-16T22:15:25+00:00 | from: codex | type: verdict | thread: branch-seat-registry | refs: -
+
+Blocking findings (exhaustive):
+
+1. `seats list --json` is not machine-readable after its required upgrade re-scan. I ran exactly:
+`python -c 'from debate import seats; from debate.__main__ import main; r=seats.Registry(tool_version="old"); seats.load_registry=lambda:r; seats.ensure_current=lambda reg, now:(reg,["+ catalog/re-scan"]); seats.save_registry=lambda reg: None; raise SystemExit(main(["seats","list","--json"]))'`
+Result:
+`upgrade re-scan: + catalog/re-scan`
+`{}`
+The diagnostic precedes JSON because `/home/zoltan/Projects/debate/var/debate/seat-registry-gate-11434/controller/exports/e1824767c9f104c9b3a9492c87183479930abf08/codex/src/debate/__main__.py:529-536` prints upgrade lines before the JSON branch at lines 591-608. This violates D1's machine-readable `--json` output.
+
+2. `open` can silently overwrite an existing watcher configuration and violates the required all-validation-before-write rule. The channel-id collision probe checks only `root` (`/home/zoltan/Projects/debate/var/debate/seat-registry-gate-11434/controller/exports/e1824767c9f104c9b3a9492c87183479930abf08/codex/src/debate/channel.py:323-326`), while `derive_paths` places the watcher config at the project toplevel (`src/debate/setup.py:122-124`). For a normal project `collab/` root, an existing project-level `<id>.watcher.json` is not considered. `open_debate` validates only a temporary probe, then creates the channel and unconditionally writes `config_path` (`src/debate/opening.py:250-269`), with no existence refusal. The analogous required check exists in `setup.validate` at `src/debate/setup.py:181-184` but is not invoked.
+
+3. The same omitted pre-write validation leaves partial channel artifacts if the derived state directory is not creatable: `open_debate` calls `channel.init_channel` and `scaffold_protocol` before `state_path.parent.mkdir` (`src/debate/opening.py:263-269`). The existing validator checks state-parent writability before writes (`src/debate/setup.py:185-195`), but `open` does not. This directly fails D4's requirement that all validation occur before the first target write.
+
+Required fresh suite command was run literally in the export root:
+`python -m pytest -q`
+Result: `454 passed, 1 skipped in 19.96s`. The passing suite does not negate the three established conformance/safety failures above.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: ebfdd67a652db833ad21b40e0e4fa667050356a1631e71d146ee9b76db976130
+- phase: sealed
+- captured-at: 2026-08-16T22:05:54+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: 94192286326efd384cc38d09e116c0b46696b84067dfbd8b1c6959eeaae21f2e
+- controller-config-sha256: af4c61202d538bb4e9211a12f3d8a1b604ba1b860da7b1a25f292540f5c9710c
+- source-ref: e1824767c9f104c9b3a9492c87183479930abf08
+- source-manifest-sha256: 1f112421c87ee82bb4b6f1641a78720ac0436471816b7a37d118beefdacd9071
+- docket-revision-sha256: d28e61f3fa1b21640f53252f2c9a947d0aa957d54bc8019c5c90b473e374c690
+- input-sha256: 5961c40aa0bd22f862026ff1e587ea7bc0148cc149307b2b5b0b6fad7e51edd1
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-84 | 2026-08-16T22:15:25+00:00 | from: kimi | type: verdict | thread: branch-seat-registry | refs: -
+
+Sealed adversarial pass over export e1824767c9f104c9b3a9492c87183479930abf08 (root .../exports/e1824767c9f104c9b3a9492c87183479930abf08/kimi). Docket integrity verified first: sha256sum over all five docket files matched the pinned hashes verbatim. Criterion 1 (command): ran literally `python -m pytest -q` in the export root -> `454 passed, 1 skipped in 19.43s`; re-run with `-rs` shows the skip is `tests/test_verify_record.py:331` (timing-dependent race window), not a failure. Criterion 1 holds. Criterion 2 (plan conformance) FAILS on three independently established blockers; per R2 this is the exhaustive list I could establish in this pass.
+
+BLOCKER 1 — `seats list` drops the plan-mandated notes/known_efforts display (Slice 1 + D1 honesty mechanism + D3 surface). The approved plan requires list to render "the notes line naming where a wrapper pin lives" (Slice 1 CLI step), states "per-vendor known_efforts shown" (D3 command surface), and makes the display load-bearing for the wrapper-pin drift limit ("`notes` names where the real pin lives, `seats list` displays it", D1). The implementation (`src/debate/__main__.py:591-623`) prints only id/present/smoke/commands[0]; the --json payload has present/effort/commands/source/smoke — no notes, no known_efforts in either form. Live proof: with a fake `glm-agent` on PATH and DEBATE_SEATS_REGISTRY pointed at scratch, `python -m debate seats discover` then `python -m debate seats list` printed only `glm/glm-5.3 [present] never smoked <path> {prompt}` — the catalog note "wrapper env-pins ANTHROPIC_MODEL=glm-5.3" appears nowhere; `--json` likewise omits it. The catalog docstring's own claim ("surfaced by `seats list`") contradicts the shipped behavior.
+
+BLOCKER 2 — `seats smoke` spends model calls with no confirmation and no `--yes` (Slice 2 step + D3 + the announced-and-confirmed non-goal). The plan requires "announces the per-seat cost and requires confirmation (auto-yes under --yes)" (Slice 2) and "cost announced, then confirmed" (D3). The implementation has no confirmation anywhere: `smoke_seat` (`src/debate/seats.py:421-456`) takes no `ask`, and the CLI path (`__main__.py:553-562`) invokes it directly. Live proof: `python -m debate seats smoke --help` shows usage `debate seats smoke [-h] SEAT [SEAT ...]` — no `--yes` flag exists, so the plan's "auto-yes under --yes" behavior is unimplementable as shipped. Cost IS announced (setup.smoke emits "about to spend ONE model call") but the confirmation half of the owner ruling-1 safeguard is missing: one command spends N model calls unprompted.
+
+BLOCKER 3 — `open` never runs `setup.validate`, and the loss is not theoretical: a pre-write check the plan ordered is missing, so `open` writes the channel scaffold and THEN crashes (D4 step 5 / Slice 3 / folds H2 + round-6). The plan states `open` "runs `setup.validate` plus the seamed loader round-trip FIRST, and only then writes" and Slice 3 says to compose "validate and the loader round-trip, NEVER setup.apply". `src/debate/opening.py` (`open_debate`, lines 200-303) contains no `validate` call — only the seamed `_watcher_config` round-trip. Two of validate's checks (`src/debate/setup.py:181-195`) have no equivalent: the config-overwrite refusal (the watcher config lands at the project TOPLEVEL via `derive_paths`, `setup.py:122-123`, while `generate_channel_id`'s collision guard, `channel.py:325`, only globs the channel root — a stale/sibling `<name>.watcher.json` at the toplevel is silently clobbered) and the state-dir-creatable pre-check. Live proof of the resulting failure shape: with `$HOME/.local/state` made a plain file and a fixture registry (two smoked manual seats), `python -m debate open --root $SCRATCH/collab --label probe --pair alpha/one,beta/two --yes` died with a raw `NotADirectoryError` traceback (exit 1, no `refused:`) at `opening.py:268` — AFTER `probe-12257.debate.json`, `probe-12257.channel.md`, `probe-12257.signal.json` and `PROTOCOL.md` were already written in the target root (verified by `ls`). That is a written channel behind a failed validation — the exact outcome the round-6 fold and the docket's "ALL validation before the first target write" criterion exist to prevent.
+
+What I probed and could NOT break (verified conformant): the single-seat rule is statically enforced (`test_catalog_single_seat_rule`; catalog ships only verified strings, grok's omission documented in the module docstring); registry merge-never-clobber, credential screening on every write path, and first-listed selection hold; `seats check` exits 3 only on missing binary / failed smoke with never-smoked INFO and stale WARN at exit 0 (code `seats.py:264-294`, `__main__.py:537-542`, plus H1 tests); the upgrade trigger re-scans scan-only and is wired into every seats/open entry point; `seats`/`open` join init/migrate in the dispatch no-discovery set (`__main__.py:474`, exercised from a multi-channel CWD in tests); pick_pair keys last_pair by `_derived_project`, drops unseatable/non-allowlisted defaults, `--yes` covers only the unsmoked warning, the identity guard ignores effort and is never covered by `--yes`, identical selected argv refuses always, shared-vendor party names slugify dot-free (`opening.py:58-66,91-197`, tests green); the `channel_config` seam is default-compatible (`__main__.py:130-134` skips only the disk read; full pre-existing suite untouched and green); `setup.apply` is never called and the defaults cache is byte-untouched (test_open.py:281); the provenance block records seat/effort(null)/exact command/smoke_at; the profile loader is fail-closed with offender named (malformed/version/unknown-id/empty all covered by tests); criterion 3 (no shipped behavior change) held on every probe I ran.
+
+Verdict bar applied: criterion 1 passes, criterion 2 fails on Blockers 1-3, so the branch cannot PASS in this pass.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: ebfdd67a652db833ad21b40e0e4fa667050356a1631e71d146ee9b76db976130
+- phase: sealed
+- captured-at: 2026-08-16T22:15:25+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: a1461f3c91d16dbb60da1e219c5694262b15cf93685f861935a22b377942b291
+- controller-config-sha256: af4c61202d538bb4e9211a12f3d8a1b604ba1b860da7b1a25f292540f5c9710c
+- source-ref: e1824767c9f104c9b3a9492c87183479930abf08
+- source-manifest-sha256: f5321a0ec0abf3af163f1aa8ffdce2b08bff7fb501f8aa52b09252187862b5cd
+- docket-revision-sha256: d28e61f3fa1b21640f53252f2c9a947d0aa957d54bc8019c5c90b473e374c690
+- input-sha256: c3b4f170828ddfad5dd404c8d32ec7dff0cd05d03dfd5913824b78ddbfffcdcd
+- requested-model: k3
+- runtime-model: k3
+- reasoning-effort: cli-default-thinking
+- cli-version: kimi-code 0.36.1
+- isolation-mode: advisory
+
+## MSG-85 | 2026-08-16T22:15:25+00:00 | from: owner | type: close | thread: branch-seat-registry | refs: -
+
+Controller closed the managed case as NO_PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: NO_PASS
+- close-reason: party-vote-agreement
+
+## MSG-86 | 2026-08-17T04:09:37+00:00 | from: owner | type: review-request | thread: branch-seat-registry-2 | refs: feature/seat-registry@99f5e3b41695244e3c798c19b9878b4279c4ba8c
+
+REVIEW REQUEST - branch gate round 2 (fold-delta) for feature/seat-registry@99f5e3b. GOAL: verify the six round-1 folds (codex MSG-83, kimi MSG-84) resolve their findings and the standing criteria hold. The true change set is materialized in the docket as branch-fold-r2.diff; criteria that passed in round 1 stand unless implicated - cite MSG-83/84 for what stands. Run the full suite literally. Exhaustive enumeration applies.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 34f58d7e1e08848b8e41e4d31389cccfd5bf3c8d2b1e5a7e114bb70f08e01a09
+- source-ref: 99f5e3b41695244e3c798c19b9878b4279c4ba8c
+- docket-revision-sha256: de4f212bcaca66c1e56d02de86e0fc4c6d4d94d8e32e705bfa0e7ee6bdbfb8b9
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/seat-registry-gate-11434.debate.json", "sha256": "bbc32d644f323104d89808dffc09beb2fe1c3b0c34aad7a439720c7b3db90088", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-15-seat-registry-and-debate-open.md", "sha256": "427699664af12e94cf00beea2cb22783b96dc27d991e20b90bbc74f81db580c7", "tracked_at_source_ref": false}, {"path": "var/debate/seat-registry-gate-11434/branch-docket.md", "sha256": "948030626c0ce978f5da675cac8f113b4a83f8e6fe9b0344ac7f2f5d2ae3bdc9", "tracked_at_source_ref": false}, {"path": "var/debate/seat-registry-gate-11434/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/seat-registry-gate-11434/branch-fold-r2.diff", "sha256": "8e0383386cdf18a209e6835954738eb11d62db570ae535b88c17515fe6534f05", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "94192286326efd384cc38d09e116c0b46696b84067dfbd8b1c6959eeaae21f2e", "kimi": "a1461f3c91d16dbb60da1e219c5694262b15cf93685f861935a22b377942b291"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "2f505b31255f2f43335f7feb149b4a0961a0d9e509ccc2b6a92fbedad91c487c", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 1200}, "kimi": {"authentication_mode": "Kimi Code subscription auth state in ~/.kimi-code exposed only to the local bridge; session store read only to verify the runtime model from the tool's own wire record", "author_relationship": "author-independent", "cli_version": "kimi-code 0.36.1", "command_sha256": "fe31f9458ac84f52ebde554fe406d97cc5a46dae06211b31dd24179de9a10892", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "k3", "isolation_mode": "advisory", "party": "kimi", "permission_policy": "read-only source export; prompt-mode tool auto-approval used for reads inside the export; result path written by the bridge, controller-owned; runtime model verified fail-closed from agents/main/wire.jsonl", "provider": "moonshot", "reasoning_effort": "cli-default-thinking", "requested_model": "k3", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 1200}}
+- source-manifest-sha256: {"codex": "6fb1418d599d8afe02ddb32ab82bec7b29ce9456c4895102878c2ad93ea42431", "kimi": "7e0244a6cfcfe750a4705db2635576c49ac307845da806a2737d8197596f36b5"}
+
+## MSG-87 | 2026-08-17T04:23:48+00:00 | from: codex | type: verdict | thread: branch-seat-registry-2 | refs: -
+
+NO_PASS. Fresh required run: `python -m pytest -q` => `459 passed, 1 skipped in 19.82s`, but conformance/safety failures remain.
+
+- The approved command surface at `/home/zoltan/Projects/debate/var/debate/seat-registry-gate-11434/controller/dockets/de4f212bcaca66c1e56d02de86e0fc4c6d4d94d8e32e705bfa0e7ee6bdbfb8b9/files/docs/plans/2026-08-15-seat-registry-and-debate-open.md:322-330` requires `--json` for discover/check/doctor; `--cap` is also promised for `open`. Fresh commands `python -m debate seats discover --json`, `... check --json`, and `... doctor --json` each returned `error: unrecognized arguments: --json` with exit 2; `python -m debate open --label audit --cap 12` returned `error: unrecognized arguments: --cap 12`, exit 2. Parser evidence is `/home/zoltan/Projects/debate/var/debate/seat-registry-gate-11434/controller/exports/99f5e3b41695244e3c798c19b9878b4279c4ba8c/codex/src/debate/__main__.py:234-245`.
+
+- Stale passed smoke is seated without the required explicit warning/confirmation. A fresh `opening.pick_pair` probe with a 2026-06-01 passing smoke and `assume_yes=False` printed `pair=('alpha/one', 'beta/two')` and `confirmation_prompts=0`. This contradicts plan D4's warn-and-confirm rule at the materialized plan:369-376; `/src/debate/opening.py:178-196` only handles absent/failed smoke, not staleness.
+
+- Command resolvability is unsafely weakened. A fresh probe created a mode-0644 file and called `seats.add_seat`; output was `added=['probe/nonexec']`, `mode=0o644`, `fails=[]`, and only `INFO ... never smoked`. Thus manual add is not which/executable-validated and `check` does not report the broken command, contrary to D2/D3. The faulty existence-only checks are `/src/debate/seats.py:334-336` and :272-279. A separate fresh `open_debate` probe then accepted that same 0644 command and printed `opened=nonexec-16121` and `watcher_config_exists=True`; `open` never calls the required `setup.validate`.
+
+- `open` writes the state directory before loader validation, violating D4's all-validation-before-first-write requirement. A fresh local probe with a deliberately refusing loader printed `refused: deliberately failing loader`, `root_exists=False`, and `state_parent_exists=True`. The early write is `/src/debate/opening.py:236-241`, before the loader round-trip at :265-269.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 2b3d4365594aabf6abcbf8db04d94b060487a5d22fbbc85bd1c5ab19e2946c44
+- phase: sealed
+- captured-at: 2026-08-17T04:23:48+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: 94192286326efd384cc38d09e116c0b46696b84067dfbd8b1c6959eeaae21f2e
+- controller-config-sha256: 34f58d7e1e08848b8e41e4d31389cccfd5bf3c8d2b1e5a7e114bb70f08e01a09
+- source-ref: 99f5e3b41695244e3c798c19b9878b4279c4ba8c
+- source-manifest-sha256: 6fb1418d599d8afe02ddb32ab82bec7b29ce9456c4895102878c2ad93ea42431
+- docket-revision-sha256: de4f212bcaca66c1e56d02de86e0fc4c6d4d94d8e32e705bfa0e7ee6bdbfb8b9
+- input-sha256: 20d5e79454bf159ed3245239f09e0798f08a45fcf3c4625f82ef4bd21836c370
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.146.1
+- isolation-mode: advisory
+
+## MSG-88 | 2026-08-17T04:23:48+00:00 | from: kimi | type: verdict | thread: branch-seat-registry-2 | refs: -
+
+ADVERSARIAL PASS. Command (run literally in the export root /home/zoltan/Projects/debate/var/debate/seat-registry-gate-11434/controller/exports/99f5e3b41695244e3c798c19b9878b4279c4ba8c/kimi): `python -m pytest -q` -> "459 passed, 1 skipped in 19.35s". The full suite is green, including the round-1 regression tests added by branch-fold-r2.diff and the untouched pre-existing suite (seam default path byte-compatible).
+
+Each of the six round-1 findings was probed by trying to break it; every attempt failed:
+
+(1) seats list --json machine-readable after upgrade re-scan — __main__.py:538-545 routes upgrade diagnostics to stderr when as_json. LIVE PROBE: set registry tool_version=0.0.1 AND deleted glm/glm-5.3 to force a nonempty diff, then `python -m debate seats list --json >out.json 2>err.txt` -> exit 0, out.json parsed by json.load (glm re-added), err.txt contained exactly the `upgrade re-scan: + glm/glm-5.3 ...` line. Break attempt failed.
+
+(2) open refuses an existing toplevel watcher config pre-write — opening.py:230-235 raises ChannelError before any write; test_open_refuses_existing_toplevel_config forces the collision and asserts the root is byte-empty. Verified in the tree and in the passing suite.
+
+(3) state-directory pre-check before the first target write — opening.py:236-241 attempts state_path.parent.mkdir inside try/except OSError -> ChannelError, ordered BEFORE init_channel/scaffold_protocol/config writes (opening.py:275-280); test_open_refuses_uncreatable_state_dir_before_any_write proves the refusal leaves the root empty. The round-1 live-proved partial-channel shape (PROTOCOL written, then mkdir failure) is structurally gone.
+
+(4) seats list renders notes + per-vendor known_efforts, text and json — seats.vendor_display (seats.py:486-492) feeds both surfaces (__main__.py:610-617 json, 636-644 text). LIVE PROBE: text surface shows `efforts: low,medium,high` and `note: flags from claude --help; ...`; json payload carries notes and known_efforts per seat; manual/unknown vendors degrade to an honest note + empty efforts.
+
+(5) smoke announces AND CONFIRMS each spend, --yes auto-confirms, unknown ids refuse pre-spend — smoke_seat (seats.py:441-449) prompts `this spends ONE model call ... Proceed? [y/N]` and refuses unless y/yes or assume_yes; under --yes setup.smoke still emits `about to spend ONE model call` before the spend (setup.py:317), so the announcement is never skipped; CLI pre-validates ALL ids before any spend (__main__.py:563-567). LIVE PROBE: `seats smoke fake/one ghost/seat --yes` -> `refused: no seat 'ghost/seat' in the registry`, exit 1, zero spend. Second probe piped `y\nn\n` to `seats smoke fake/one fake/two`: first seat announced, confirmed, spent, recorded; second refused `not confirmed`.
+
+(6) smoke loop no longer loses earlier results — save_registry moved inside the per-seat loop (__main__.py:574). LIVE PROBE (same run as above): after the mid-loop refusal, the on-disk registry held fake/one smoke={at:..., result:'fail'} and fake/two smoke=None — the earlier result survived the later refusal.
+
+Reverse direction: all six round-1 findings enumerated in the docket map to a fold in branch-fold-r2.diff; no finding lacks a fold, and the diff's post-image matches the export tree in every hunk I read (__main__.py, opening.py, seats.py, test_open.py, test_seats.py).
+
+Plan conformance beyond the folds (round-1 MSG-83/84 criteria stand; the diff does not implicate them, and my sweep found no contradiction): single-seat rule and statically-enforced catalog (seat_catalog.py untouched by the diff), merge-never-clobber discovery, credential-screened writes (opening.py:212 + save_registry), check H1 exit semantics (__main__.py:546-551), dispatch no-discovery set includes seats and open (__main__.py:478), pick_pair last-pair keyed by _derived_project with unseatable/non-allowlisted defaults dropped, identity guard never covered by --yes (opening.py:91-109, 196; --yes covers only the unsmoked warning, opening.py:181-182), shared-vendor slugification (opening.py:217-225), channel_config seam on _watcher_config (__main__.py:130-134), provenance block with seat/effort(null included)/command verbatim/smoke_at — confirmed LIVE: `debate open --root <scratch> --label probe --pair fakea/one,fakeb/two --yes` -> exit 0, .debate.json carried the exact D4-step-5 block, last_pair updated under both the project key and "".
+
+Safety (criterion 3): the fold touches only seats/open code paths, two help strings, and additive default-compatible parameters (assume_yes/ask on smoke_seat, vendor_display is new); channel.py, watcher.py, setup.py, controller.py and broker law are untouched by the diff, and the green full suite includes the pre-existing watcher/controller tests.
+
+No blocking findings establishable in this pass.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 2b3d4365594aabf6abcbf8db04d94b060487a5d22fbbc85bd1c5ab19e2946c44
+- phase: sealed
+- captured-at: 2026-08-17T04:17:31+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: a1461f3c91d16dbb60da1e219c5694262b15cf93685f861935a22b377942b291
+- controller-config-sha256: 34f58d7e1e08848b8e41e4d31389cccfd5bf3c8d2b1e5a7e114bb70f08e01a09
+- source-ref: 99f5e3b41695244e3c798c19b9878b4279c4ba8c
+- source-manifest-sha256: 7e0244a6cfcfe750a4705db2635576c49ac307845da806a2737d8197596f36b5
+- docket-revision-sha256: de4f212bcaca66c1e56d02de86e0fc4c6d4d94d8e32e705bfa0e7ee6bdbfb8b9
+- input-sha256: e4bb05f1cdc5e4c319b4f38e5a942a5fe55a8927d12a91eadf4e21f1f344a222
+- requested-model: k3
+- runtime-model: k3
+- reasoning-effort: cli-default-thinking
+- cli-version: kimi-code 0.36.1
+- isolation-mode: advisory
+
+## MSG-89 | 2026-08-17T04:32:50+00:00 | from: kimi | type: verdict | thread: branch-seat-registry-2 | refs: -
+
+NO_PASS. Fresh required run (literal, in the export root /home/zoltan/Projects/debate/var/debate/seat-registry-gate-11434/controller/exports/99f5e3b41695244e3c798c19b9878b4279c4ba8c/kimi): `python -m pytest -q` => `459 passed, 1 skipped in 18.71s`. The suite is green, but I independently re-verified all four of codex's MSG-87 findings against fresh evidence and ADOPT all four; my sealed PASS (MSG-88) is retracted.
+
+ADOPTED BLOCKING FINDINGS (each re-probed fresh in this pass, export tree + docket plan):
+
+1. Approved command surface not implemented. Plan D3 (docket plan docs/plans/2026-08-15-seat-registry-and-debate-open.md:322-338) approves `seats discover [--json]`, `seats doctor [--json]`, `seats check [--json]`, and `open ... [--cap N]`. Fresh literal runs: `python -m debate seats discover --json`, `... check --json`, `... doctor --json` each printed `debate: error: unrecognized arguments: --json` (exit 2); `python -m debate open --label audit --cap 12` printed `error: unrecognized arguments: --cap 12`. Parser evidence in the kimi export: src/debate/__main__.py:234-245 (discover/check/doctor registered with no --json; only `list` gets it at :237-238) and :267-292 (open has --thread-cap, no --cap). Judgment call, stated: I treat the D3 surface block as normative because docket criterion 2 says the branch must implement what the gate approved, and these flags are the machine-readable contract downstream tooling would call.
+
+2. Stale-pass smoke seats with NO warning. Plan D4 step 1 (plan:369-377): `Unsmoked/stale seats seat only past an explicit warning.` Fresh probe (in-memory Registry, both seats smoke={at: 2026-06-01, result: pass}, i.e. >30 days stale per STALE_AFTER_DAYS=30, seats.py:238): `pick_pair(..., requested=('alpha/one','beta/two'), assume_yes=False, ask=recording)` returned `pair= ('alpha/one', 'beta/two')` with `confirmation_prompts= 0`. opening.py:178-195 handles only smoke None (unsmoked) and result != pass (failed); no age check exists anywhere in the pick path. Judgment call: none needed — the plan text names `stale` explicitly.
+
+3. Command resolvability weakened below the plan's own definition. Fresh probe: created a mode-0644 file and ran `add_seat(reg, 'probe/nonexec', '<path> {prompt}')` => `added= ['probe/nonexec']`, `mode= 0o644`; then `check(reg, now='2026-08-17T00:00:00+00:00')` => `fails= []`, `warns= []`, only `INFO probe/nonexec: never smoked`. seats.py:335 (`which(head) is None and not Path(head).exists()`) and :273-277 (existence-only for absolute paths) accept/report-as-fine a file that cannot be executed, while the project's own definition of resolvable — setup.validate, setup.py:173-180 — requires `is_file() and os.access(X_OK)`. Compounding it: plan D4 step 5 (plan:418-419) requires `open` to run `setup.validate` plus the seamed loader round-trip first, but a grep of src/debate shows `validate(` is called only inside `setup.apply` (setup.py:205), which open deliberately never calls (fold H2) — so the executability/secret/party validation layer never runs on the open path at all; opening.py's `_seatable` (:78-87) repeats the same existence-only test. Codex's live `open_debate` acceptance of a 0644 command follows directly.
+
+4. Write before validation completes. Plan D4 header (plan:366-367): `nothing written before step 5`; step 5 (plan:406-423): ALL validation BEFORE the first write, and the discipline the plan imports (setup.py:185-186, citing gate finding MSG-33) is `validation writes nothing, not even a directory`. opening.py:236-241 runs `state_path.parent.mkdir(parents=True, exist_ok=True)` BEFORE the loader round-trip at :265-269. Fresh probe: deleted `$HOME/.local/state/debate`, ran `open_debate(...)` with a deliberately refusing loader => `refused: deliberately failing loader`, `state_parent_before= False` -> `state_parent_after_refusal= True`, channel root left empty. A refused open leaves a filesystem side effect.
+
+RE-VERIFICATION OF MY OWN SEALED CLAIMS (MSG-88): folds 1, 2, 4, 5, 6 are uncontradicted by this pass's evidence and my spot re-reads of __main__.py/opening.py/seats.py remain consistent with them — they stand. Fold-3 claim is PARTIALLY RETRACTED: I sealed that the state-directory pre-check makes a refusal leave the tree byte-empty; that is true only of the channel root — the state-parent mkdir is itself a pre-validation write (finding 4), so fold 3 does not satisfy D4's all-validation-before-first-write rule as I claimed. The reverse-direction check (every round-1 finding has a fold in branch-fold-r2.diff) is also unchanged, but it does not cover these four conformance failures, which sit outside the six round-1 findings.
+
+Docket criteria that passed in round 1 and are not implicated by the diff still stand per MSG-83/84, but criteria 2 (plan conformance, D3 surface + D4 steps 1 and 5) fails on findings 1-4 above. Exhaustive enumeration: these are all the blocking findings I can establish in this pass.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Provenance:
+- phase: deliberation
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: a1461f3c91d16dbb60da1e219c5694262b15cf93685f861935a22b377942b291
+- controller-config-sha256: 34f58d7e1e08848b8e41e4d31389cccfd5bf3c8d2b1e5a7e114bb70f08e01a09
+- source-ref: 99f5e3b41695244e3c798c19b9878b4279c4ba8c
+- source-manifest-sha256: 7e0244a6cfcfe750a4705db2635576c49ac307845da806a2737d8197596f36b5
+- docket-revision-sha256: de4f212bcaca66c1e56d02de86e0fc4c6d4d94d8e32e705bfa0e7ee6bdbfb8b9
+- input-sha256: 051df1bfd5f523189033b5a71c6dc1c252a01e5fc6d45daba0905d032048061f
+- requested-model: k3
+- runtime-model: k3
+- reasoning-effort: cli-default-thinking
+- cli-version: kimi-code 0.36.1
+- isolation-mode: advisory
+
+## MSG-90 | 2026-08-17T04:32:50+00:00 | from: owner | type: close | thread: branch-seat-registry-2 | refs: -
+
+Controller closed the managed case as NO_PASS. Reason: party-vote-agreement. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: NO_PASS
+- close-reason: party-vote-agreement
+
+## MSG-91 | 2026-08-17T16:39:56+00:00 | from: owner | type: review-request | thread: branch-seat-registry-3 | refs: feature/seat-registry@a38e4819b3a84a13e366b3866235a8c4b5e6f437
+
+REVIEW REQUEST - branch gate round 3 (fold-delta) for feature/seat-registry@a38e481. GOAL: verify the declared change set (round-2 folds MSG-87/90 + verified tree-advisory folds + conformance sweep) resolves every round-2 finding and the standing criteria hold. True change set materialized as branch-fold-r3.diff; cite MSG-83/84/87/90 for what stands. Run the full suite literally. Exhaustive enumeration applies.
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 6e1e1c429113218a2038be2e93d0ebec3bb9561b73bdc058ab18085ebb91821d
+- source-ref: a38e4819b3a84a13e366b3866235a8c4b5e6f437
+- docket-revision-sha256: a061ef79459212f3efeef7815a32b9ae8f97770371236e3668f1de09e54079c1
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "1c463546c33c98648e3225ac5107a01bdece1cf04c46e001aca120188d9e665e", "tracked_at_source_ref": true}, {"path": "collab/seat-registry-gate-11434.debate.json", "sha256": "bbc32d644f323104d89808dffc09beb2fe1c3b0c34aad7a439720c7b3db90088", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-15-seat-registry-and-debate-open.md", "sha256": "427699664af12e94cf00beea2cb22783b96dc27d991e20b90bbc74f81db580c7", "tracked_at_source_ref": false}, {"path": "var/debate/seat-registry-gate-11434/branch-docket.md", "sha256": "91ba88d071213fa193797c29d8e06c2aa4b95e4975de8821073f682bc59481df", "tracked_at_source_ref": false}, {"path": "var/debate/seat-registry-gate-11434/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/seat-registry-gate-11434/branch-fold-r3.diff", "sha256": "2804004f2826b5c232e58eff02005f990568b91da0e973f4256272e7dfd835ab", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "94192286326efd384cc38d09e116c0b46696b84067dfbd8b1c6959eeaae21f2e", "kimi": "a1461f3c91d16dbb60da1e219c5694262b15cf93685f861935a22b377942b291"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.146.1", "command_sha256": "2f505b31255f2f43335f7feb149b4a0961a0d9e509ccc2b6a92fbedad91c487c", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 1200}, "kimi": {"authentication_mode": "Kimi Code subscription auth state in ~/.kimi-code exposed only to the local bridge; session store read only to verify the runtime model from the tool's own wire record", "author_relationship": "author-independent", "cli_version": "kimi-code 0.36.1", "command_sha256": "fe31f9458ac84f52ebde554fe406d97cc5a46dae06211b31dd24179de9a10892", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "k3", "isolation_mode": "advisory", "party": "kimi", "permission_policy": "read-only source export; prompt-mode tool auto-approval used for reads inside the export; result path written by the bridge, controller-owned; runtime model verified fail-closed from agents/main/wire.jsonl", "provider": "moonshot", "reasoning_effort": "cli-default-thinking", "requested_model": "k3", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 1200}}
+- source-manifest-sha256: {"codex": "0255baf0cad8487eb5c79826b403d66dabf61477de59b9c5948bef491e52e992", "kimi": "dfdf0a28a07949565fd63c7ab96e803361e26ba3c65c6b04e7a211bc200ee7e4"}
+
+## MSG-92 | 2026-08-17T16:54:56+00:00 | from: owner | type: close | thread: branch-seat-registry-3 | refs: -
+
+Controller closed the managed case as ERROR. Reason: adapter-error. Supervisor messages were not counted as party votes.
+
+Controller-Terminal:
+- terminal-result: ERROR
+- close-reason: adapter-error
