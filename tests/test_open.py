@@ -396,3 +396,96 @@ def test_pick_pair_profile_restricts(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     opening.pick_pair(reg, project=str(tmp_path), requested=None, assume_yes=False, ask=capture)
     assert "gamma/three" not in prompts[0]
+
+
+# --- branch-gate round-1 folds ----------------------------------------------
+
+
+def test_open_refuses_existing_toplevel_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = _two_seat_registry(tmp_path)
+    root = tmp_path / "collab"
+    root.mkdir()
+    spec = _open_spec(root)
+    import debate.opening as op
+
+    monkeypatch.setattr(
+        channel, "generate_channel_id", lambda r, label=None: f"{label}-99999"
+    )
+    (tmp_path / "market-research-99999.watcher.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(channel.ChannelError, match="already exists"):
+        op.open_debate(spec, reg, load_config_fn=_watcher_config, now="t", tool_version="v")
+    assert list(root.iterdir()) == [], "nothing written behind the refusal"
+
+
+def test_open_refuses_uncreatable_state_dir_before_any_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = _two_seat_registry(tmp_path)
+    root = tmp_path / "collab"
+    root.mkdir()
+    blocker = tmp_path / "state-blocker"
+    blocker.write_text("a file where a directory must go", encoding="utf-8")
+    import debate.opening as op
+
+    monkeypatch.setattr(
+        op, "derive_paths",
+        lambda r, n, p: (tmp_path / f"{n}.watcher.json", blocker / "sub" / f"{n}.json"),
+    )
+    with pytest.raises(channel.ChannelError, match="state directory"):
+        op.open_debate(
+            _open_spec(root), reg, load_config_fn=_watcher_config, now="t", tool_version="v"
+        )
+    assert list(root.iterdir()) == [], "the round-1 live-proof failure shape is refused pre-write"
+
+
+def test_cli_seats_list_json_is_machine_readable_after_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    main(["seats", "discover"])
+    reg = seats.load_registry()
+    reg.tool_version = "0.0.1"  # force the upgrade re-scan on the next command
+    seats.save_registry(reg)
+    capsys.readouterr()
+    assert main(["seats", "list", "--json"]) == 0
+    captured = capsys.readouterr()
+    json.loads(captured.out)  # stdout is pure JSON; diagnostics live on stderr
+
+
+def test_cli_seats_list_shows_notes_and_efforts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.Registry()
+    tool = tmp_path / "claude"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    tool.chmod(0o755)
+    reg.seats["claude/opus"] = _seat("claude/opus", [str(tool), "-p", "{prompt}"], smoke=_smoked())
+    seats.save_registry(reg)
+    monkeypatch.chdir(tmp_path)
+    assert main(["seats", "list"]) == 0
+    out = capsys.readouterr().out
+    assert "note:" in out
+    assert "efforts:" in out and "high" in out
+    assert main(["seats", "list", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["claude/opus"]["known_efforts"]
+    assert payload["claude/opus"]["notes"]
+
+
+def test_smoke_requires_confirmation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.Registry()
+    reg.seats["fake/one"] = _seat("fake/one", ["/bin/false", "{prompt}"])
+    with pytest.raises(channel.ChannelError, match="not confirmed"):
+        seats.smoke_seat(reg, "fake/one", now="t", ask=lambda prompt: "n")
+    assert reg.seats["fake/one"].smoke is None, "no spend, no record"
+    result = seats.smoke_seat(
+        reg, "fake/one", scratch_base=tmp_path / "s", now="t", assume_yes=True
+    )
+    assert result == "fail"

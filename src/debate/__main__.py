@@ -244,9 +244,13 @@ def main(argv: list[str] | None = None) -> int:
         "doctor", help="re-validate everything; offers a smoke refresh per stale seat"
     )
     p_seats_smoke = seats_sub.add_parser(
-        "smoke", help="scratch-channel round trip per named seat: ONE model call each"
+        "smoke", help="scratch-channel round trip per named seat: ONE model call each, confirmed first"
     )
     p_seats_smoke.add_argument("seat_ids", nargs="+", metavar="SEAT")
+    p_seats_smoke.add_argument(
+        "--yes", action="store_true", dest="assume_yes",
+        help="auto-confirm the announced model spend",
+    )
     p_seats_add = seats_sub.add_parser(
         "add", help="manual seat, an appended endpoint option, or a SEAT@EFFORT derivation"
     )
@@ -528,12 +532,17 @@ def main(argv: list[str] | None = None) -> int:
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
             if args.seats_command != "discover":
                 # The upgrade trigger: a tool-version mismatch re-scans first
-                # (scan only -- smoke is never automatic).
+                # (scan only -- smoke is never automatic). On a --json surface
+                # the diagnostics go to stderr so stdout stays machine-readable.
                 registry, upgrade_diff = seats.ensure_current(registry, now=now)
+                as_json = bool(getattr(args, "as_json", False))
                 if upgrade_diff:
                     seats.save_registry(registry)
                     for line in upgrade_diff:
-                        _flushing_print(f"upgrade re-scan: {line}")
+                        if as_json:
+                            print(f"upgrade re-scan: {line}", file=sys.stderr, flush=True)
+                        else:
+                            _flushing_print(f"upgrade re-scan: {line}")
             if args.seats_command == "check":
                 report = seats.check(registry, now=now)
                 for line in report.fails + report.warns + report.infos:
@@ -551,14 +560,20 @@ def main(argv: list[str] | None = None) -> int:
                     _flushing_print("doctor: every seat resolves and smoke is fresh")
                 return 3 if report.fails else 0
             if args.seats_command == "smoke":
+                for seat_id in args.seat_ids:
+                    if seat_id not in registry.seats:
+                        raise channel.ChannelError(
+                            f"refused: no seat {seat_id!r} in the registry"
+                        )
                 worst = 0
                 for seat_id in args.seat_ids:
                     smoke_result = seats.smoke_seat(
-                        registry, seat_id, now=now, emit=_flushing_print
+                        registry, seat_id, now=now, emit=_flushing_print,
+                        assume_yes=args.assume_yes,
                     )
+                    seats.save_registry(registry)
                     if smoke_result != "pass":
                         worst = 1
-                seats.save_registry(registry)
                 return worst
             if args.seats_command == "add":
                 if args.seats_add_command_text is not None:
@@ -590,20 +605,22 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.seats_command == "list":
                 if args.as_json:
-                    payload = {
-                        seat_id: {
+                    payload = {}
+                    for seat_id, seat in sorted(registry.seats.items()):
+                        notes, known_efforts = seats.vendor_display(seat.vendor)
+                        payload[seat_id] = {
                             "present": seat.present,
                             "effort": seat.effort,
                             "commands": seat.commands,
                             "source": seat.source,
+                            "notes": notes,
+                            "known_efforts": list(known_efforts),
                             "smoke": (
                                 {"at": seat.smoke.at, "result": seat.smoke.result}
                                 if seat.smoke is not None
                                 else None
                             ),
                         }
-                        for seat_id, seat in sorted(registry.seats.items())
-                    }
                     _flushing_print(json.dumps(payload, indent=2))
                     return 0
                 if not registry.seats:
@@ -616,9 +633,14 @@ def main(argv: list[str] | None = None) -> int:
                         else "never smoked"
                     )
                     presence = "present" if seat.present else "ABSENT"
+                    notes, known_efforts = seats.vendor_display(seat.vendor)
+                    efforts = (
+                        f"  efforts: {','.join(known_efforts)}" if known_efforts else ""
+                    )
                     _flushing_print(
                         f"{seat_id}  [{presence}]  {smoke}  "
-                        f"{' '.join(seat.commands[0])}"
+                        f"{' '.join(seat.commands[0])}{efforts}\n"
+                        f"    note: {notes}"
                     )
                 return 0
             raise channel.ChannelError(f"unknown seats command {args.seats_command!r}")

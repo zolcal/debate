@@ -227,6 +227,18 @@ def open_debate(
     name = channel.generate_channel_id(spec.root, label=spec.label)
     project = project_key(spec.root)
     config_path, state_path = derive_paths(spec.root, name, Path(project))
+    if config_path.exists():
+        raise channel.ChannelError(
+            f"refused: {config_path} already exists; a freshly minted id should "
+            "never collide at the project toplevel -- inspect the stale config "
+            "before anything is written"
+        )
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise channel.ChannelError(
+            f"refused: cannot create the state directory {state_path.parent}: {error}"
+        ) from error
 
     config = {
         "state_path": str(state_path),
@@ -265,7 +277,6 @@ def open_debate(
         name=name, managed_version=channel.MANAGED_VERSION,
     )
     scaffold_protocol(spec.root, spec.thread_cap)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
 
     record_path = spec.root / f"{name}.debate.json"

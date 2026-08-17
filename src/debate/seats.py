@@ -425,16 +425,28 @@ def smoke_seat(
     scratch_base: Path | None = None,
     now: str,
     emit: Callable[[str], None] = print,
+    assume_yes: bool = False,
+    ask: Callable[[str], str] = input,
 ) -> str:
     """One scratch-channel round trip for one seat's FIRST-LISTED argv,
-    through setup's own smoke machinery. The result is recorded in the
-    registry either way; returns "pass" or "fail"."""
+    through setup's own smoke machinery. The cost is announced and CONFIRMED
+    before the spend (auto-yes under --yes, ruling 1); the result is recorded
+    in the registry either way; returns "pass" or "fail"."""
     from .setup import SetupSpec
     from . import setup as setup_module
 
     seat = registry.seats.get(seat_id)
     if seat is None:
         raise channel.ChannelError(f"refused: no seat {seat_id!r} in the registry")
+    if not assume_yes:
+        answer = ask(
+            f"smoke {seat_id}: this spends ONE model call "
+            f"({seat.commands[0][0]} ...). Proceed? [y/N]: "
+        ).strip().lower()
+        if answer not in ("y", "yes"):
+            raise channel.ChannelError(
+                f"refused: smoke of {seat_id!r} not confirmed (pass --yes to auto-confirm)"
+            )
     if scratch_base is not None:
         scratch_base.mkdir(parents=True, exist_ok=True)
     party = seat.vendor if seat.vendor != "probe" else "seatprobe"
@@ -469,6 +481,15 @@ class Profile:
     mechanism. Opt-in per project: no file, no restriction."""
 
     allowlist: tuple[str, ...]
+
+
+def vendor_display(vendor: str) -> tuple[str, tuple[str, ...]]:
+    """(notes, known_efforts) for `seats list` -- the wrapper-pin drift limit
+    is only honest if the display actually names where the pin lives (D1)."""
+    entry = next((e for e in CATALOG if e.vendor == vendor), None)
+    if entry is None:
+        return ("manual seat; the operator owns its pin", ())
+    return (entry.notes, entry.known_efforts)
 
 
 def load_profile(project: str, registry: Registry) -> Profile | None:

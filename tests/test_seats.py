@@ -351,7 +351,8 @@ def test_smoke_seat_records_result(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         commands=[["/bin/false", "{prompt}"]], source="manual", present=True, smoke=None,
     )
     result = seats.smoke_seat(
-        reg, "fake/one", scratch_base=tmp_path / "scratch", now="2026-08-16T02:00:00+00:00"
+        reg, "fake/one", scratch_base=tmp_path / "scratch",
+        now="2026-08-16T02:00:00+00:00", assume_yes=True,
     )
     assert result == "fail"
     assert reg.seats["fake/one"].smoke is not None
