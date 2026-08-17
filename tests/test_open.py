@@ -14,6 +14,10 @@ from debate.__main__ import _watcher_config, main
 def _registry_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "seats.json"
     monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(path))
+    # The basetemp lives INSIDE the checkout (pyproject pins .pytest-tmp), so
+    # without a ceiling _derived_project resolves the enclosing repo and every
+    # open writes its toplevel config into the real working tree.
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
     return path
 
 
