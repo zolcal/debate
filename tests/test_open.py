@@ -524,3 +524,38 @@ def test_discover_never_clobbers_manual_custom_effort_seat(
     assert reg.seats["claude/opus@high"].commands[0] == [str(custom), "{prompt}"], (
         "a manual custom-command @effort seat is the operator's own"
     )
+
+
+def test_discover_preserves_manual_seat_that_merely_extends_base_argv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round-5 converged finding: a manual @effort seat whose command merely
+    STARTS WITH the base argv is not derived and is never re-derived; only
+    the exact base+fragment shape is."""
+    monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(tmp_path / "r.json"))
+    old = tmp_path / "claude"
+    old.write_text("#!/bin/sh\n", encoding="utf-8")
+    old.chmod(0o755)
+    reg = seats.Registry()
+    reg, _ = seats.discover(reg, which=lambda n: {"claude": str(old)}.get(n), now="t0")
+    base = list(reg.seats["claude/opus"].commands[0])
+    # codex's reproduction: base + effort fragment + an operator's extra flag
+    reg.seats["claude/opus@high"] = seats.Seat(
+        "claude/opus@high", "claude", "opus", "high",
+        [base + ["--effort", "high", "--manual-wrapper-flag"]],
+        "manual", True, None,
+    )
+    # a true derivation for contrast
+    seats.add_effort_seat(reg, "claude/opus@low")
+    new = tmp_path / "moved" / "claude"
+    new.parent.mkdir()
+    new.write_text("#!/bin/sh\n", encoding="utf-8")
+    new.chmod(0o755)
+    reg, _ = seats.discover(reg, which=lambda n: {"claude": str(new)}.get(n), now="t1")
+    assert reg.seats["claude/opus@high"].commands[0][-1] == "--manual-wrapper-flag", (
+        "the operator's command is never clobbered"
+    )
+    assert reg.seats["claude/opus@high"].commands[0][0] == str(old), "untouched entirely"
+    assert reg.seats["claude/opus@low"].commands[0][0] == str(new), (
+        "the exact derived shape IS re-derived"
+    )

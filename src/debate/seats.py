@@ -234,20 +234,23 @@ def discover(
                 existing.commands = [argv] + existing.commands[1:]
                 if base_changed:
                     for derived in registry.seats.values():
-                        if (
-                            derived.effort is not None
-                            and derived.seat_id.split("@", 1)[0] == seat_id
-                            and entry.effort_argv
-                            # Only a seat DERIVED from the old base argv is
-                            # re-derived; a manual custom command is the
-                            # operator's own and is never clobbered.
-                            and derived.commands[0][: len(old_argv)] == old_argv
-                        ):
-                            derived.commands[0] = argv + [
-                                part.replace("{effort}", derived.effort)
-                                for part in entry.effort_argv
-                            ]
-                            diff.append(f"~ {derived.seat_id} re-derived from the new base argv")
+                        if derived.effort is None or not entry.effort_argv:
+                            continue
+                        if derived.seat_id.split("@", 1)[0] != seat_id:
+                            continue
+                        # Only a seat whose argv is EXACTLY the old base plus
+                        # the substituted effort fragment is auto-derived; a
+                        # prefix match is not enough (an operator command may
+                        # merely start with the base argv) -- anything else is
+                        # the operator's own and is never clobbered.
+                        fragment = [
+                            part.replace("{effort}", derived.effort)
+                            for part in entry.effort_argv
+                        ]
+                        if derived.commands[0] != old_argv + fragment:
+                            continue
+                        derived.commands[0] = argv + fragment
+                        diff.append(f"~ {derived.seat_id} re-derived from the new base argv")
     for seat in registry.seats.values():
         if seat.source == "catalog" and seat.seat_id not in seen_ids and seat.present:
             base = seat.seat_id.split("@", 1)[0]
