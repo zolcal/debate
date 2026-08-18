@@ -6,6 +6,75 @@ Every release from v0.2.0 onward went through this project's own review channel 
 record is under [`collab/`](collab/), and the message numbers cited below are entries in
 it.
 
+## v0.7.0 — 2026-08-18
+
+**The machine's models become seats you can pick from.** Until now the pair
+arguing a debate was whatever you hand-wrote into a watcher config, and a fresh
+machine meant rediscovering which CLIs existed and what invocation each wanted.
+This release makes the host's installed model CLIs a first-class registry, and
+makes choosing the arguing pair an explicit act at the debate's birth rather
+than a config file you edit later.
+
+### Added
+
+- **A packaged seat catalog** — what each supported vendor CLI is and how it is
+  invoked, carrying only verified strings. Where a wrapper pins its model the
+  catalog says so rather than guessing; a vendor whose invocation could not be
+  verified on real hardware is omitted, and the omission is documented in the
+  module rather than filled in with a plausible-looking command.
+- **A host seat registry** at `~/.config/debate/seats.json`. `debate seats
+  discover` scans the machine and merges — it never clobbers: an entry whose
+  binary has gone away is marked absent rather than deleted, operator-authored
+  entries are left strictly alone, and writes are screened so a credential can
+  never land in the file. Each seat carries a list of endpoint options, and
+  selection takes the first listed.
+- **A source taxonomy that makes "who owns this entry" answerable**: `catalog`
+  (discovery owns it), `derived` (an `@effort` variant the tool derived, and
+  will re-derive when its base moves), `manual` (yours, untouched). Removal
+  follows ownership: manual, derived and absent-catalog seats can be removed; a
+  present catalog seat is refused because the next scan would only put it back.
+- **`debate seats`** — `discover`, `list`, `check`, `doctor`, `smoke`, `add`,
+  `remove`, with `--json` on the reporting surfaces so other tools can consume
+  them. `check` exits non-zero only for a missing binary or a failed smoke;
+  never-smoked is information and stale is a warning, because a freshness
+  report that fails on staleness trains you to ignore it.
+- **`debate open`** — the arguing pair is chosen when the debate is born.
+  The previous pick is offered as the default, keyed by the enclosing repo
+  rather than the channel folder, so a project remembers its own pair. Seating
+  the same vendor and submodel twice is refused unless you say so explicitly —
+  a monologue is always a deliberate choice, never an accident. Every path is
+  validated before the first byte is written, so a refusal leaves the channel
+  root empty rather than half-built, and the chosen seats are recorded in the
+  channel's `.debate.json` with their exact command and smoke state.
+- **A per-project `debate-profile.json` allowlist** — commit it to restrict
+  which seats a given repository may seat. It fails closed: malformed, unknown
+  version, unknown seat id or empty allowlist all refuse and name the offender.
+- **An upgrade-triggered re-scan.** When the installed tool version moves, the
+  next `seats` command re-scans and persists the new stamp — scan only, never
+  an automatic smoke, because smoking costs tokens and that is your call.
+
+### Fixed
+
+- **Test suite hermeticity.** The suite pinned pytest's basetemp inside the
+  checkout, so tests that opened channels wrote their toplevel watcher configs
+  into the real working tree — and one refusal test only passed because an
+  earlier run had left the very file it expected to find. Its first clean run
+  planted what made later runs pass, which is why CI failed on a fresh checkout
+  and local runs did not. Git discovery is now fenced to the test sandbox.
+- **`seats remove --help`** described only manual seats while the code removed
+  three kinds, and the subcommand had no description at all.
+
+### Changed
+
+- **The shipped protocol template** carries a new rule: a debate never
+  constrains the size of the artifact under review, and findings, evidence and
+  provenance are never compressed to fit a length. A case that argues from half
+  its evidence has established nothing, whatever verdict it records.
+
+At this tag the suite is 469 test items and `src/` is 6,818 lines. The plan and
+the branch each passed this project's own review channel before merge; the
+record is under [`collab/`](collab/).
+
 ## v0.6.0 — 2026-08-13
 
 **Wiring the seats stops being hand-rolled.** `debate init` always scaffolded the
