@@ -48,6 +48,16 @@ Refs are full `branch@sha` values written after the commit exists. Corrections a
 entries, never edits. Reviewers read only the current thread; repo claims come from the
 pinned source export, not channel history.
 
+**No invented size limits; evidence is never compressed.** The debate never constrains the
+SIZE of the artifact under review. A length, word, page or section budget exists only if
+the owner put one in the docket; absent that there is none, and no seat may infer one from
+a seed, a brief, a template or house style. Findings, the evidence behind them and their
+provenance are never trimmed, summarized away or dropped to fit a length — a case that
+argues from half its evidence has established nothing, whatever verdict it records. Length
+alone is never a blocking finding and compression is never a condition of approval; a seat
+that judges an artifact bloated says so as a non-blocking observation and the owner
+decides. Never cite a page count for a document that was never rendered.
+
 ## 3. Managed operation
 
 `repository-unattended-02750` is managed version 2. The controller, not either model:
@@ -121,6 +131,8 @@ seat mid-thread.
 
 ## Amendment log
 
+- 2026-08-18 — v2.1: added the no-invented-size-limits rule to §2 — the artifact's size is
+  the owner's business, and findings, evidence and provenance are never compressed.
 - 2026-08-06 — v2.0: moved active repository review to fresh brokered channel
   `repository-unattended-02750`, selected headless Opus/Codex locally, required explicit
   channel addressing and per-channel caps, and retired the commandless Opus/GLM scheduler
