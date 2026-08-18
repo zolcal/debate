@@ -174,12 +174,12 @@ def test_managed_turnless_open_thread_is_invalid(tmp_path: Path) -> None:
 def test_stale_verdict_names_the_lock_holder_when_one_is_live(tmp_path: Path) -> None:
     """During an incident the next question is always 'whose watcher is that?'.
     The pid is only quoted because the PROBE proved it live."""
-    lock = LockState(held=True, pid=4242, stamp="2026-08-02T11:58:00+00:00", cwd="/home/zoltan/Projects/other")
+    lock = LockState(held=True, pid=4242, stamp="2026-08-02T11:58:00+00:00", cwd="/home/user/Projects/other")
 
     result = status(signal(updated_at="2026-08-02T11:40:00+00:00"), {}, config(tmp_path), NOW, lock)
 
     assert result.verdict == "STALE"
-    assert "4242" in result.detail and "/home/zoltan/Projects/other" in result.detail
+    assert "4242" in result.detail and "/home/user/Projects/other" in result.detail
 
 
 def test_probe_reports_free_despite_a_leftover_lock_file(tmp_path: Path) -> None:
