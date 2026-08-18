@@ -264,7 +264,18 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="seat argv, e.g. '/home/me/.local/bin/my-agent {prompt}'; omit for @EFFORT derivations",
     )
-    p_seats_remove = seats_sub.add_parser("remove", help="remove a MANUAL seat")
+    p_seats_remove = seats_sub.add_parser(
+        "remove",
+        help="remove a manual, derived, or absent catalog seat",
+        description=(
+            "Remove a seat from the registry. Manual (operator-authored), "
+            "derived (@effort entries the tool derived) and ABSENT catalog "
+            "seats are all removable -- the first is yours, the others are "
+            "recreatable by discovery. A PRESENT catalog seat is refused: "
+            "discovery owns it, and removing it would only invite the next "
+            "scan to put it back."
+        ),
+    )
     p_seats_remove.add_argument("seat_id", metavar="SEAT")
 
     p_open = sub.add_parser(

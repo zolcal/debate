@@ -467,3 +467,23 @@ def test_derived_source_taxonomy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     # a derived seat is recreatable, so removal is allowed
     seats.remove_seat(reg, "claude/opus@high")
     assert "claude/opus@high" not in reg.seats
+
+
+def test_cli_seats_remove_help_names_every_removable_class(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The help text must match `remove_seat`'s actual law.
+
+    It said "remove a MANUAL seat" while the law removes manual, derived and
+    ABSENT-catalog seats and refuses only a PRESENT catalog one, so an
+    operator reading `--help` would think a stranded derivation was stuck.
+    """
+    from debate.__main__ import main
+
+    with pytest.raises(SystemExit):
+        main(["seats", "remove", "--help"])
+    help_text = capsys.readouterr().out.lower()
+    assert "manual" in help_text
+    assert "derived" in help_text
+    assert "absent" in help_text
+    assert "present catalog" in help_text

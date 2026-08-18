@@ -1,6 +1,6 @@
 {
   "name": "debate",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Debate — cross-vendor review: your agent builds the work, two independent agents from other vendors debate it, through two shared text files with enforced turns and a full audit trail. Requires the debate CLI (pip install debate).",
   "author": {
     "name": "Zoltan Soos",
