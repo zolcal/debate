@@ -73,7 +73,7 @@ than a config file you edit later.
 
 At this tag the suite is 469 test items and `src/` is 6,818 lines. The plan and
 the branch each passed this project's own review channel before merge; the
-record is under [`collab/`](collab/).
+append-only, tamper-evident record is under [`collab/`](collab/).
 
 ## v0.6.0 — 2026-08-13
 
