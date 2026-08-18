@@ -44,6 +44,16 @@ Types and their meanings:
 - `close` — ends the thread. Clears both the open thread AND the turn (a turn is only
   meaningful within a thread).
 
+**No invented size limits; evidence is never compressed.** The debate never constrains the
+SIZE of the artifact under review. A length, word, page or section budget exists only if
+the owner put one in the docket; absent that there is none, and no seat may infer one from
+a seed, a brief, a template or house style. Findings, the evidence behind them and their
+provenance are never trimmed, summarized away or dropped to fit a length — a case that
+argues from half its evidence has established nothing, whatever verdict it records. Length
+alone is never a blocking finding and compression is never a condition of approval; a seat
+that judges an artifact bloated says so as a non-blocking observation and the owner
+decides. Never cite a page count for a document that was never rendered.
+
 ## 3. Turn-taking and threads
 
 - Strict alternation **within an open thread**; `debate post` refuses out-of-turn posts.
@@ -152,6 +162,9 @@ Keep one — dated entries describing what changed and the incident or reasoning
 protocol that has never been amended has never been used in anger.
 
 - [date] — v1.0, adopted.
+- 2026-08-18 — v1.2 (upstream template): the no-invented-size-limits rule in §2 — the
+  artifact's size is the owner's business, and findings, evidence and provenance are never
+  compressed to fit a length.
 - 2026-07-08 — v1.1 (upstream template): reading discipline (`debate read`), archival
   (`debate compact` + `archive/`), and refs verification (`--verify-refs`). Motivated in
   production: the mailbox hit 112 KB / 63 messages in four days, and one close message
