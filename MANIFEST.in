@@ -1,0 +1,31 @@
+# Sdist contents are INTENTIONAL (v0.8 plan Slice 4): the source distribution
+# must carry every file its shipped tests read, plus the plugin sources. The
+# three files after "tests need these" were missing from the 0.7.0 sdist and
+# failed five of its own tests on a clean install.
+include README.md
+include CHANGELOG.md
+include LICENSE*
+# tests need these:
+include PROTOCOL.md
+include watcher.example.json
+include watcher.brokered.example.json
+graft .claude-plugin
+# plugin/hook/skill sources (the native product is part of the source of record):
+graft .codex-plugin
+graft .agents
+graft hooks
+graft scripts
+graft skills
+graft tests
+global-exclude __pycache__ *.pyc
+prune .acceptance
+prune .release-acceptance
+prune .worktrees
+# A build environment carrying setuptools-scm sweeps ALL git-tracked files
+# into the sdist (that environment-dependence is how the 0.7.0 sdist went
+# wrong); these prunes make the contents deterministic either way.
+prune collab
+prune docs
+prune .github
+prune .claude
+prune examples

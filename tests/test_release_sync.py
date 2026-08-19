@@ -21,3 +21,5 @@ def test_all_four_version_locations_agree() -> None:
     assert plugin["version"] == version
     marketplace = json.loads((REPO / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
     assert marketplace["metadata"]["version"] == version
+    codex_plugin = json.loads((REPO / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert codex_plugin["version"] == version
