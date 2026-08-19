@@ -58,7 +58,9 @@ Core rules, non-negotiable:
 3. Ask for or derive the debate subject and the review target, summarize what
    will be created (two seats, managed-v2 brokered channel, the human as
    supervisor -- this session never votes), and get the user's confirmation.
-4. Run: `<launcher> open --brokered --root <ABS collab dir> --label <slug>
+4. Run EXACTLY this form -- `--brokered` is NOT optional; plain `debate open`
+   without it mints a legacy version-1 channel and is never the product path:
+   `<launcher> open --brokered --root <ABS collab dir> --label <slug>
    --pair <a>,<b> --docket-file <project-relative review input> [--docket-file ...]`
    (the docket files are what the seats actually read -- always pass the review
    target). Identity guards are enforced by the engine: the same seat

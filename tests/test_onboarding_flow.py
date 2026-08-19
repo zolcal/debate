@@ -366,6 +366,24 @@ def test_brokered_open_mints_managed_v2_with_provenance(
     assert live_registry.last_pair[opening.project_key(root)] == ["alpha/fake", "beta/fake"]
 
 
+def test_v1_open_refuses_bridge_seats(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    """The symmetric guard: the legacy v1 open refuses brokered bridges (no
+    {prompt}) exactly as the brokered open refuses prompt-style seats --
+    found live when a weak model took the legacy path with bridge seats."""
+    registry, project = isolated
+    _brokered_registry(registry, tmp_path)
+    _git_project(project)
+    _approve_all(project)
+    root = project / "collab"
+    spec = opening.OpenSpec(root=root, label="stub", pair=("alpha/fake", "beta/fake"))
+    with pytest.raises(channel.ChannelError, match="version-1 watcher can never wake it"):
+        opening.open_debate(
+            spec, seats.load_registry(), load_config_fn=_watcher_config,
+            now=NOW, tool_version="test",
+        )
+    assert not root.exists() or list(root.iterdir()) == []
+
+
 def test_brokered_open_docket_files_snapshot_and_prewrite_refusal(
     isolated: tuple[Path, Path], tmp_path: Path
 ) -> None:

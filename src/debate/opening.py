@@ -247,6 +247,13 @@ def open_debate(
     first = _seatable(registry, spec.pair[0])
     second = _seatable(registry, spec.pair[1])
     _identity_guard(first, second, allow_identical=spec.allow_identical_seats)
+    for seat in (first, second):
+        if "{prompt}" not in " ".join(seat.commands[0]):
+            raise channel.ChannelError(
+                f"refused: seat {seat.seat_id!r} is a brokered bridge (no {{prompt}} "
+                "placeholder); the version-1 watcher can never wake it. Open the "
+                "debate with --brokered instead."
+            )
 
     if first.vendor != second.vendor:
         parties = (slugify_seat_id(first.vendor), slugify_seat_id(second.vendor))
