@@ -12,7 +12,7 @@
     {
       "name": "debate",
       "source": "./",
-      "description": "Debate — cross-vendor code review: hold your seat on a debate review channel (enforced turns, append-only audit trail). Skill wraps the pip-installed debate CLI.",
+      "description": "Debate — installation-driven cross-vendor code review: automatic setup notice, in-UI seat approval, brokered debates (enforced turns, append-only audit trail). Bundles the debate engine.",
       "category": "workflow",
       "keywords": ["code-review", "multi-agent", "cross-vendor", "governance"]
     }

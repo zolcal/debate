@@ -1,0 +1,8 @@
+#!/bin/sh
+# Debate plugin launcher: run the BUNDLED engine, never a PATH-installed one.
+# Resolves the plugin root from this script's own installed location, so no
+# environment variable, pip install, or network access is required.
+set -eu
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+PLUGIN_ROOT=$(dirname -- "$SCRIPT_DIR")
+PYTHONPATH="$PLUGIN_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m debate "$@"

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from debate import channel, opening, seats
+from debate import channel, onboarding, opening, seats
 from debate.controller import AdapterProfile, BrokerConfig, BrokerController, TimingPolicy, doctor_lines
 from debate.watcher import WatcherConfig, read_status, run_once, watch
 
@@ -278,6 +278,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_seats_remove.add_argument("seat_id", metavar="SEAT")
 
+    p_onboarding = sub.add_parser(
+        "onboarding",
+        help="installation-driven product path: project onboarding state (used by the plugin)",
+    )
+    onboarding_sub = p_onboarding.add_subparsers(dest="onboarding_command", required=True)
+    p_onb_status = onboarding_sub.add_parser(
+        "status",
+        help="read-only onboarding state for one project; writes nothing, calls no model",
+    )
+    p_onb_status.add_argument(
+        "--project", required=True, metavar="ABSOLUTE_PATH",
+        help="absolute project root the host session runs in",
+    )
+    p_onb_status.add_argument("--json", action="store_true", dest="as_json")
+
     p_open = sub.add_parser(
         "open",
         help="mint a debate: a fresh channel with its pair picked from the registry",
@@ -490,8 +505,18 @@ def main(argv: list[str] | None = None) -> int:
         # None means the legacy layout; init CREATES a channel and never
         # discovers one, and `seats` addresses the host registry, not a root.
         name: str | None = None
-        if args.command not in ("init", "migrate", "seats", "open"):
+        if args.command not in ("init", "migrate", "seats", "open", "onboarding"):
             name = channel.discover_channel(args.root, getattr(args, "channel", None))
+
+        if args.command == "onboarding":
+            if args.onboarding_command == "status":
+                onboarding_report = onboarding.status(args.project)
+                if args.as_json:
+                    print(json.dumps(onboarding_report, indent=2))
+                else:
+                    for line in onboarding.status_lines(onboarding_report):
+                        _flushing_print(line)
+                return 0
 
         if args.command == "open":
             registry = seats.load_registry()
