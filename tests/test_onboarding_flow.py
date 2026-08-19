@@ -1,0 +1,420 @@
+"""Onboarding inspect/approve and the brokered product open (plan Slice 1B).
+
+Discovery is neutralized by pointing PATH at an empty directory, so the
+catalog finds nothing and the fixtures own every candidate. Fake seats use
+absolute command heads (/bin/sh, python3) that resolve without PATH.
+"""
+
+from __future__ import annotations
+
+import json
+import stat
+import sys
+from pathlib import Path
+
+import pytest
+
+from debate import channel, onboarding, opening, seats
+from debate.__main__ import _watcher_config
+
+NOW = "2026-08-19T12:00:00+00:00"
+
+
+def _write_registry(path: Path, seats_obj: dict[str, object]) -> None:
+    from debate import __version__
+
+    payload = {
+        "registry_version": 1,
+        "tool_version": __version__,
+        "discovered_at": NOW,
+        "seats": seats_obj,
+        "last_pair": {},
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+
+def _seat(command: list[str], *, vendor: str | None = None, submodel: str = "fake") -> dict[str, object]:
+    return {
+        "vendor": vendor if vendor is not None else command[0].rsplit("/", 1)[-1],
+        "submodel": submodel,
+        "effort": None,
+        "commands": [command],
+        "source": "manual",
+        "present": True,
+        "smoke": None,
+    }
+
+
+def _snapshot(root: Path) -> list[tuple[str, float, int]]:
+    return [
+        (str(p), p.stat().st_mtime, p.stat().st_size if p.is_file() else -1)
+        for p in sorted(root.rglob("*"))
+    ]
+
+
+@pytest.fixture()
+def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    registry = tmp_path / "config" / "seats.json"
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(registry))
+    # System dirs keep git/sh available while excluding the user-level agent
+    # CLIs (~/.local/bin), so catalog discovery finds nothing it can seat.
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    return registry, project
+
+
+def test_inspect_is_read_only_and_labels_existing(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    registry, project = isolated
+    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    before = _snapshot(tmp_path)
+    report = onboarding.inspect(str(project), now=NOW)
+    assert _snapshot(tmp_path) == before
+    candidates = report["candidates"]
+    assert isinstance(candidates, list) and len(candidates) == 1
+    row = candidates[0]
+    assert isinstance(row, dict)
+    assert row["seat_id"] == "probe/fake"
+    assert row["existing"] is True
+    assert row["present"] is True
+    revision = report["candidate_revision"]
+    assert isinstance(revision, str) and len(revision) == 64
+    # Deterministic: a second scan of the unchanged world gives the same revision.
+    assert onboarding.inspect(str(project), now="2026-08-19T13:00:00+00:00")[
+        "candidate_revision"
+    ] == revision
+
+
+def test_inspect_fresh_machine_has_no_candidates(isolated: tuple[Path, Path]) -> None:
+    _, project = isolated
+    report = onboarding.inspect(str(project), now=NOW)
+    assert report["candidates"] == []
+    assert report["existing_registry_state"] == "missing"
+
+
+def test_approve_requires_confirmed_and_nonempty(isolated: tuple[Path, Path]) -> None:
+    registry, project = isolated
+    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    report = onboarding.inspect(str(project), now=NOW)
+    revision = str(report["candidate_revision"])
+    with pytest.raises(channel.ChannelError, match="--confirmed"):
+        onboarding.approve(
+            str(project), allow=["probe/fake"], candidate_revision=revision,
+            confirmed=False, now=NOW,
+        )
+    with pytest.raises(channel.ChannelError, match="zero selected"):
+        onboarding.approve(
+            str(project), allow=[], candidate_revision=revision, confirmed=True, now=NOW,
+        )
+
+
+def test_approve_revision_mismatch_is_refused(isolated: tuple[Path, Path]) -> None:
+    registry, project = isolated
+    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    with pytest.raises(channel.ChannelError, match="candidate set changed"):
+        onboarding.approve(
+            str(project), allow=["probe/fake"], candidate_revision="0" * 64,
+            confirmed=True, now=NOW,
+        )
+
+
+def test_approve_writes_both_files_and_status_reports_ready(isolated: tuple[Path, Path]) -> None:
+    registry, project = isolated
+    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    report = onboarding.inspect(str(project), now=NOW)
+    after = onboarding.approve(
+        str(project), allow=["probe/fake"],
+        candidate_revision=str(report["candidate_revision"]),
+        confirmed=True, now=NOW,
+    )
+    assert after["profile_state"] == "approved"
+    assert after["attention"] == "ready"
+    profile = json.loads((project / "debate-profile.json").read_text(encoding="utf-8"))
+    assert profile == {"profile_version": 1, "allowlist": ["probe/fake"]}
+    saved = json.loads(registry.read_text(encoding="utf-8"))
+    assert "probe/fake" in saved["seats"]
+
+
+def test_approve_refuses_unknown_and_unrunnable_seats(isolated: tuple[Path, Path]) -> None:
+    registry, project = isolated
+    _write_registry(
+        registry,
+        {
+            "probe/fake": _seat(["/bin/sh", "{prompt}"]),
+            "gone/fake": _seat(["/nonexistent/debate-test-binary", "{prompt}"]),
+        },
+    )
+    report = onboarding.inspect(str(project), now=NOW)
+    revision = str(report["candidate_revision"])
+    with pytest.raises(channel.ChannelError, match="not a detected candidate"):
+        onboarding.approve(
+            str(project), allow=["never/seen"], candidate_revision=revision,
+            confirmed=True, now=NOW,
+        )
+    with pytest.raises(channel.ChannelError, match="not currently runnable"):
+        onboarding.approve(
+            str(project), allow=["gone/fake"], candidate_revision=revision,
+            confirmed=True, now=NOW,
+        )
+
+
+def test_approve_transaction_failure_leaves_both_files_byte_identical(
+    isolated: tuple[Path, Path],
+) -> None:
+    registry, project = isolated
+    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    (project / "debate-profile.json").write_text(
+        json.dumps({"profile_version": 1, "allowlist": ["probe/fake"]}) + "\n",
+        encoding="utf-8",
+    )
+    registry_before = registry.read_bytes()
+    profile_before = (project / "debate-profile.json").read_bytes()
+    report = onboarding.inspect(str(project), now=NOW)
+    project.chmod(stat.S_IRUSR | stat.S_IXUSR)  # profile temp creation will fail
+    try:
+        with pytest.raises(channel.ChannelError, match="approval write failed"):
+            onboarding.approve(
+                str(project), allow=["probe/fake"],
+                candidate_revision=str(report["candidate_revision"]),
+                confirmed=True, now=NOW,
+            )
+    finally:
+        project.chmod(stat.S_IRWXU)
+    assert registry.read_bytes() == registry_before
+    assert (project / "debate-profile.json").read_bytes() == profile_before
+    leftovers = [p for p in registry.parent.iterdir() if p.name.startswith(".debate-")]
+    assert leftovers == []
+
+
+# --- the brokered product open ----------------------------------------------
+
+
+def _fake_adapter_script(tmp_path: Path, name: str) -> Path:
+    script = tmp_path / f"{name}.py"
+    script.write_text(
+        "import json, sys\n"
+        "result = {\n"
+        "    'schema_version': 1,\n"
+        "    'entry_type': 'verdict',\n"
+        "    'decision': 'PASS',\n"
+        f"    'body': 'stub verdict from {name}: PASS on own reading',\n"
+        f"    'runtime_model': '{name}-model',\n"
+        "}\n"
+        "with open(sys.argv[2], 'w', encoding='utf-8') as handle:\n"
+        "    json.dump(result, handle)\n",
+        encoding="utf-8",
+    )
+    return script
+
+
+def _brokered_registry(registry: Path, tmp_path: Path) -> None:
+    _write_registry(
+        registry,
+        {
+            "alpha/fake": _seat(
+                [sys.executable, str(_fake_adapter_script(tmp_path, "alpha")),
+                 "{input_path}", "{result_path}"],
+                vendor="alpha",
+            ),
+            "beta/fake": _seat(
+                [sys.executable, str(_fake_adapter_script(tmp_path, "beta")),
+                 "{input_path}", "{result_path}"],
+                vendor="beta",
+            ),
+        },
+    )
+
+
+def _git_project(project: Path) -> None:
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(project)], check=True)
+    (project / "README").write_text("stub\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(project), "-c", "user.email=t@t", "-c", "user.name=t",
+         "add", "README"], check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(project), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "stub"], check=True,
+    )
+
+
+def _head(project: Path) -> str:
+    import subprocess
+
+    return subprocess.run(
+        ["git", "-C", str(project), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+
+def test_brokered_open_refuses_without_profile(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    registry, project = isolated
+    _brokered_registry(registry, tmp_path)
+    _git_project(project)
+    root = project / "collab"
+    spec = opening.BrokeredOpenSpec(
+        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project),
+    )
+    with pytest.raises(channel.ChannelError, match="no approved seats"):
+        opening.open_debate_brokered(
+            spec, seats.load_registry(), load_config_fn=_watcher_config,
+            now=NOW, tool_version="test",
+        )
+    assert not root.exists() or list(root.iterdir()) == []
+
+
+def _approve_all(project: Path) -> None:
+    report = onboarding.inspect(str(project), now=NOW)
+    onboarding.approve(
+        str(project), allow=["alpha/fake", "beta/fake"],
+        candidate_revision=str(report["candidate_revision"]), confirmed=True, now=NOW,
+    )
+
+
+def test_brokered_open_identity_guard(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    registry, project = isolated
+    _brokered_registry(registry, tmp_path)
+    _git_project(project)
+    _approve_all(project)
+    root = project / "collab"
+    spec = opening.BrokeredOpenSpec(
+        root=root, label="stub", pair=("alpha/fake", "alpha/fake"), source_ref=_head(project),
+    )
+    with pytest.raises(channel.ChannelError, match="same seat twice"):
+        opening.open_debate_brokered(
+            spec, seats.load_registry(), load_config_fn=_watcher_config,
+            now=NOW, tool_version="test",
+        )
+    assert not root.exists() or list(root.iterdir()) == []
+
+
+def test_brokered_open_refuses_prompt_style_seats(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    registry, project = isolated
+    _write_registry(
+        registry,
+        {
+            "alpha/fake": _seat(["/bin/sh", "{prompt}"]),
+            "beta/fake": _seat(
+                [sys.executable, str(_fake_adapter_script(tmp_path, "beta")),
+                 "{input_path}", "{result_path}"]
+            ),
+        },
+    )
+    _git_project(project)
+    report = onboarding.inspect(str(project), now=NOW)
+    onboarding.approve(
+        str(project), allow=["alpha/fake", "beta/fake"],
+        candidate_revision=str(report["candidate_revision"]), confirmed=True, now=NOW,
+    )
+    root = project / "collab"
+    spec = opening.BrokeredOpenSpec(
+        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project),
+    )
+    with pytest.raises(channel.ChannelError, match="not brokered-capable"):
+        opening.open_debate_brokered(
+            spec, seats.load_registry(), load_config_fn=_watcher_config,
+            now=NOW, tool_version="test",
+        )
+    assert not root.exists() or list(root.iterdir()) == []
+
+
+def test_brokered_open_mints_managed_v2_with_provenance(
+    isolated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    registry, project = isolated
+    _brokered_registry(registry, tmp_path)
+    _git_project(project)
+    _approve_all(project)
+    root = project / "collab"
+    spec = opening.BrokeredOpenSpec(
+        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project),
+    )
+    live_registry = seats.load_registry()
+    result = opening.open_debate_brokered(
+        spec, live_registry, load_config_fn=_watcher_config, now=NOW, tool_version="test",
+    )
+    record = json.loads((root / f"{result.channel_name}.debate.json").read_text(encoding="utf-8"))
+    assert record["managed_version"] == 2
+    assert record["supervisor"] == "owner"
+    parties = record["parties"]
+    assert sorted(parties) == sorted(record["seats"].keys() - {"picked_at", "tool_version"})
+    for party in parties:
+        block = record["seats"][party]
+        assert block["author_relationship"] == "author-independent"
+        assert block["provider"] and block["requested_model"]
+        assert block["cost_mode"] == "unknown"
+    config = json.loads(result.config_path.read_text(encoding="utf-8"))
+    assert set(config["adapters"]) == set(parties)
+    assert config["source_ref"] == spec.source_ref
+    assert live_registry.last_pair[opening.project_key(root)] == ["alpha/fake", "beta/fake"]
+
+
+def test_stub_debate_reaches_typed_close(
+    isolated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """The Slice 1B end-to-end: approve -> brokered open -> broker-open a
+    case -> the controller drives both fake seats to a typed close. The
+    human/session never votes; the record verifies clean."""
+    import subprocess
+
+    registry, project = isolated
+    _brokered_registry(registry, tmp_path)
+    _git_project(project)
+    _approve_all(project)
+    root = project / "collab"
+    spec = opening.BrokeredOpenSpec(
+        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project),
+    )
+    live_registry = seats.load_registry()
+    result = opening.open_debate_brokered(
+        spec, live_registry, load_config_fn=_watcher_config, now=NOW, tool_version="test",
+    )
+    name = result.channel_name
+    config_path = result.config_path
+    # Speed the controller up for the test; the product default stays 60s.
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["scheduler_interval_seconds"] = 1
+    config["retry_seconds"] = 1
+    config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    src_dir = Path(__file__).resolve().parent.parent / "src"
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "PYTHONPATH": str(src_dir),
+        "DEBATE_SEATS_REGISTRY": str(registry),
+        "HOME": str(tmp_path),
+    }
+
+    def run(*argv: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+        proc = subprocess.run(
+            [sys.executable, "-m", "debate", *argv],
+            capture_output=True, text=True, env=env, timeout=timeout, check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        return proc
+
+    run(
+        "broker-open", "--root", str(root), "--channel", name,
+        "--config", str(config_path), "--thread", "stub-case-1",
+        "--first-seat", json.loads((root / f"{name}.debate.json").read_text())["parties"][0],
+        "--body", "Stub review request: both fake seats return PASS.",
+    )
+    run(
+        "watch", "--root", str(root), "--channel", name,
+        "--config", str(config_path), "--until-close", timeout=120,
+    )
+    status_proc = run("status", "--root", str(root), "--channel", name)
+    status = json.loads(status_proc.stdout[: status_proc.stdout.rindex("}") + 1])
+    assert status["phase"] == "terminal"
+    assert status["terminal_result"] == "PASS"
+    assert status["close_reason"] == "party-vote-agreement"
+    run("verify", "--root", str(root), "--channel", name)
+    mailbox = (root / f"{name}.channel.md").read_text(encoding="utf-8")
+    record = json.loads((root / f"{name}.debate.json").read_text(encoding="utf-8"))
+    for party in record["parties"]:
+        assert f"from: {party} | type: verdict" in mailbox
+    # The human supervisor opened and closed; it never voted.
+    assert "from: owner | type: verdict" not in mailbox

@@ -147,12 +147,10 @@ def screen_credentials(registry: Registry) -> None:
                     )
 
 
-def save_registry(registry: Registry) -> Path:
-    """Validate fully -- credential screen included -- then write once."""
-    screen_credentials(registry)
-    path = registry_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, object] = {
+def registry_payload(registry: Registry) -> dict[str, object]:
+    """The registry's canonical JSON shape (shared by save_registry and the
+    onboarding transaction, so the two writers can never drift)."""
+    return {
         "registry_version": REGISTRY_VERSION,
         "tool_version": registry.tool_version,
         "discovered_at": registry.discovered_at,
@@ -174,7 +172,14 @@ def save_registry(registry: Registry) -> Path:
         },
         "last_pair": dict(sorted(registry.last_pair.items())),
     }
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def save_registry(registry: Registry) -> Path:
+    """Validate fully -- credential screen included -- then write once."""
+    screen_credentials(registry)
+    path = registry_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(registry_payload(registry), indent=2) + "\n", encoding="utf-8")
     return path
 
 

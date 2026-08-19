@@ -292,6 +292,30 @@ def main(argv: list[str] | None = None) -> int:
         help="absolute project root the host session runs in",
     )
     p_onb_status.add_argument("--json", action="store_true", dest="as_json")
+    p_onb_inspect = onboarding_sub.add_parser(
+        "inspect",
+        help="in-memory catalog x PATH discovery; sanitized candidates + revision; writes nothing",
+    )
+    p_onb_inspect.add_argument("--project", required=True, metavar="ABSOLUTE_PATH")
+    p_onb_inspect.add_argument("--json", action="store_true", dest="as_json")
+    p_onb_approve = onboarding_sub.add_parser(
+        "approve",
+        help="record the user's seat approval: transactional registry + project profile write",
+    )
+    p_onb_approve.add_argument("--project", required=True, metavar="ABSOLUTE_PATH")
+    p_onb_approve.add_argument(
+        "--candidate-revision", required=True, dest="candidate_revision", metavar="HASH",
+        help="the revision inspect returned; a changed candidate set is refused",
+    )
+    p_onb_approve.add_argument(
+        "--allow", action="append", required=True, dest="allow", metavar="SEAT",
+        help="approved seat id (repeatable)",
+    )
+    p_onb_approve.add_argument(
+        "--confirmed", action="store_true",
+        help="assert the user answered the approval question in the current turn",
+    )
+    p_onb_approve.add_argument("--json", action="store_true", dest="as_json")
 
     p_open = sub.add_parser(
         "open",
@@ -319,6 +343,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="seat the same vendor/submodel twice anyway (a monologue risk, "
         "always an explicit choice)",
+    )
+    p_open.add_argument(
+        "--brokered",
+        action="store_true",
+        help="mint a managed-version-2 channel (the v0.8 product path): controller-bound "
+        "adapters, human supervisor outside both seats; requires --pair and project approval",
+    )
+    p_open.add_argument(
+        "--source-ref",
+        default=None,
+        dest="source_ref",
+        metavar="SHA",
+        help="brokered only: the commit the controller exports for the seats "
+        "(default: the project repository's HEAD)",
     )
 
     p_init = sub.add_parser("init", help="create a channel directory")
@@ -509,14 +547,88 @@ def main(argv: list[str] | None = None) -> int:
             name = channel.discover_channel(args.root, getattr(args, "channel", None))
 
         if args.command == "onboarding":
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            onboarding_report: dict[str, object]
             if args.onboarding_command == "status":
                 onboarding_report = onboarding.status(args.project)
-                if args.as_json:
-                    print(json.dumps(onboarding_report, indent=2))
-                else:
-                    for line in onboarding.status_lines(onboarding_report):
-                        _flushing_print(line)
-                return 0
+            elif args.onboarding_command == "inspect":
+                onboarding_report = onboarding.inspect(args.project, now=now)
+            else:  # approve
+                onboarding_report = onboarding.approve(
+                    args.project,
+                    allow=list(args.allow),
+                    candidate_revision=args.candidate_revision,
+                    confirmed=args.confirmed,
+                    now=now,
+                )
+            if args.as_json:
+                print(json.dumps(onboarding_report, indent=2))
+            elif args.onboarding_command == "status" or args.onboarding_command == "approve":
+                for line in onboarding.status_lines(onboarding_report):
+                    _flushing_print(line)
+            else:
+                candidates = onboarding_report["candidates"]
+                if isinstance(candidates, list):
+                    for row in candidates:
+                        if isinstance(row, dict):
+                            _flushing_print(
+                                f"{row['seat_id']}: source {row['source']}, "
+                                f"{'present' if row['present'] else 'MISSING'}, "
+                                f"smoke {row['smoke']}"
+                                f"{', existing registry entry' if row['existing'] else ''}"
+                            )
+                _flushing_print(f"candidate_revision: {onboarding_report['candidate_revision']}")
+            return 0
+
+        if args.command == "open" and args.brokered:
+            registry = seats.load_registry()
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            if args.pair is None:
+                raise channel.ChannelError(
+                    "refused: --brokered needs --pair (the product skill passes the "
+                    "user's exact two-seat choice)"
+                )
+            parts = tuple(part.strip() for part in args.pair.split(","))
+            if len(parts) != 2 or not all(parts):
+                raise channel.ChannelError(
+                    f"refused: --pair needs exactly two seat ids, got {args.pair!r}"
+                )
+            source_ref = args.source_ref
+            if source_ref is None:
+                import subprocess
+
+                project_root = opening.project_key(args.root)
+                probe = subprocess.run(
+                    ["git", "-C", project_root, "rev-parse", "HEAD"],
+                    capture_output=True, text=True, check=False,
+                )
+                if probe.returncode != 0:
+                    raise channel.ChannelError(
+                        "refused: --brokered could not resolve the project HEAD for "
+                        "source_ref; pass --source-ref explicitly"
+                    )
+                source_ref = probe.stdout.strip()
+            from debate import __version__
+
+            result = opening.open_debate_brokered(
+                opening.BrokeredOpenSpec(
+                    root=args.root,
+                    label=args.label,
+                    pair=(parts[0], parts[1]),
+                    source_ref=source_ref,
+                    supervisor=args.supervisor,
+                    thread_cap=args.thread_cap,
+                    allow_identical_seats=args.allow_identical_seats,
+                ),
+                registry,
+                load_config_fn=_watcher_config,
+                now=now,
+                tool_version=__version__,
+            )
+            seats.save_registry(registry)
+            for line in result.hints:
+                _flushing_print(line)
+            return 0
 
         if args.command == "open":
             registry = seats.load_registry()
