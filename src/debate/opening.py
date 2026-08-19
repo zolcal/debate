@@ -68,6 +68,7 @@ class BrokeredOpenSpec:
     supervisor: str = "owner"
     thread_cap: int = 12
     allow_identical_seats: bool = False
+    docket_files: tuple[str, ...] = ()  # project-relative review inputs for the seats
 
 
 def slugify_seat_id(seat_id: str) -> str:
@@ -466,9 +467,15 @@ def open_debate_brokered(
         "scheduler_interval_seconds": 60,
         "retry_seconds": 30,
         "adapters": adapters,
-        "docket_files": [],
+        "docket_files": list(spec.docket_files),
         "contamination_canaries": {},
     }
+    for docket_file in spec.docket_files:
+        candidate = project_path / docket_file
+        if not candidate.is_file():
+            raise channel.ChannelError(
+                f"refused: docket file {docket_file!r} does not exist under the project"
+            )
     in_memory = channel.ChannelConfig(
         parties=parties,
         supervisor=spec.supervisor,

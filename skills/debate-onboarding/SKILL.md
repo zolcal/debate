@@ -59,7 +59,9 @@ Core rules, non-negotiable:
    will be created (two seats, managed-v2 brokered channel, the human as
    supervisor -- this session never votes), and get the user's confirmation.
 4. Run: `<launcher> open --brokered --root <ABS collab dir> --label <slug>
-   --pair <a>,<b>`. Identity guards are enforced by the engine: the same seat
+   --pair <a>,<b> --docket-file <project-relative review input> [--docket-file ...]`
+   (the docket files are what the seats actually read -- always pass the review
+   target). Identity guards are enforced by the engine: the same seat
    twice and identical commands are refused outright; the same vendor/model at
    two efforts needs `--allow-identical-seats` -- ask the user explicitly before
    passing it, and only with a dedicated warning.

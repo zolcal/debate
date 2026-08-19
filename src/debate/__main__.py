@@ -358,6 +358,14 @@ def main(argv: list[str] | None = None) -> int:
         help="brokered only: the commit the controller exports for the seats "
         "(default: the project repository's HEAD)",
     )
+    p_open.add_argument(
+        "--docket-file",
+        action="append",
+        default=[],
+        dest="docket_files",
+        metavar="PROJECT_RELATIVE_PATH",
+        help="brokered only: a review input snapshotted into the case docket (repeatable)",
+    )
 
     p_init = sub.add_parser("init", help="create a channel directory")
     p_init.add_argument("--root", type=Path, default=Path("."))
@@ -619,6 +627,7 @@ def main(argv: list[str] | None = None) -> int:
                     supervisor=args.supervisor,
                     thread_cap=args.thread_cap,
                     allow_identical_seats=args.allow_identical_seats,
+                    docket_files=tuple(args.docket_files),
                 ),
                 registry,
                 load_config_fn=_watcher_config,

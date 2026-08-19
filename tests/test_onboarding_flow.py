@@ -366,6 +366,36 @@ def test_brokered_open_mints_managed_v2_with_provenance(
     assert live_registry.last_pair[opening.project_key(root)] == ["alpha/fake", "beta/fake"]
 
 
+def test_brokered_open_docket_files_snapshot_and_prewrite_refusal(
+    isolated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    registry, project = isolated
+    _brokered_registry(registry, tmp_path)
+    _git_project(project)
+    _approve_all(project)
+    root = project / "collab"
+    missing = opening.BrokeredOpenSpec(
+        root=root, label="stub", pair=("alpha/fake", "beta/fake"),
+        source_ref=_head(project), docket_files=("no-such-file.md",),
+    )
+    with pytest.raises(channel.ChannelError, match="docket file"):
+        opening.open_debate_brokered(
+            missing, seats.load_registry(), load_config_fn=_watcher_config,
+            now=NOW, tool_version="test",
+        )
+    assert not root.exists() or list(root.iterdir()) == []
+    good = opening.BrokeredOpenSpec(
+        root=root, label="stub", pair=("alpha/fake", "beta/fake"),
+        source_ref=_head(project), docket_files=("README",),
+    )
+    result = opening.open_debate_brokered(
+        good, seats.load_registry(), load_config_fn=_watcher_config,
+        now=NOW, tool_version="test",
+    )
+    config = json.loads(result.config_path.read_text(encoding="utf-8"))
+    assert config["docket_files"] == ["README"]
+
+
 def test_stub_debate_reaches_typed_close(
     isolated: tuple[Path, Path], tmp_path: Path
 ) -> None:
