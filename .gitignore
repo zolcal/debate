@@ -28,6 +28,13 @@ watcher.json
 # Review worktrees live inside the repo. Each is a full checkout, so an
 # absent-minded `git add -A` would try to commit whole trees into this one.
 .claude/worktrees/
+.worktrees/
+
+# v0.8 acceptance roots hold isolated host installs -- live host state and
+# provider credentials inside a public repository. Excluded BEFORE the first
+# install writes into them (plan invariant, gate finding plan-v080-onboarding-59142 MSG-2).
+.acceptance/
+.release-acceptance/
 
 # Session handovers are internal working notes: host paths, credential logistics,
 # unreleased work. Session 2 reached the public repo by omission, not by choice.
