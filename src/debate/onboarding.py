@@ -88,6 +88,10 @@ def status(project: str) -> dict[str, object]:
         else:
             if profile is not None:
                 profile_state = "approved"
+                from datetime import datetime, timezone
+
+                now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                seen_commands: dict[str, str] = {}
                 for seat_id in profile.allowlist:
                     seat = (registry or seats.Registry()).seats[seat_id]
                     present = seat.present and seats.head_resolves(seat.commands[0][0])
@@ -96,15 +100,33 @@ def status(project: str) -> dict[str, object]:
                             f"approved seat {seat_id} is not currently runnable "
                             f"(binary missing: {seat.commands[0][0]})"
                         )
+                    smoke_word = _smoke_word(seat)
                     if seat.smoke is not None and seat.smoke.result == "fail":
                         reasons.append(
                             f"approved seat {seat_id} failed its last smoke at {seat.smoke.at}"
                         )
+                    elif seat.smoke is not None and seat.smoke.result == "pass":
+                        age = seats._days_between(seat.smoke.at, now)
+                        if age is not None and age > seats.STALE_AFTER_DAYS:
+                            smoke_word = "stale"
+                            reasons.append(
+                                f"approved seat {seat_id} smoke pass is {age:.0f}d old "
+                                "(refresh is opt-in)"
+                            )
+                    argv_key = "\x00".join(seat.commands[0])
+                    if argv_key in seen_commands:
+                        reasons.append(
+                            f"approved seats {seen_commands[argv_key]} and {seat_id} run the "
+                            "IDENTICAL selected command; the open-time identity guard will "
+                            "refuse this pair"
+                        )
+                    else:
+                        seen_commands[argv_key] = seat_id
                     approved.append(
                         {
                             "seat_id": seat_id,
                             "present": present,
-                            "smoke": _smoke_word(seat),
+                            "smoke": smoke_word,
                         }
                     )
 
@@ -114,7 +136,9 @@ def status(project: str) -> dict[str, object]:
         attention = ATTENTION_OFFER_SETUP
     elif any(not entry["present"] for entry in approved):
         attention = ATTENTION_REPAIR
-    elif registry_state == "stale" or any(entry["smoke"] == "fail" for entry in approved):
+    elif registry_state == "stale" or any(
+        entry["smoke"] in ("fail", "stale") for entry in approved
+    ):
         attention = ATTENTION_OFFER_REFRESH
     else:
         attention = ATTENTION_READY

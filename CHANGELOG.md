@@ -6,6 +6,52 @@ Every release from v0.2.0 onward went through this project's own review channel 
 record is under [`collab/`](collab/), and the message numbers cited below are entries in
 it.
 
+## v0.8.0 — unreleased
+
+**Debate becomes an installed product inside Codex and Claude Code.** Until now the
+plugin was metadata plus a reactive skill wrapped around a pip-installed CLI; setup
+meant registry commands in a terminal. This release ships the engine INSIDE the native
+plugin, surfaces setup automatically at session start, makes seat approval an explicit
+in-UI act, and makes new product-created debates brokered (managed version 2) by
+default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
+
+### Added
+
+- **Installation-driven onboarding** — a read-only, zero-model-call `SessionStart`
+  hook (per-host manifests: `hooks/hooks.json` for Claude, `hooks/hooks-codex.json`
+  for Codex) shows a setup notice when a project is not ready and stays silent when it
+  is. Non-interactive sessions get one context line, never a banner.
+- **`debate onboarding status|inspect|approve`** — the product engine's JSON-first
+  state machine. `inspect` scans in memory and returns a deterministic
+  `candidate_revision`; `approve` verifies that revision, requires `--confirmed`, and
+  writes the machine registry plus the project's committable `debate-profile.json`
+  transactionally (any preparation failure leaves both prior files byte-identical).
+  Detection is never approval; a previous `last_pair` is never approval; zero selected
+  seats writes nothing.
+- **`debate open --brokered`** — mints a managed-version-2 channel from two approved
+  registry seats: full loader plus adapter-doctor validation before the first target
+  write, provenance (provider, model, effort, command, authentication mode, cost mode,
+  permission policy, author relationship) recorded in the channel's `.debate.json`,
+  the interactive host outside both seats, the human as supervisor.
+- **Native plugin artifacts** — `.codex-plugin/plugin.json`, a repo-local Codex
+  marketplace (`.agents/plugins/marketplace.json`), amended Claude manifests, a
+  bundled-engine launcher (`scripts/debate-plugin`) that never depends on a
+  PATH-installed `debate`, and the `debate-onboarding` skill (setup + start-a-debate
+  UI flows).
+- **Manual bridge seats** — `debate seats add` accepts `{input_path}`/`{result_path}`
+  commands (brokered bridges), alongside the v1 `{prompt}` style.
+
+### Changed
+
+- The plugin bundles the engine; `pip install debate` remains the standalone
+  CLI/automation distribution and does not register any host integration.
+- The product path reads a MISSING `debate-profile.json` as "not approved" and offers
+  setup; the direct CLI keeps the 0.7 "no file, no restriction" reading.
+- `onboarding status` explains vanished binaries, failed and stale smoke, stale
+  registries, and duplicate approved commands before they bite at open time.
+- Uninstalling the plugin removes host integration only; registries, profiles, and
+  channel records are user data and are never deleted.
+
 ## v0.7.0 — 2026-08-18
 
 **The machine's models become seats you can pick from.** Until now the pair
