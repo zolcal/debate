@@ -86,6 +86,20 @@ def test_inspect_is_read_only_and_labels_existing(isolated: tuple[Path, Path], t
     ] == revision
 
 
+def test_manual_bridge_seat_is_addable(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    """A brokered bridge command ({input_path}/{result_path}, no {prompt})
+    is a legal manual seat -- Slice 2 acceptance seeds fake seats this way."""
+    registry = seats.Registry()
+    script = _fake_adapter_script(tmp_path, "gamma")
+    seats.add_seat(
+        registry, "gamma/fake",
+        f"{sys.executable} {script} {{input_path}} {{result_path}}",
+    )
+    assert registry.seats["gamma/fake"].source == "manual"
+    with pytest.raises(channel.ChannelError, match="placeholder"):
+        seats.add_seat(registry, "delta/fake", "/bin/sh -c true")
+
+
 def test_inspect_fresh_machine_has_no_candidates(isolated: tuple[Path, Path]) -> None:
     _, project = isolated
     report = onboarding.inspect(str(project), now=NOW)

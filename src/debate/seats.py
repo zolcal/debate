@@ -393,9 +393,14 @@ def add_seat(
             f"refused: seat id {seat_id!r} must be vendor/submodel"
         )
     argv = split_argv(command_text)
-    if not argv or "{prompt}" not in " ".join(argv):
+    joined = " ".join(argv)
+    prompt_style = "{prompt}" in joined
+    bridge_style = "{input_path}" in joined and "{result_path}" in joined
+    if not argv or not (prompt_style or bridge_style):
         raise channel.ChannelError(
-            "refused: a seat command needs an executable and a {prompt} placeholder"
+            "refused: a seat command needs an executable and either a {prompt} "
+            "placeholder (v1 watcher seat) or both {input_path} and "
+            "{result_path} placeholders (brokered bridge seat)"
         )
     head = argv[0]
     if not head_resolves(head, which):
