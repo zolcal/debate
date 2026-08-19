@@ -197,12 +197,23 @@ def test_non_interactive_suppresses_the_banner(tmp_path: Path) -> None:
     assert "offer_setup" in str(hso["additionalContext"])
 
 
-def test_non_interactive_input_field_suppresses_too(tmp_path: Path) -> None:
+def test_claude_headless_entrypoint_suppresses_the_banner(tmp_path: Path) -> None:
+    """CLAUDE_CODE_ENTRYPOINT=sdk-cli is the ATTESTED headless signal
+    (HOOK-CONTRACT.md spike, 2026-08-19); interactive sessions carry "cli"
+    and keep the banner."""
     project = tmp_path / "proj"
     project.mkdir()
-    event = json.dumps({"cwd": str(project), "non_interactive": True})
-    payload, _, _ = _run(project, tmp_path / "reg.json", stdin=event)
+    payload, _, _ = _run(
+        project, tmp_path / "reg.json", extra_env={"CLAUDE_CODE_ENTRYPOINT": "sdk-cli"}
+    )
     assert "systemMessage" not in payload
+    hso = payload["hookSpecificOutput"]
+    assert isinstance(hso, dict)
+    assert "offer_setup" in str(hso["additionalContext"])
+    interactive, _, _ = _run(
+        project, tmp_path / "reg.json", extra_env={"CLAUDE_CODE_ENTRYPOINT": "cli"}
+    )
+    assert "systemMessage" in interactive
 
 
 def test_hook_is_fast_and_writes_nothing(tmp_path: Path) -> None:
@@ -227,7 +238,7 @@ def test_notices_are_ascii(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("manifest", ["hooks.json", "hooks-codex.json"])
-def test_manifests_parse_and_agree_on_the_command(manifest: str) -> None:
+def test_manifests_parse_and_carry_the_command(manifest: str) -> None:
     raw = json.loads((REPO_ROOT / "hooks" / manifest).read_text(encoding="utf-8"))
     entries = raw["hooks"]["SessionStart"]
     assert len(entries) == 1
@@ -237,6 +248,12 @@ def test_manifests_parse_and_agree_on_the_command(manifest: str) -> None:
     assert hook["command"].startswith("python3 ")
     assert hook["timeout"] == 10
     assert hook["async"] is False
-    # The 2026-06-26 Codex parser incident: keep both manifests minimal and
-    # field-identical at the hook-entry level.
-    assert set(hook) == {"type", "command", "timeout", "async"}
+
+
+def test_manifests_are_field_identical_documents() -> None:
+    """The 2026-06-26 Codex parser incident plus the branch-gate round-1
+    finding: the two manifests must be DEEP-EQUAL documents, not merely
+    equal at the hook-entry level."""
+    claude = json.loads((REPO_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    codex = json.loads((REPO_ROOT / "hooks" / "hooks-codex.json").read_text(encoding="utf-8"))
+    assert claude == codex

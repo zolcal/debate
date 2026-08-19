@@ -43,6 +43,14 @@ class Seat:
     # (operator-authored -- NEVER touched by the tool)
     present: bool
     smoke: SmokeStatus | None
+    # Who pays when this seat runs. Declared, never guessed: the catalog
+    # cannot know how a CLI is authenticated on THIS machine, so discovery
+    # leaves "unknown" and the operator declares better via
+    # `seats add --cost-mode`. Values mirror the controller's COST_MODES.
+    cost_mode: str = "unknown"
+
+
+COST_MODES = ("subscription", "api", "local", "unknown")
 
 
 @dataclass
@@ -84,6 +92,12 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
             f"got {present_raw!r}"
         )
     effort = raw.get("effort")
+    cost_mode = str(raw.get("cost_mode", "unknown"))
+    if cost_mode not in COST_MODES:
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} cost_mode {cost_mode!r} "
+            f"must be one of {COST_MODES}"
+        )
     return Seat(
         seat_id=seat_id,
         vendor=str(raw.get("vendor", "")),
@@ -93,6 +107,7 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
         source=str(raw.get("source", "manual")),
         present=present_raw,
         smoke=smoke,
+        cost_mode=cost_mode,
     )
 
 
@@ -167,6 +182,7 @@ def registry_payload(registry: Registry) -> dict[str, object]:
                     if seat.smoke is not None
                     else None
                 ),
+                "cost_mode": seat.cost_mode,
             }
             for seat_id, seat in sorted(registry.seats.items())
         },
@@ -316,7 +332,7 @@ def slug(text: str) -> str:
     return cleaned
 
 
-def _days_between(earlier: str, later: str) -> float | None:
+def days_between(earlier: str, later: str) -> float | None:
     from datetime import datetime
 
     try:
@@ -352,7 +368,7 @@ def check(
         if seat.smoke.result != "pass":
             report.fails.append(f"FAIL {seat_id}: smoke failed at {seat.smoke.at}")
             continue
-        age = _days_between(seat.smoke.at, now)
+        age = days_between(seat.smoke.at, now)
         if age is not None and age > STALE_AFTER_DAYS:
             report.warns.append(
                 f"WARN {seat_id}: smoke stale ({age:.0f}d; refresh via debate seats smoke)"
@@ -381,6 +397,7 @@ def add_seat(
     command_text: str,
     *,
     which: Callable[[str], str | None] = shutil.which,
+    cost_mode: str = "unknown",
 ) -> None:
     """Create a manual seat, or APPEND an endpoint option to an existing
     manual one (another provider account of the SAME serving, section 2.9;
@@ -423,6 +440,10 @@ def add_seat(
             )
         existing.commands.append(argv)
         return
+    if cost_mode not in COST_MODES:
+        raise channel.ChannelError(
+            f"refused: cost_mode {cost_mode!r} must be one of {COST_MODES}"
+        )
     vendor, _, submodel = seat_id.partition("/")
     base_id, _, effort = seat_id.partition("@")
     registry.seats[seat_id] = Seat(
@@ -434,6 +455,7 @@ def add_seat(
         source="manual",
         present=True,
         smoke=None,
+        cost_mode=cost_mode,
     )
 
 
@@ -478,6 +500,7 @@ def add_effort_seat(registry: Registry, seat_id: str) -> None:
         source="derived",
         present=base.present,
         smoke=None,
+        cost_mode=base.cost_mode,
     )
 
 
@@ -516,7 +539,9 @@ def smoke_seat(
     if not assume_yes:
         answer = ask(
             f"smoke {seat_id}: this spends ONE model call "
-            f"({seat.commands[0][0]} ...). Proceed? [y/N]: "
+            f"({seat.commands[0][0]} ...; cost mode: {seat.cost_mode}"
+            f"{' -- undeclared, treat as potentially metered' if seat.cost_mode == 'unknown' else ''}"
+            "). Proceed? [y/N]: "
         ).strip().lower()
         if answer not in ("y", "yes"):
             raise channel.ChannelError(
@@ -615,3 +640,7 @@ def load_profile(project: str, registry: Registry) -> Profile | None:
                 "not in the registry; run: debate seats discover"
             )
     return Profile(allowlist=tuple(allowlist_raw))
+
+
+# Backwards-compatible alias (pre-0.8 internal name).
+_days_between = days_between

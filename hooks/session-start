@@ -42,7 +42,17 @@ def _out(system_message: str | None, context: str) -> dict:
 
 
 def main() -> int:
-    quiet = os.environ.get("DEBATE_ONBOARDING_QUIET") == "1"
+    # Non-interactive suppression, on ATTESTED signals only (HOOK-CONTRACT.md):
+    # Claude Code sets CLAUDE_CODE_ENTRYPOINT="sdk-cli" for headless -p runs
+    # ("cli" when interactive; spike-verified 2026-08-19). Codex exposes no
+    # attested signal yet, so DEBATE_ONBOARDING_QUIET=1 is the documented
+    # automation lever there (set it in the automation environment).
+    entrypoint = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
+    quiet = (
+        os.environ.get("DEBATE_ONBOARDING_QUIET") == "1"
+        or entrypoint == "sdk-cli"
+        or entrypoint.startswith("sdk-")
+    )
     raw = sys.stdin.read()
     try:
         event = json.loads(raw) if raw.strip() else {}
@@ -56,9 +66,6 @@ def main() -> int:
             "Debate hook input was malformed; onboarding state unknown.",
         ))
         return 0
-    if event.get("non_interactive") is True:
-        quiet = True
-
     root = _plugin_root()
     launcher = root / "scripts" / "debate-plugin"
     engine = root / "src"

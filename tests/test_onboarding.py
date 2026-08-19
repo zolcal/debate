@@ -88,7 +88,7 @@ def test_approved_and_present_is_ready_and_quiet(isolated: tuple[Path, Path]) ->
     assert report["profile_state"] == "approved"
     assert report["attention"] == "ready"
     assert report["approved_seats"] == [
-        {"seat_id": "probe/fake", "present": True, "smoke": "never"}
+        {"seat_id": "probe/fake", "present": True, "smoke": "never", "cost_mode": "unknown"}
     ]
 
 
@@ -119,7 +119,7 @@ def test_vanished_binary_requires_repair(isolated: tuple[Path, Path]) -> None:
     report = onboarding.status(str(project))
     assert report["attention"] == "repair_required"
     assert report["approved_seats"] == [
-        {"seat_id": "probe/fake", "present": False, "smoke": "never"}
+        {"seat_id": "probe/fake", "present": False, "smoke": "never", "cost_mode": "unknown"}
     ]
 
 

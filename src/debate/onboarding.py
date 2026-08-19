@@ -106,7 +106,7 @@ def status(project: str) -> dict[str, object]:
                             f"approved seat {seat_id} failed its last smoke at {seat.smoke.at}"
                         )
                     elif seat.smoke is not None and seat.smoke.result == "pass":
-                        age = seats._days_between(seat.smoke.at, now)
+                        age = seats.days_between(seat.smoke.at, now)
                         if age is not None and age > seats.STALE_AFTER_DAYS:
                             smoke_word = "stale"
                             reasons.append(
@@ -127,6 +127,7 @@ def status(project: str) -> dict[str, object]:
                             "seat_id": seat_id,
                             "present": present,
                             "smoke": smoke_word,
+                            "cost_mode": seat.cost_mode,
                         }
                     )
 
@@ -171,6 +172,7 @@ def _candidates(registry: seats.Registry, existing_ids: set[str]) -> list[dict[s
                 "source": seat.source,
                 "present": seat.present and seats.head_resolves(seat.commands[0][0]),
                 "smoke": _smoke_word(seat),
+                "cost_mode": seat.cost_mode,
                 "existing": seat_id in existing_ids,
             }
         )
@@ -306,6 +308,9 @@ def approve(
         temps.remove(registry_tmp)
         os.replace(profile_tmp, profile_target)
         temps.remove(profile_tmp)
+        # mkstemp creates 0600; the profile is a COMMITTABLE project file, so
+        # give it normal file permissions (registry stays private-by-default).
+        profile_target.chmod(0o644)
     except OSError as error:
         for leftover in temps:
             try:

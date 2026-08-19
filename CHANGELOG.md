@@ -19,8 +19,11 @@ default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
 
 - **Installation-driven onboarding** — a read-only, zero-model-call `SessionStart`
   hook (per-host manifests: `hooks/hooks.json` for Claude, `hooks/hooks-codex.json`
-  for Codex) shows a setup notice when a project is not ready and stays silent when it
-  is. Non-interactive sessions get one context line, never a banner.
+  for Codex, field-identical documents) shows a setup notice when a project is not
+  ready and stays silent when it is. Headless Claude sessions
+  (`CLAUDE_CODE_ENTRYPOINT=sdk-cli`, spike-attested) get one context line, never a
+  banner; for Codex automation the documented lever is `DEBATE_ONBOARDING_QUIET=1`
+  (no headless signal is attestable there until a hook is trusted interactively).
 - **`debate onboarding status|inspect|approve`** — the product engine's JSON-first
   state machine. `inspect` scans in memory and returns a deterministic
   `candidate_revision`; `approve` verifies that revision, requires `--confirmed`, and
@@ -39,7 +42,14 @@ default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
   PATH-installed `debate`, and the `debate-onboarding` skill (setup + start-a-debate
   UI flows).
 - **Manual bridge seats** — `debate seats add` accepts `{input_path}`/`{result_path}`
-  commands (brokered bridges), alongside the v1 `{prompt}` style.
+  commands (brokered bridges), alongside the v1 `{prompt}` style, and a
+  `--cost-mode` declaration (subscription, api, local; default unknown).
+- **Declared cost and authorship, never guessed** — every seat carries a declared
+  `cost_mode` shown in the approval table, in `onboarding status`, and before any
+  smoke spend ("unknown" is reported as undeclared, treated as potentially
+  metered); `open --brokered` requires `--author-vendor`, and a seat sharing the
+  interactive author's vendor is recorded author-affiliated in the adapter config
+  and channel provenance.
 
 ### Changed
 

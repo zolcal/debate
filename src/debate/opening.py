@@ -64,6 +64,7 @@ class BrokeredOpenSpec:
     label: str
     pair: tuple[str, str]
     source_ref: str
+    author_vendor: str  # the interactive author's vendor (e.g. "claude", "codex")
     runtime_root: Path | None = None
     supervisor: str = "owner"
     thread_cap: int = 12
@@ -192,7 +193,7 @@ def pick_pair(
             )
     first = _seatable(registry, requested[0])
     second = _seatable(registry, requested[1])
-    from .seats import STALE_AFTER_DAYS, _days_between
+    from .seats import STALE_AFTER_DAYS, days_between as _days_between
 
     for seat in (first, second):
         if seat.smoke is not None and seat.smoke.result != "pass":
@@ -361,10 +362,15 @@ def open_debate(
     return OpenResult(channel_name=name, config_path=config_path, hints=hints)
 
 
-def _brokered_adapter(seat: Seat, *, tool_version: str) -> dict[str, object]:
+def _brokered_adapter(
+    seat: Seat, *, tool_version: str, author_vendor: str
+) -> dict[str, object]:
     """Registry seat -> adapter profile mapping (v0.8 minimum). Only honest
-    fields: what the registry does not know is recorded as unknown, never
-    invented."""
+    fields: cost mode is the seat's DECLARED value (unknown when undeclared,
+    never guessed), the author relationship is DERIVED from the declared
+    author vendor (a seat sharing the interactive author's vendor is
+    author-affiliated), and the authentication/permission strings describe
+    the controller's invocation contract, not per-seat claims."""
     argv = " ".join(seat.commands[0])
     if "{input_path}" not in argv or "{result_path}" not in argv:
         raise channel.ChannelError(
@@ -373,14 +379,17 @@ def _brokered_adapter(seat: Seat, *, tool_version: str) -> dict[str, object]:
             "run controller-bound bridges; author one as a manual seat "
             "(debate seats add) whose argv accepts both placeholders."
         )
+    relationship = (
+        "author-affiliated" if seat.vendor == author_vendor else "author-independent"
+    )
     return {
         "command": list(seat.commands[0]),
         "provider": seat.vendor,
         "requested_model": seat.submodel,
-        "author_relationship": "author-independent",
+        "author_relationship": relationship,
         "reasoning_effort": seat.effort or "default",
         "cli_version": f"registry seat (debate {tool_version}); bridge-reported at runtime",
-        "cost_mode": "unknown",
+        "cost_mode": seat.cost_mode,
         "authentication_mode": (
             "seat bridge is self-authenticating; the controller handles no credentials"
         ),
@@ -449,6 +458,12 @@ def open_debate_brokered(
         )
     if not spec.source_ref.strip():
         raise channel.ChannelError("refused: a brokered open needs a source_ref")
+    if not spec.author_vendor.strip():
+        raise channel.ChannelError(
+            "refused: a brokered open needs --author-vendor (the interactive "
+            "author's vendor), so the recorded author relationship is declared, "
+            "never guessed"
+        )
 
     name = channel.generate_channel_id(spec.root, label=spec.label)
     project_path = Path(project)
@@ -463,8 +478,12 @@ def open_debate_brokered(
     state_path = runtime_root / f"{name}.state.json"
 
     adapters = {
-        parties[0]: _brokered_adapter(first, tool_version=tool_version),
-        parties[1]: _brokered_adapter(second, tool_version=tool_version),
+        parties[0]: _brokered_adapter(
+            first, tool_version=tool_version, author_vendor=spec.author_vendor
+        ),
+        parties[1]: _brokered_adapter(
+            second, tool_version=tool_version, author_vendor=spec.author_vendor
+        ),
     }
     config: dict[str, object] = {
         "state_path": str(state_path),
@@ -526,7 +545,7 @@ def open_debate_brokered(
             "smoke_result": first.smoke.result if first.smoke is not None else None,
             "provider": first.vendor,
             "requested_model": first.submodel,
-            "author_relationship": "author-independent",
+            "author_relationship": str(adapters[parties[0]]["author_relationship"]),
             "cost_mode": str(adapters[parties[0]]["cost_mode"]),
             "authentication_mode": str(adapters[parties[0]]["authentication_mode"]),
             "permission_policy": str(adapters[parties[0]]["permission_policy"]),
@@ -539,7 +558,7 @@ def open_debate_brokered(
             "smoke_result": second.smoke.result if second.smoke is not None else None,
             "provider": second.vendor,
             "requested_model": second.submodel,
-            "author_relationship": "author-independent",
+            "author_relationship": str(adapters[parties[1]]["author_relationship"]),
             "cost_mode": str(adapters[parties[1]]["cost_mode"]),
             "authentication_mode": str(adapters[parties[1]]["authentication_mode"]),
             "permission_policy": str(adapters[parties[1]]["permission_policy"]),

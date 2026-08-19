@@ -31,7 +31,9 @@ Core rules, non-negotiable:
 1. Ask the user's consent if they have not just given it ("set up Debate" IS
    consent). Then run: `<launcher> onboarding inspect --project <ABS-CWD> --json`.
 2. Present the candidates as a concise table: seat id, vendor/model identity, how
-   the model selection is pinned (the command), present or missing, smoke state,
+   the model selection is pinned (the command), present or missing, smoke state
+   AND cost mode (the `cost_mode` field: subscription quota, metered API, local
+   compute, or unknown -- report "unknown" as undeclared, never guess a value),
    and source (`catalog` = discovered, `derived`, `manual` = operator-authored,
    plus "existing registry entry" where labelled). Label existing state visibly
    as existing state -- it is candidate input only.
@@ -44,9 +46,11 @@ Core rules, non-negotiable:
    A "candidate set changed" refusal means the machine changed under you:
    re-run inspect and re-ask.
 5. Report the resulting state in plain language. THEN offer smoke, default "not
-   now": exactly one model call per selected seat; state the cost mode
-   (subscription quota, metered API, or local compute) before the user decides.
-   Only on an explicit yes: `<launcher> seats smoke <SEAT> --yes`.
+   now": exactly one model call per selected seat; state each seat's RECORDED
+   `cost_mode` before the user decides ("unknown" means the operator never
+   declared it -- say exactly that and treat the spend as potentially metered;
+   never invent a cost claim). Only on an explicit yes:
+   `<launcher> seats smoke <SEAT> --yes`.
 
 ## Flow 2 — "start a debate"
 
@@ -61,9 +65,12 @@ Core rules, non-negotiable:
 4. Run EXACTLY this form -- `--brokered` is NOT optional; plain `debate open`
    without it mints a legacy version-1 channel and is never the product path:
    `<launcher> open --brokered --root <ABS collab dir> --label <slug>
-   --pair <a>,<b> --docket-file <project-relative review input> [--docket-file ...]`
-   (the docket files are what the seats actually read -- always pass the review
-   target). Identity guards are enforced by the engine: the same seat
+   --pair <a>,<b> --author-vendor <your host's catalog vendor: "claude" in
+   Claude Code, "codex" in Codex> --docket-file <project-relative review input>
+   [--docket-file ...]` (the docket files are what the seats actually read --
+   always pass the review target; --author-vendor makes the recorded author
+   relationship a declared fact: a seat sharing your host's vendor is recorded
+   author-affiliated). Identity guards are enforced by the engine: the same seat
    twice and identical commands are refused outright; the same vendor/model at
    two efforts needs `--allow-identical-seats` -- ask the user explicitly before
    passing it, and only with a dedicated warning.

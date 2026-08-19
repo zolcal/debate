@@ -36,6 +36,21 @@ paths, preferring `hooks-codex.json` when present (observed with superpowers in
 2026-06-26 parser incident on this workstation argues for keeping both manifests
 minimal and field-identical. `timeout` is in seconds; ours is 10 (host default 600).
 
+## Non-interactive detection (spike extension, 2026-08-19)
+
+Empirically attested by an env/stdin dump hook in an isolated HOME:
+
+- Claude Code headless (`claude -p`): `CLAUDE_CODE_ENTRYPOINT=sdk-cli`;
+  interactive TUI: `CLAUDE_CODE_ENTRYPOINT=cli`. The hook suppresses the
+  visible banner when the value is `sdk-cli` (or any `sdk-` prefix).
+  The stdin event carries `session_id`, `transcript_path`, `cwd`,
+  `hook_event_name`, `source` -- no interactivity field.
+- Codex: an UNTRUSTED user hook is silently skipped in `codex exec`, so no
+  headless signal could be attested without an interactive trust session.
+  Until one is attested, `DEBATE_ONBOARDING_QUIET=1` is the documented
+  automation lever for Codex (set it in the automation environment). This
+  is an honest limitation, not a claim of detection.
+
 ## Trust
 
 Codex records per-hook trust hashes under `[hooks.state]` in `config.toml`

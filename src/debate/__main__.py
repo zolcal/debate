@@ -264,6 +264,13 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="seat argv, e.g. '/home/me/.local/bin/my-agent {prompt}'; omit for @EFFORT derivations",
     )
+    p_seats_add.add_argument(
+        "--cost-mode",
+        dest="seats_add_cost_mode",
+        default="unknown",
+        choices=("subscription", "api", "local", "unknown"),
+        help="who pays when this seat runs; declared by you, shown before every spend",
+    )
     p_seats_remove = seats_sub.add_parser(
         "remove",
         help="remove a manual, derived, or absent catalog seat",
@@ -365,6 +372,14 @@ def main(argv: list[str] | None = None) -> int:
         dest="docket_files",
         metavar="PROJECT_RELATIVE_PATH",
         help="brokered only: a review input snapshotted into the case docket (repeatable)",
+    )
+    p_open.add_argument(
+        "--author-vendor",
+        default=None,
+        dest="author_vendor",
+        metavar="VENDOR",
+        help="brokered only, required: the interactive author's vendor (catalog id, "
+        "e.g. 'claude' or 'codex'); a seat sharing it is recorded author-affiliated",
     )
 
     p_init = sub.add_parser("init", help="create a channel directory")
@@ -616,6 +631,11 @@ def main(argv: list[str] | None = None) -> int:
                         "source_ref; pass --source-ref explicitly"
                     )
                 source_ref = probe.stdout.strip()
+            if args.author_vendor is None:
+                raise channel.ChannelError(
+                    "refused: --brokered needs --author-vendor (the interactive "
+                    "author's vendor, e.g. 'claude' or 'codex')"
+                )
             from debate import __version__
 
             result = opening.open_debate_brokered(
@@ -624,6 +644,7 @@ def main(argv: list[str] | None = None) -> int:
                     label=args.label,
                     pair=(parts[0], parts[1]),
                     source_ref=source_ref,
+                    author_vendor=args.author_vendor,
                     supervisor=args.supervisor,
                     thread_cap=args.thread_cap,
                     allow_identical_seats=args.allow_identical_seats,
@@ -748,7 +769,10 @@ def main(argv: list[str] | None = None) -> int:
                 return worst
             if args.seats_command == "add":
                 if args.seats_add_command_text is not None:
-                    seats.add_seat(registry, args.seat_id, args.seats_add_command_text)
+                    seats.add_seat(
+                        registry, args.seat_id, args.seats_add_command_text,
+                        cost_mode=args.seats_add_cost_mode,
+                    )
                 elif "@" in args.seat_id:
                     seats.add_effort_seat(registry, args.seat_id)
                 else:
