@@ -271,7 +271,7 @@ def test_brokered_open_refuses_without_profile(isolated: tuple[Path, Path], tmp_
     _git_project(project)
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
-        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="testhost",
+        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="claude",
     )
     with pytest.raises(channel.ChannelError, match="no approved seats"):
         opening.open_debate_brokered(
@@ -296,7 +296,7 @@ def test_brokered_open_identity_guard(isolated: tuple[Path, Path], tmp_path: Pat
     _approve_all(project)
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
-        root=root, label="stub", pair=("alpha/fake", "alpha/fake"), source_ref=_head(project), author_vendor="testhost",
+        root=root, label="stub", pair=("alpha/fake", "alpha/fake"), source_ref=_head(project), author_vendor="claude",
     )
     with pytest.raises(channel.ChannelError, match="same seat twice"):
         opening.open_debate_brokered(
@@ -326,7 +326,7 @@ def test_brokered_open_refuses_prompt_style_seats(isolated: tuple[Path, Path], t
     )
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
-        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="testhost",
+        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="claude",
     )
     with pytest.raises(channel.ChannelError, match="not brokered-capable"):
         opening.open_debate_brokered(
@@ -345,7 +345,7 @@ def test_brokered_open_mints_managed_v2_with_provenance(
     _approve_all(project)
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
-        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="testhost",
+        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="claude",
     )
     live_registry = seats.load_registry()
     result = opening.open_debate_brokered(
@@ -406,6 +406,104 @@ def test_author_vendor_derives_the_recorded_relationship(
         )
 
 
+def test_padded_author_vendor_still_matches_and_typo_is_refused(
+    isolated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """Round-2 findings: ' alpha ' must record the alpha seat as
+    author-affiliated (normalization, codex MSG-7), and an unknown vendor
+    refuses instead of silently degrading to author-independent (opus S3)."""
+    registry, project = isolated
+    _brokered_registry(registry, tmp_path)
+    _git_project(project)
+    _approve_all(project)
+    root = project / "collab"
+    result = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=root, label="stub", pair=("alpha/fake", "beta/fake"),
+            source_ref=_head(project), author_vendor=" Alpha ",
+        ),
+        seats.load_registry(), load_config_fn=_watcher_config,
+        now=NOW, tool_version="test",
+    )
+    config = json.loads(result.config_path.read_text(encoding="utf-8"))
+    assert config["adapters"]["alpha"]["author_relationship"] == "author-affiliated"
+    root2 = project / "collab2"
+    with pytest.raises(channel.ChannelError, match="matches no catalog or"):
+        opening.open_debate_brokered(
+            opening.BrokeredOpenSpec(
+                root=root2, label="stub", pair=("alpha/fake", "beta/fake"),
+                source_ref=_head(project), author_vendor="clade",
+            ),
+            seats.load_registry(), load_config_fn=_watcher_config,
+            now=NOW, tool_version="test",
+        )
+    assert not root2.exists() or list(root2.iterdir()) == []
+
+
+def test_cli_brokered_open_requires_author_vendor(
+    isolated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    from debate.__main__ import main
+
+    registry, project = isolated
+    _brokered_registry(registry, tmp_path)
+    _git_project(project)
+    _approve_all(project)
+    rc = main([
+        "open", "--brokered", "--root", str(project / "collab"),
+        "--label", "stub", "--pair", "alpha/fake,beta/fake",
+    ])
+    assert rc != 0  # ChannelError -> refused, nonzero exit
+
+
+def test_approved_profile_is_world_readable(isolated: tuple[Path, Path]) -> None:
+    """The profile is a COMMITTABLE project file: 0644, not mkstemp's 0600."""
+    registry, project = isolated
+    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    report = onboarding.inspect(str(project), now=NOW)
+    onboarding.approve(
+        str(project), allow=["probe/fake"],
+        candidate_revision=str(report["candidate_revision"]), confirmed=True, now=NOW,
+    )
+    mode = (project / "debate-profile.json").stat().st_mode & 0o777
+    assert mode == 0o644
+
+
+def test_cost_mode_declaration_paths(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    """seats add --cost-mode declares on creation; the append path APPLIES a
+    non-unknown declaration (round-2: silent no-op refused); set_cost_mode
+    declares for ANY existing seat; smoke confirmation names the cost."""
+    registry = seats.Registry()
+    script = _fake_adapter_script(tmp_path, "delta")
+    seats.add_seat(
+        registry, "delta/fake",
+        f"{sys.executable} {script} {{input_path}} {{result_path}}",
+        cost_mode="local",
+    )
+    assert registry.seats["delta/fake"].cost_mode == "local"
+    seats.add_seat(
+        registry, "delta/fake",
+        f"{sys.executable} {script} extra {{input_path}} {{result_path}}",
+        cost_mode="subscription",
+    )
+    assert registry.seats["delta/fake"].cost_mode == "subscription"  # applied, not ignored
+    seats.set_cost_mode(registry, "delta/fake", "api")
+    assert registry.seats["delta/fake"].cost_mode == "api"
+    with pytest.raises(channel.ChannelError, match="cost_mode"):
+        seats.set_cost_mode(registry, "delta/fake", "free")
+    with pytest.raises(channel.ChannelError, match="no seat"):
+        seats.set_cost_mode(registry, "missing/seat", "local")
+    prompts: list[str] = []
+
+    def deny(prompt: str) -> str:
+        prompts.append(prompt)
+        return "n"
+
+    with pytest.raises(channel.ChannelError, match="not confirmed"):
+        seats.smoke_seat(registry, "delta/fake", now=NOW, ask=deny)
+    assert prompts and "cost mode: api" in prompts[0]
+
+
 def test_v1_open_refuses_bridge_seats(isolated: tuple[Path, Path], tmp_path: Path) -> None:
     """The symmetric guard: the legacy v1 open refuses brokered bridges (no
     {prompt}) exactly as the brokered open refuses prompt-style seats --
@@ -434,7 +532,7 @@ def test_brokered_open_docket_files_snapshot_and_prewrite_refusal(
     root = project / "collab"
     missing = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "beta/fake"),
-        source_ref=_head(project), author_vendor="testhost", docket_files=("no-such-file.md",),
+        source_ref=_head(project), author_vendor="claude", docket_files=("no-such-file.md",),
     )
     with pytest.raises(channel.ChannelError, match="docket file"):
         opening.open_debate_brokered(
@@ -444,7 +542,7 @@ def test_brokered_open_docket_files_snapshot_and_prewrite_refusal(
     assert not root.exists() or list(root.iterdir()) == []
     good = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "beta/fake"),
-        source_ref=_head(project), author_vendor="testhost", docket_files=("README",),
+        source_ref=_head(project), author_vendor="claude", docket_files=("README",),
     )
     result = opening.open_debate_brokered(
         good, seats.load_registry(), load_config_fn=_watcher_config,
@@ -468,7 +566,7 @@ def test_stub_debate_reaches_typed_close(
     _approve_all(project)
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
-        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="testhost",
+        root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="claude",
     )
     live_registry = seats.load_registry()
     result = opening.open_debate_brokered(

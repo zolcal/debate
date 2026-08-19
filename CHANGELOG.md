@@ -44,12 +44,16 @@ default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
 - **Manual bridge seats** — `debate seats add` accepts `{input_path}`/`{result_path}`
   commands (brokered bridges), alongside the v1 `{prompt}` style, and a
   `--cost-mode` declaration (subscription, api, local; default unknown).
-- **Declared cost and authorship, never guessed** — every seat carries a declared
-  `cost_mode` shown in the approval table, in `onboarding status`, and before any
-  smoke spend ("unknown" is reported as undeclared, treated as potentially
-  metered); `open --brokered` requires `--author-vendor`, and a seat sharing the
-  interactive author's vendor is recorded author-affiliated in the adapter config
-  and channel provenance.
+- **Declared cost and authorship, never guessed** — every seat carries a
+  `cost_mode` declaration (default "unknown" = undeclared, reported as such and
+  treated as potentially metered) shown in the approval table, in
+  `onboarding status`, and before any smoke spend. Declare or correct it any
+  time — for catalog, derived, and manual seats alike — with
+  `debate seats set-cost-mode SEAT MODE`; discovery never touches the
+  declaration. `open --brokered` requires `--author-vendor` (normalized,
+  validated against known vendors — a typo refuses instead of silently
+  degrading), and a seat sharing the interactive author's vendor is recorded
+  author-affiliated in the adapter config and channel provenance.
 
 ### Changed
 

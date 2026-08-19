@@ -439,6 +439,11 @@ def add_seat(
                 "seats come from discovery"
             )
         existing.commands.append(argv)
+        # A declared cost mode on the append path APPLIES (a silent no-op was
+        # the branch-gate round-2 finding); "unknown" leaves the declaration
+        # untouched rather than regressing it.
+        if cost_mode != "unknown":
+            existing.cost_mode = cost_mode
         return
     if cost_mode not in COST_MODES:
         raise channel.ChannelError(
@@ -457,6 +462,22 @@ def add_seat(
         smoke=None,
         cost_mode=cost_mode,
     )
+
+
+def set_cost_mode(registry: Registry, seat_id: str, cost_mode: str) -> None:
+    """Declare who pays for ANY existing seat -- catalog, derived, or manual.
+    The declaration is the operator's; discovery never touches it, so a
+    catalog seat's cost mode survives re-scans. This is the product path's
+    only way to move a discovered seat off 'unknown' (branch-gate round-2
+    finding: cost_mode must be declarable, not vacuously unknown)."""
+    if cost_mode not in COST_MODES:
+        raise channel.ChannelError(
+            f"refused: cost_mode {cost_mode!r} must be one of {COST_MODES}"
+        )
+    seat = registry.seats.get(seat_id)
+    if seat is None:
+        raise channel.ChannelError(f"refused: no seat {seat_id!r} in the registry")
+    seat.cost_mode = cost_mode
 
 
 def add_effort_seat(registry: Registry, seat_id: str) -> None:

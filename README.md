@@ -200,10 +200,13 @@ debate open --root ./collab --label market-research \
 
 # The 0.8 product default: mint a BROKERED managed-version-2 channel instead.
 # Requires project approval (a debate-profile.json written by the onboarding
-# flow) and brokered-capable seats ({input_path}/{result_path} bridges); the
-# plain form above keeps minting version-1 channels for compatibility.
+# flow), brokered-capable seats ({input_path}/{result_path} bridges), and
+# --author-vendor: the interactive author's vendor, declared so a same-vendor
+# seat is recorded author-affiliated instead of guessed. The plain form above
+# keeps minting version-1 channels for compatibility.
 debate open --brokered --root ./collab --label market-research \
-    --pair alpha/fake,beta/fake
+    --pair alpha/fake,beta/fake --author-vendor claude \
+    --docket-file README.md
 ```
 
 A seat is `vendor/submodel`, optionally `vendor/submodel@effort` — two

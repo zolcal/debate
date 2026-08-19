@@ -271,6 +271,14 @@ def main(argv: list[str] | None = None) -> int:
         choices=("subscription", "api", "local", "unknown"),
         help="who pays when this seat runs; declared by you, shown before every spend",
     )
+    p_seats_setcost = seats_sub.add_parser(
+        "set-cost-mode",
+        help="declare who pays for an existing seat (catalog, derived, or manual)",
+    )
+    p_seats_setcost.add_argument("seat_id", metavar="SEAT")
+    p_seats_setcost.add_argument(
+        "cost_mode", metavar="MODE", choices=("subscription", "api", "local", "unknown")
+    )
     p_seats_remove = seats_sub.add_parser(
         "remove",
         help="remove a manual, derived, or absent catalog seat",
@@ -782,6 +790,11 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 seats.save_registry(registry)
                 _flushing_print(f"added {args.seat_id}")
+                return 0
+            if args.seats_command == "set-cost-mode":
+                seats.set_cost_mode(registry, args.seat_id, args.cost_mode)
+                seats.save_registry(registry)
+                _flushing_print(f"declared {args.seat_id}: cost mode {args.cost_mode}")
                 return 0
             if args.seats_command == "remove":
                 seats.remove_seat(registry, args.seat_id)

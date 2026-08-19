@@ -380,7 +380,9 @@ def _brokered_adapter(
             "(debate seats add) whose argv accepts both placeholders."
         )
     relationship = (
-        "author-affiliated" if seat.vendor == author_vendor else "author-independent"
+        "author-affiliated"
+        if seat.vendor.strip().lower() == author_vendor
+        else "author-independent"
     )
     return {
         "command": list(seat.commands[0]),
@@ -458,11 +460,24 @@ def open_debate_brokered(
         )
     if not spec.source_ref.strip():
         raise channel.ChannelError("refused: a brokered open needs a source_ref")
-    if not spec.author_vendor.strip():
+    author_vendor = spec.author_vendor.strip().lower()
+    if not author_vendor:
         raise channel.ChannelError(
             "refused: a brokered open needs --author-vendor (the interactive "
             "author's vendor), so the recorded author relationship is declared, "
             "never guessed"
+        )
+    # A typo must refuse, never silently degrade to the PERMISSIVE
+    # author-independent reading: the declaration is only meaningful against
+    # the vendors this open can actually see.
+    from .seat_catalog import CATALOG
+
+    known_vendors = {entry.vendor for entry in CATALOG}
+    known_vendors.update(seat.vendor.strip().lower() for seat in registry.seats.values())
+    if author_vendor not in known_vendors:
+        raise channel.ChannelError(
+            f"refused: --author-vendor {spec.author_vendor!r} matches no catalog or "
+            f"registry vendor; known vendors: {', '.join(sorted(known_vendors))}"
         )
 
     name = channel.generate_channel_id(spec.root, label=spec.label)
@@ -479,10 +494,10 @@ def open_debate_brokered(
 
     adapters = {
         parties[0]: _brokered_adapter(
-            first, tool_version=tool_version, author_vendor=spec.author_vendor
+            first, tool_version=tool_version, author_vendor=author_vendor
         ),
         parties[1]: _brokered_adapter(
-            second, tool_version=tool_version, author_vendor=spec.author_vendor
+            second, tool_version=tool_version, author_vendor=author_vendor
         ),
     }
     config: dict[str, object] = {

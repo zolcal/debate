@@ -45,7 +45,9 @@ Core rules, non-negotiable:
    --allow <SEAT> [--allow <SEAT> ...] --confirmed --json`
    A "candidate set changed" refusal means the machine changed under you:
    re-run inspect and re-ask.
-5. Report the resulting state in plain language. THEN offer smoke, default "not
+5. If the user declares a seat's cost mode ("claude is on my subscription"),
+   record it: `<launcher> seats set-cost-mode <SEAT> <subscription|api|local>`.
+   Report the resulting state in plain language. THEN offer smoke, default "not
    now": exactly one model call per selected seat; state each seat's RECORDED
    `cost_mode` before the user decides ("unknown" means the operator never
    declared it -- say exactly that and treat the spend as potentially metered;

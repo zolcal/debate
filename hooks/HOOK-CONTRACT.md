@@ -29,10 +29,11 @@ own resolved path when the variable is absent (direct test invocation).
 ## Manifests
 
 Per-host files per the approved plan: `hooks/hooks.json` (Claude) and
-`hooks/hooks-codex.json` (Codex). Codex parses the Claude schema (same event names,
-`matcher` + `hooks[]` of `{type, command, timeout, async}`) and auto-discovers both
-paths, preferring `hooks-codex.json` when present (observed with superpowers in
-`~/.codex/config.toml`). Current Codex docs allow a top-level `description`, but the
+`hooks/hooks-codex.json` (Codex) -- DEEP-EQUAL documents (branch-gate round-1
+finding): one `SessionStart` group, no `matcher`, `hooks[]` of
+`{type, command, timeout, async}`. Codex parses the Claude schema and
+auto-discovers both paths, preferring `hooks-codex.json` when present (observed
+with superpowers in `~/.codex/config.toml`). Current Codex docs allow a top-level `description`, but the
 2026-06-26 parser incident on this workstation argues for keeping both manifests
 minimal and field-identical. `timeout` is in seconds; ours is 10 (host default 600).
 
