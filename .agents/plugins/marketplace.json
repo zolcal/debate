@@ -8,7 +8,7 @@
       "name": "debate",
       "source": {
         "source": "local",
-        "path": "../.."
+        "path": "."
       },
       "policy": {
         "installation": "INSTALLED_BY_DEFAULT",
