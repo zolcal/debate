@@ -431,6 +431,10 @@ def add_seat(
                 "refused: command looks credential-shaped; credentials belong in a "
                 "self-sourcing wrapper, never the registry"
             )
+    if cost_mode not in COST_MODES:
+        raise channel.ChannelError(
+            f"refused: cost_mode {cost_mode!r} must be one of {COST_MODES}"
+        )
     existing = registry.seats.get(seat_id)
     if existing is not None:
         if existing.source != "manual":
@@ -445,10 +449,6 @@ def add_seat(
         if cost_mode != "unknown":
             existing.cost_mode = cost_mode
         return
-    if cost_mode not in COST_MODES:
-        raise channel.ChannelError(
-            f"refused: cost_mode {cost_mode!r} must be one of {COST_MODES}"
-        )
     vendor, _, submodel = seat_id.partition("/")
     base_id, _, effort = seat_id.partition("@")
     registry.seats[seat_id] = Seat(

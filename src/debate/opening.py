@@ -511,8 +511,23 @@ def open_debate_brokered(
         "docket_files": list(spec.docket_files),
         "contamination_canaries": {},
     }
+    project_resolved = project_path.resolve()
     for docket_file in spec.docket_files:
-        candidate = project_path / docket_file
+        raw = Path(docket_file)
+        # `project_path / absolute` REPLACES the base (pathlib semantics), and
+        # `..` walks out of it -- both would pass a naive existence check here
+        # and only explode in the controller AFTER the channel is written
+        # (branch-gate round-3 finding). Refuse pre-write instead.
+        if raw.is_absolute():
+            raise channel.ChannelError(
+                f"refused: docket file {docket_file!r} must be project-relative, "
+                "not absolute"
+            )
+        candidate = (project_path / raw).resolve()
+        if not candidate.is_relative_to(project_resolved):
+            raise channel.ChannelError(
+                f"refused: docket file {docket_file!r} escapes the project root"
+            )
         if not candidate.is_file():
             raise channel.ChannelError(
                 f"refused: docket file {docket_file!r} does not exist under the project"

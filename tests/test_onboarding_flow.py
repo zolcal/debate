@@ -552,6 +552,61 @@ def test_brokered_open_docket_files_snapshot_and_prewrite_refusal(
     assert config["docket_files"] == ["README"]
 
 
+def test_docket_file_escapes_are_refused_pre_write(
+    isolated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """Round-3 finding (codex MSG-11): an absolute docket path or a ../
+    traversal must refuse BEFORE any target write -- pathlib joins an
+    absolute path by replacing the base, and the controller's later refusal
+    would land after the channel exists."""
+    registry, project = isolated
+    _brokered_registry(registry, tmp_path)
+    _git_project(project)
+    _approve_all(project)
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside the project\n", encoding="utf-8")
+    root = project / "collab"
+    for bad in (str(outside), "../outside.md"):
+        with pytest.raises(channel.ChannelError, match="project-relative|escapes the project"):
+            opening.open_debate_brokered(
+                opening.BrokeredOpenSpec(
+                    root=root, label="stub", pair=("alpha/fake", "beta/fake"),
+                    source_ref=_head(project), author_vendor="claude",
+                    docket_files=(bad,),
+                ),
+                seats.load_registry(), load_config_fn=_watcher_config,
+                now=NOW, tool_version="test",
+            )
+        assert not root.exists() or list(root.iterdir()) == []
+
+
+def test_cli_set_cost_mode_wiring(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    """Opus round-3 observation 2: the argparse wiring itself."""
+    from debate.__main__ import main
+
+    registry, _ = isolated
+    _brokered_registry(registry, tmp_path)
+    rc = main(["seats", "set-cost-mode", "alpha/fake", "subscription"])
+    assert rc == 0
+    assert seats.load_registry().seats["alpha/fake"].cost_mode == "subscription"
+
+
+def test_add_seat_append_validates_cost_mode(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    """Opus round-3 observation 1: the append path validates cost_mode too."""
+    registry = seats.Registry()
+    script = _fake_adapter_script(tmp_path, "epsilon")
+    seats.add_seat(
+        registry, "epsilon/fake",
+        f"{sys.executable} {script} {{input_path}} {{result_path}}",
+    )
+    with pytest.raises(channel.ChannelError, match="cost_mode"):
+        seats.add_seat(
+            registry, "epsilon/fake",
+            f"{sys.executable} {script} more {{input_path}} {{result_path}}",
+            cost_mode="gratis",
+        )
+
+
 def test_stub_debate_reaches_typed_close(
     isolated: tuple[Path, Path], tmp_path: Path
 ) -> None:
