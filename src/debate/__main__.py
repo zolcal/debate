@@ -663,7 +663,19 @@ def main(argv: list[str] | None = None) -> int:
                 now=now,
                 tool_version=__version__,
             )
-            seats.save_registry(registry)
+            try:
+                seats.save_registry(registry)
+            except (OSError, channel.ChannelError) as error:
+                # The channel is fully created and usable; last_pair is a
+                # CONVENIENCE record. A bookkeeping failure here must warn,
+                # never crash-and-orphan (field finding, 2026-08-20: a
+                # sandboxed registry write killed the CLI after a successful
+                # open, stranding an empty second channel on retry).
+                _flushing_print(
+                    f"warning: the debate opened fine, but the registry's "
+                    f"remembered-pair bookkeeping failed ({error}); run "
+                    f"'debate seats discover' later to refresh it"
+                )
             for line in result.hints:
                 _flushing_print(line)
             return 0
@@ -714,7 +726,19 @@ def main(argv: list[str] | None = None) -> int:
                 now=now,
                 tool_version=__version__,
             )
-            seats.save_registry(registry)
+            try:
+                seats.save_registry(registry)
+            except (OSError, channel.ChannelError) as error:
+                # The channel is fully created and usable; last_pair is a
+                # CONVENIENCE record. A bookkeeping failure here must warn,
+                # never crash-and-orphan (field finding, 2026-08-20: a
+                # sandboxed registry write killed the CLI after a successful
+                # open, stranding an empty second channel on retry).
+                _flushing_print(
+                    f"warning: the debate opened fine, but the registry's "
+                    f"remembered-pair bookkeeping failed ({error}); run "
+                    f"'debate seats discover' later to refresh it"
+                )
             for line in result.hints:
                 _flushing_print(line)
             return 0

@@ -505,7 +505,11 @@ def open_debate_brokered(
         "runtime_root": str(runtime_root),
         "source_ref": spec.source_ref,
         "whole_case_timeout_seconds": 3600,
-        "scheduler_interval_seconds": 60,
+        # Interactive default: the user is WATCHING this debate. The 60s
+        # cron-style tick made a six-message case idle for whole minutes
+        # between phases (field finding, 2026-08-20); unattended channels can
+        # raise this in their config, the product default stays snappy.
+        "scheduler_interval_seconds": 5,
         "retry_seconds": 30,
         "adapters": adapters,
         "docket_files": list(spec.docket_files),

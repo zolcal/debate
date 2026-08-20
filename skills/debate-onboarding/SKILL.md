@@ -79,6 +79,11 @@ Core rules, non-negotiable:
    (c) Only when nothing locatable matches do you ask the user where the
    tool lives -- one plain question, never a format specification, never a
    placeholder syntax.
+   (d) "No model calls" means no AI spend -- it does NOT automatically mean
+   no network: a metadata subcommand (a `<tool> models` listing, a version
+   check) may contact the vendor's service. Prefer offline checks; when a
+   command does phone home, say so in one honest clause ("the tool checked
+   its service; no AI was called").
    Tell them plainly, BEFORE they decide, what the seat will be able to do
    -- in user words, not placeholders: "as it stands this can act as a
    reviewer, but it can't join a fully managed debate until it gets a
@@ -108,10 +113,16 @@ Core rules, non-negotiable:
    now": exactly one model call per selected seat; state each seat's RECORDED
    `cost_mode` before the user decides ("unknown" means the operator never
    declared it -- say exactly that and treat the spend as potentially metered;
-   never invent a cost claim). Only on an explicit yes:
-   `<launcher> seats smoke <SEAT> --yes` -- run smoke commands ONE AT A TIME,
-   sequentially, never in parallel (each is a spend the user authorized
-   individually, and sequential runs keep the spend narrative auditable).
+   never invent a cost claim). The offer is a NUMBERED CHOICE, mirroring the
+   approval table -- list the approved seats with their cost, then exactly
+   one syntax line: "Reply with numbers to smoke-test (e.g. `1 3 8`), `all`
+   (<N> calls), or `skip` -- skipping costs nothing; a broken seat would then
+   only surface at first real use." The numeric reply in the current turn IS
+   the spend authorization for exactly those seats; echo the total back
+   ("that's 3 calls -- running now") before starting. Then
+   `<launcher> seats smoke <SEAT> --yes` -- ONE AT A TIME, sequentially,
+   never in parallel (each is a spend the user authorized individually, and
+   sequential runs keep the spend narrative auditable).
 
 ## Flow 2 — "start a debate"
 
@@ -121,10 +132,18 @@ Core rules, non-negotiable:
    two. A remembered pair may be shown only as a labelled convenience default,
    never preselected on first onboarding.
 3. Ask for or derive the debate subject and the review target, summarize what
-   will be created (two seats, managed-v2 brokered channel, the human as
-   supervisor -- this session never votes), and get the user's confirmation.
-4. Run EXACTLY this form -- `--brokered` is NOT optional; plain `debate open`
-   without it mints a legacy version-1 channel and is never the product path:
+   will be created in user words -- "your two chosen seats will independently
+   review it, argue if they disagree, and every word lands in a permanent
+   record; you are the supervisor, and I never vote" -- and get the user's
+   confirmation. If the two picks are clearly different capability classes
+   (a lightweight fast model against a frontier reasoning model), say so
+   plainly before confirming: mismatched seats often produce one-sided
+   verdicts and cost an extra deliberation lap. (Engine fact for YOU, never
+   for the user's ears: what gets created is a managed-version-2 brokered
+   channel.)
+4. Run EXACTLY this form (agent-only engine fact: `--brokered` is NOT
+   optional -- the plain form mints a legacy version-1 channel and is never
+   the product path):
    `<launcher> open --brokered --root <ABS collab dir> --label <slug>
    --pair <a>,<b> --author-vendor <your host's catalog vendor: "claude" in
    Claude Code, "codex" in Codex> --docket-file <project-relative review input>
@@ -137,7 +156,11 @@ Core rules, non-negotiable:
    passing it, and only with a dedicated warning.
 5. Open the docket with the `broker-open` hint the engine prints (the request
    body states what to verify), then drive it with the printed `watch
-   --until-close` command.
+   --until-close` command. Set the expectation once -- "this takes a few
+   minutes of model thinking; I'll report when it closes" -- then BE QUIET:
+   no polling narration, no handover edits mid-debate, one report at the
+   typed close. A status showing a seat invocation in flight within its
+   budget is healthy, not stuck.
 6. Report the channel id and live status in plain language; keep the raw
    commands behind a "details" answer.
 

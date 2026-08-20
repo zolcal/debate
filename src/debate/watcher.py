@@ -399,6 +399,23 @@ def status(
     due = int(config.debounce_seconds.get(turn, 0)) + grace_seconds
     if age < due:
         return WatchStatus("DRIVING", f"seq {seq} posted {age}s ago, not yet due ({due}s debounce+grace){holder}")
+    # A brokered seat call legitimately runs for minutes while the tick lock
+    # is held; crying STALE mid-invocation baits operators into intervening
+    # (field finding, 2026-08-20). While the holder is inside the largest
+    # adapter budget, this is work in flight, not staleness.
+    if config.broker is not None and lock.held:
+        lock_at = _parse_stamp(lock.stamp or "")
+        if lock_at is not None:
+            held_for = int((now - lock_at).total_seconds())
+            budget = max(
+                profile.timeout_seconds for profile in config.broker.profiles.values()
+            )
+            if held_for <= budget:
+                return WatchStatus(
+                    "DRIVING",
+                    f"brokered seat invocation in flight: tick lock held by pid {lock.pid} "
+                    f"for {held_for}s of the {budget}s seat budget",
+                )
     return WatchStatus(
         "STALE",
         f"seq {seq} uninvoked for {age}s, past its {due}s debounce+grace - nothing is driving {thread!r}{holder}",
