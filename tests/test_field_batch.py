@@ -99,21 +99,59 @@ def test_brokered_in_flight_seat_is_driving_not_stale(tmp_path: Path) -> None:
 
 
 def test_brokered_in_flight_covers_the_invoked_past_retry_arm(tmp_path: Path) -> None:
-    """Round-10 gate finding (MSG-45 F1): a LIVE invocation reaches the
-    invoked-past-retry arm (count > 0, past retry_seconds) -- the in-flight
-    check must cover it too, or every brokered seat call reads STALE 30s in."""
+    """Round-10/11 gate findings (MSG-45 F1, MSG-51 F1): a LIVE invocation
+    reaches the invoked-past-retry arm, and in-flight-ness is measured from
+    the INVOCATION stamp -- never the lock stamp, which a long-lived
+    foreground watcher holds for its whole uptime."""
     config = _brokered_config(tmp_path)
-    held = LockState(
-        held=True, pid=4242, stamp="2026-08-20T11:57:00+00:00", cwd="/x", channel="/y"
+    # The discriminating case: the watcher has held the lock for HOURS
+    # (uptime), but the invocation is 150s old -- must be DRIVING.
+    long_lived = LockState(
+        held=True, pid=4242, stamp="2026-08-20T08:00:00+00:00", cwd="/x", channel="/y"
     )
     state = {"invocations": {"3": {"count": 1, "last_at": "2026-08-20T11:57:30+00:00"}}}
-    verdict = status(_signal("2026-08-20T11:56:00+00:00"), state, config, NOW, held)
+    verdict = status(_signal("2026-08-20T11:56:00+00:00"), state, config, NOW, long_lived)
     assert verdict.verdict == "DRIVING"
     assert "in flight" in verdict.detail
-    # Same state with a FREE lock: genuinely stale.
+    # The mirror case: lock freshly acquired, but the invocation is OLDER
+    # than the seat budget -- a dead adapter must read STALE, not be masked.
+    fresh_lock = LockState(
+        held=True, pid=4242, stamp="2026-08-20T11:59:50+00:00", cwd="/x", channel="/y"
+    )
+    dead = {"invocations": {"3": {"count": 1, "last_at": "2026-08-20T11:30:00+00:00"}}}
+    masked = status(_signal("2026-08-20T11:20:00+00:00"), dead, config, NOW, fresh_lock)
+    assert masked.verdict == "STALE"
+    # Same live state with a FREE lock: genuinely stale.
     free = LockState(held=False, pid=None, stamp="", cwd=None)
     stale = status(_signal("2026-08-20T11:56:00+00:00"), state, config, NOW, free)
     assert stale.verdict == "STALE"
+
+
+def test_cli_watch_passes_the_resolved_interval(tmp_path: Path, monkeypatch: "pytest.MonkeyPatch") -> None:
+    """Round-11 finding 2 (non-blocking): pin that main() hands watch() the
+    RESOLVED interval, so a revert to args.interval fails this test."""
+    import debate.__main__ as cli
+
+    captured: dict[str, object] = {}
+
+    def fake_watch(config: object, **kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(cli, "watch", fake_watch)
+
+    def fake_config(*args: object, **kwargs: object) -> object:
+        class _Cfg:
+            class broker:
+                class timing:
+                    scheduler_interval_seconds = 5
+        return _Cfg()
+
+    monkeypatch.setattr(cli, "_watcher_config", fake_config)
+    monkeypatch.setattr(cli.channel, "discover_channel", lambda *a, **k: "chan-1")
+    rc = cli.main(["watch", "--root", str(tmp_path), "--config", str(tmp_path / "w.json"), "--max-ticks", "1"])
+    assert rc == 0
+    assert captured["interval_seconds"] == 5
 
 
 def test_brokered_lock_past_seat_budget_is_stale(tmp_path: Path) -> None:

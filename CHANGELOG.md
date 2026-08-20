@@ -65,6 +65,17 @@ default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
   registries, and duplicate approved commands before they bite at open time.
 - Uninstalling the plugin removes host integration only; registries, profiles, and
   channel records are user data and are never deleted.
+- **Field-test fixes (owner acceptance pass, 2026-08-20):** the seat registry is
+  written atomically and smoke results apply through a locked read-modify-write
+  (two concurrent smokes no longer lose a result); smoke scratch channels live
+  under the registry's own directory, never the system temp dir; `debate watch`'s
+  `--interval` now defaults from a brokered config's `scheduler_interval_seconds`
+  (the product open writes 5s; cron deployments pin `--interval` explicitly —
+  previously the loop idled on a 180s default regardless of config);
+  `watch-status` reports a brokered seat invocation as in flight while its own
+  invocation age is within the largest adapter budget, instead of STALE; a
+  post-open registry bookkeeping failure warns instead of crashing and orphaning
+  the freshly created channel.
 
 ## v0.7.0 — 2026-08-18
 

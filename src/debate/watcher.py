@@ -380,22 +380,23 @@ def status(
     # BOTH stale arms -- the invoked-past-retry arm is the one a live
     # invocation actually reaches). While the holder is inside the largest
     # adapter budget, this is work in flight, not staleness.
-    def _in_flight() -> WatchStatus | None:
+    def _in_flight(age_seconds: int, measured_from: str) -> WatchStatus | None:
+        # Round-11 gate finding: measure the ARM'S OWN age (invocation stamp
+        # or doorbell stamp), never the lock stamp -- the foreground `watch`
+        # loop holds the lock for its whole process lifetime, so lock age is
+        # watcher uptime: a signal that both masks dead adapters and
+        # re-trips the false STALE on a fuse.
         if config.broker is None or not lock.held:
             return None
-        lock_at = _parse_stamp(lock.stamp or "")
-        if lock_at is None:
-            return None
-        held_for = int((now - lock_at).total_seconds())
         budget = max(
             profile.timeout_seconds for profile in config.broker.profiles.values()
         )
-        if held_for > budget:
+        if age_seconds > budget:
             return None
         return WatchStatus(
             "DRIVING",
-            f"brokered seat invocation in flight: tick lock held by pid {lock.pid} "
-            f"for {held_for}s of the {budget}s seat budget",
+            f"brokered seat invocation in flight: {measured_from} {age_seconds}s ago, "
+            f"within the {budget}s seat budget; tick lock held by pid {lock.pid}",
         )
 
     if count:
@@ -408,7 +409,7 @@ def status(
                 "INVOKED",
                 f"seq {seq} invoked {count}x, awaiting reply for {age}s of {config.retry_seconds}s{holder}",
             )
-        in_flight = _in_flight()
+        in_flight = _in_flight(age, f"seq {seq} invoked")
         if in_flight is not None:
             return in_flight
         return WatchStatus(
@@ -426,7 +427,7 @@ def status(
     due = int(config.debounce_seconds.get(turn, 0)) + grace_seconds
     if age < due:
         return WatchStatus("DRIVING", f"seq {seq} posted {age}s ago, not yet due ({due}s debounce+grace){holder}")
-    in_flight = _in_flight()
+    in_flight = _in_flight(age, f"seq {seq} posted")
     if in_flight is not None:
         return in_flight
     return WatchStatus(
