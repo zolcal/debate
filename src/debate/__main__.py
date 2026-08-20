@@ -316,7 +316,8 @@ def main(argv: list[str] | None = None) -> int:
         dest="seats_add_config_home",
         default=None,
         metavar="VAR=dir",
-        help="the tool's documented configuration variable and its folder under your home, e.g. CLAUDE_CONFIG_DIR=.claude",
+        help="the tool's documented configuration variable and its folder under your home, "
+             "e.g. CLAUDE_CONFIG_DIR=.claude",
     )
     p_seats_setcost = seats_sub.add_parser(
         "set-cost-mode",
