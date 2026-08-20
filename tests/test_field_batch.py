@@ -148,7 +148,9 @@ def test_cli_watch_passes_the_resolved_interval(tmp_path: Path, monkeypatch: "py
         return _Cfg()
 
     monkeypatch.setattr(cli, "_watcher_config", fake_config)
-    monkeypatch.setattr(cli.channel, "discover_channel", lambda *a, **k: "chan-1")
+    from debate import channel as channel_module
+
+    monkeypatch.setattr(channel_module, "discover_channel", lambda *a, **k: "chan-1")
     rc = cli.main(["watch", "--root", str(tmp_path), "--config", str(tmp_path / "w.json"), "--max-ticks", "1"])
     assert rc == 0
     assert captured["interval_seconds"] == 5
