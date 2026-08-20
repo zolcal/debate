@@ -25,6 +25,13 @@ Core rules, non-negotiable:
   approval question in the CURRENT turn. Never pre-answer it.
 - Internal commands are implementation detail: describe outcomes to the user in
   plain language; show commands only if they ask for details.
+- **Plain words, always.** User-facing text never says "managed version 1/2",
+  "{prompt}", "{input_path}/{result_path}", or "operator-owned pins". Say
+  instead: an *agent* is an AI tool installed on this machine (claude, codex,
+  kimi, ...); a *wrapper* is a small script of the user's that launches one
+  with fixed settings; a *bridge* is a small adapter a seat needs before it
+  can take part in a fully managed debate. Define a term the first time you
+  use it. The technical names live behind a "details" answer.
 
 ## Flow 1 — "set up Debate" (approval)
 
@@ -36,11 +43,22 @@ Core rules, non-negotiable:
    compute, or unknown -- report "unknown" as undeclared, never guess a value),
    and source (`catalog` = discovered, `derived`, `manual` = operator-authored,
    plus "existing registry entry" where labelled). Label existing state visibly
-   as existing state -- it is candidate input only. End the table with this
-   footer, verbatim in spirit: "Wrappers with operator-owned pins are not
-   auto-detected -- name any agent that is missing and I will register it."
-3. Before asking for approval, ask ONCE: "Any other agents or wrappers I
-   should know about that are not listed?" If the user names one, COLLECT its
+   as existing state -- it is candidate input only. After the table, in plain
+   language and roughly this order:
+   (a) one sentence on where the list comes from: "I found these by scanning
+   this machine for AI tools I recognize";
+   (b) one sentence of glossary if you will use the words: what an agent and
+   a wrapper are (see the plain-words rule);
+   (c) ONLY IF some listed seats cannot join managed debates yet, one
+   low-key sentence such as: "These seats can act as reviewers right away;
+   for a fully managed debate each one first needs a small adapter (a
+   'bridge') -- nothing to decide now, I'll offer to set that up when you
+   start your first debate." Never lead with legacy/version terminology;
+   a new user does not care which channel version anything is;
+   (d) the invitation: "Personal launcher scripts can't be detected
+   automatically -- is there an AI tool or script of yours that should be on
+   this list but isn't? Name it and I'll add it."
+3. That invitation IS the ask-once step. If the user names one, COLLECT its
    command and cost mode from the user -- write NOTHING yet. Both are the
    user's; never invent either. Investigating a named agent is BOUNDED: you
    may run the CLI's own `--help` and read the wrapper script the user
@@ -49,11 +67,14 @@ Core rules, non-negotiable:
    sweep configuration directories to infer a model pin (a config sweep on
    2026-08-20 printed a live OAuth token into a transcript; that class of
    action is banned here). Anything you infer rather than the user stating
-   it is presented as UNVERIFIED and confirmed by the user before use. Tell them plainly which kind they are
-   declaring: a `{prompt}` wrapper works on legacy version-1 channels only,
-   while a debate-capable seat must be a bridge accepting BOTH `{input_path}`
-   and `{result_path}` -- the brokered start-a-debate path will refuse a
-   `{prompt}`-only seat, so say that BEFORE they decide, not after.
+   it is presented as UNVERIFIED and confirmed by the user before use. Tell
+   them plainly, BEFORE they decide, what the seat will be able to do -- in
+   user words, not placeholders: "as it stands this can act as a reviewer,
+   but it can't join a fully managed debate until it gets a bridge adapter;
+   I can help with that when you start one." (Engine fact for YOU, never for
+   the user's ears: a {prompt}-style command is v1-watcher-only, and the
+   brokered open refuses any seat without both {input_path} and
+   {result_path}.)
 4. Ask which seats to approve for THIS project, listing the user-named
    wrappers from step 3 as pending rows labelled "will be registered on
    approval". Prefer the host's structured question tool (multi-select); fall
