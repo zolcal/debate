@@ -36,16 +36,25 @@ Core rules, non-negotiable:
    compute, or unknown -- report "unknown" as undeclared, never guess a value),
    and source (`catalog` = discovered, `derived`, `manual` = operator-authored,
    plus "existing registry entry" where labelled). Label existing state visibly
-   as existing state -- it is candidate input only.
-3. Ask which seats to approve for THIS project. Prefer the host's structured
+   as existing state -- it is candidate input only. End the table with this
+   footer, verbatim in spirit: "Wrappers with operator-owned pins are not
+   auto-detected -- name any agent that is missing and I will register it."
+3. Before asking for approval, ask ONCE: "Any other agents or wrappers I
+   should know about that are not listed?" If the user names one, register it
+   as a manual seat with THEIR declared command and cost:
+   `<launcher> seats add <vendor>/<submodel> --command "<argv with {prompt} or
+   {input_path}/{result_path}>" --cost-mode <their answer or unknown>` --
+   then RE-RUN inspect (the candidate revision changes) and present the
+   updated table. Never invent a command or a cost; both are the user's.
+4. Ask which seats to approve for THIS project. Prefer the host's structured
    question tool (multi-select); fall back to a numbered in-terminal question.
    Zero selections: report that onboarding stays incomplete, write nothing.
-4. Only after the user's answer, run:
+5. Only after the user's answer, run:
    `<launcher> onboarding approve --project <ABS-CWD> --candidate-revision <rev>
    --allow <SEAT> [--allow <SEAT> ...] --confirmed --json`
    A "candidate set changed" refusal means the machine changed under you:
    re-run inspect and re-ask.
-5. If the user declares a seat's cost mode ("claude is on my subscription"),
+6. If the user declares a seat's cost mode ("claude is on my subscription"),
    record it: `<launcher> seats set-cost-mode <SEAT> <subscription|api|local>`.
    Report the resulting state in plain language. THEN offer smoke, default "not
    now": exactly one model call per selected seat; state each seat's RECORDED
