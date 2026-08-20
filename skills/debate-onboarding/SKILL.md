@@ -58,23 +58,34 @@ Core rules, non-negotiable:
    (d) the invitation: "Personal launcher scripts can't be detected
    automatically -- is there an AI tool or script of yours that should be on
    this list but isn't? Name it and I'll add it."
-3. That invitation IS the ask-once step. If the user names one, COLLECT its
-   command and cost mode from the user -- write NOTHING yet. Both are the
-   user's; never invent either. Investigating a named agent is BOUNDED: you
-   may run the CLI's own `--help` and read the wrapper script the user
-   points you at -- you NEVER search or read credential or auth material
-   (auth.json, tokens, keyrings, `.secrets`, session stores), and you never
-   sweep configuration directories to infer a model pin (a config sweep on
-   2026-08-20 printed a live OAuth token into a transcript; that class of
-   action is banned here). Anything you infer rather than the user stating
-   it is presented as UNVERIFIED and confirmed by the user before use. Tell
-   them plainly, BEFORE they decide, what the seat will be able to do -- in
-   user words, not placeholders: "as it stands this can act as a reviewer,
-   but it can't join a fully managed debate until it gets a bridge adapter;
-   I can help with that when you start one." (Engine fact for YOU, never for
-   the user's ears: a {prompt}-style command is v1-watcher-only, and the
-   brokered open refuses any seat without both {input_path} and
-   {result_path}.)
+3. That invitation IS the ask-once step. When the user names an agent, the
+   LEGWORK IS YOURS -- the user never composes a command template or fills
+   in a form. LOCATE-THEN-CONFIRM:
+   (a) Locate the named tool yourself: PATH lookups (`command -v`) of names
+   that plausibly match what the user said (the tool's own name and
+   `<vendor>*agent`-style wrapper names), run the located CLI's own
+   `--help`, and read a located executable IF it is a plain script. The
+   round-8 bans stand verbatim and outrank everything here: NEVER read or
+   search credential or auth material (auth.json, tokens, keyrings,
+   `.secrets`, session stores), and NEVER sweep configuration directories
+   to infer a model pin (a config sweep on 2026-08-20 printed a live OAuth
+   token into a transcript; that class of action is banned).
+   (b) Present ONE concrete proposal per named agent -- the seat id and the
+   exact command you propose to record, with anything inferred labelled as
+   your inference -- and ask only for what you genuinely could not
+   determine (usually who pays: "who pays when this runs -- a subscription,
+   a metered API, or your own machine?"). The user confirms or corrects in
+   a word. Write NOTHING yet.
+   (c) Only when nothing locatable matches do you ask the user where the
+   tool lives -- one plain question, never a format specification, never a
+   placeholder syntax.
+   Tell them plainly, BEFORE they decide, what the seat will be able to do
+   -- in user words, not placeholders: "as it stands this can act as a
+   reviewer, but it can't join a fully managed debate until it gets a
+   bridge adapter; I can help with that when you start one." (Engine fact
+   for YOU, never for the user's ears: a {prompt}-style command is
+   v1-watcher-only, and the brokered open refuses any seat without both
+   {input_path} and {result_path}.)
 4. Ask which seats to approve for THIS project, listing the user-named
    wrappers from step 3 as pending rows labelled "will be registered on
    approval". Prefer the host's structured question tool (multi-select); fall
