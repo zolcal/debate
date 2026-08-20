@@ -13,8 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from debate import channel, onboarding
+from debate import channel, onboarding, seats
 from debate import __version__
+
+NOW = "2026-08-19T12:00:00+00:00"
 
 
 def _write_registry(path: Path, *, tool_version: str, seats_obj: dict[str, object] | None = None) -> None:
@@ -197,3 +199,148 @@ def test_status_lines_are_ascii(isolated: tuple[Path, Path]) -> None:
     report = onboarding.status(str(project))
     for line in onboarding.status_lines(report):
         assert all(ord(c) < 128 for c in line), line
+
+
+# --- Slice C2: detected launcher scripts as candidate rows -----------------
+#
+# I3 (detection is never approval): a sibling row must be visible in inspect
+# but NEVER writable through approve. scan_siblings itself is monkeypatched
+# in every test below (the brief's preferred seam) so these tests stay
+# independent of whatever wrapper binaries happen to sit on the real PATH;
+# PATH is additionally pinned to system dirs so catalog discovery (which DOES
+# read the real PATH) never seats an incidental binary like this host's own
+# `claude` CLI.
+
+
+def _sibling(
+    vendor: str = "deepseek",
+    binary_name: str = "deepseek-pro-agent",
+    binary_path: str = "/opt/bin/deepseek-pro-agent",
+) -> seats.SiblingCandidate:
+    return seats.SiblingCandidate(
+        vendor=vendor,
+        binary_name=binary_name,
+        binary_path=binary_path,
+        seat_id=f"{vendor}/wrapper:{binary_name}",
+    )
+
+
+def test_inspect_lists_sibling_as_candidate_row(
+    isolated: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry, project = isolated
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    sibling = _sibling()
+    monkeypatch.setattr(seats, "scan_siblings", lambda: [sibling])
+    report = onboarding.inspect(str(project), now=NOW)
+    candidates = report["candidates"]
+    assert isinstance(candidates, list)
+    seat_ids = [row["seat_id"] for row in candidates]
+    # Combined registry + sibling rows, one sort over the union.
+    assert seat_ids == ["deepseek/wrapper:deepseek-pro-agent", "probe/fake"]
+    row = candidates[0]
+    assert row == {
+        "seat_id": "deepseek/wrapper:deepseek-pro-agent",
+        "vendor": "deepseek",
+        "submodel": None,
+        "effort": None,
+        "command": ["/opt/bin/deepseek-pro-agent"],
+        "source": "unverified-wrapper",
+        "present": True,
+        "smoke": "never",
+        "cost_mode": "unknown",
+        "existing": False,
+    }
+
+
+def test_candidate_revision_changes_when_sibling_appears_or_vanishes(
+    isolated: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, project = isolated
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(seats, "scan_siblings", lambda: [])
+    empty_revision = onboarding.inspect(str(project), now=NOW)["candidate_revision"]
+    monkeypatch.setattr(seats, "scan_siblings", lambda: [_sibling()])
+    with_sibling_revision = onboarding.inspect(str(project), now=NOW)["candidate_revision"]
+    assert empty_revision != with_sibling_revision
+
+
+def test_inspect_with_sibling_present_writes_nothing(
+    isolated: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    registry, project = isolated
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(seats, "scan_siblings", lambda: [_sibling()])
+    before = _snapshot(tmp_path)
+    onboarding.inspect(str(project), now=NOW)
+    assert _snapshot(tmp_path) == before
+
+
+def test_approve_refuses_sibling_id_with_declaration_hint(
+    isolated: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    registry, project = isolated
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    sibling = _sibling()
+    monkeypatch.setattr(seats, "scan_siblings", lambda: [sibling])
+    report = onboarding.inspect(str(project), now=NOW)
+    revision = str(report["candidate_revision"])
+    before = _snapshot(tmp_path)
+    with pytest.raises(channel.ChannelError) as exc_info:
+        onboarding.approve(
+            str(project), allow=[sibling.seat_id], candidate_revision=revision,
+            confirmed=True, now=NOW,
+        )
+    message = str(exc_info.value)
+    assert "detected launcher script" in message
+    assert "not a registered seat" in message
+    assert "debate seats add" in message
+    assert sibling.seat_id in message
+    assert _snapshot(tmp_path) == before
+    assert not (project / "debate-profile.json").exists()
+
+
+def test_approve_refuses_mixed_allow_of_real_seat_and_sibling(
+    isolated: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    registry, project = isolated
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    sibling = _sibling()
+    monkeypatch.setattr(seats, "scan_siblings", lambda: [sibling])
+    report = onboarding.inspect(str(project), now=NOW)
+    revision = str(report["candidate_revision"])
+    before = _snapshot(tmp_path)
+    with pytest.raises(channel.ChannelError, match="detected launcher script"):
+        onboarding.approve(
+            str(project), allow=["probe/fake", sibling.seat_id],
+            candidate_revision=revision, confirmed=True, now=NOW,
+        )
+    assert _snapshot(tmp_path) == before
+    assert not (project / "debate-profile.json").exists()
+
+
+def test_sibling_never_appears_in_status_approved_seats(
+    isolated: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """approve refuses the sibling id even though the candidate_revision echo
+    is correct -- a profile can never contain one because approve refuses it
+    before any write, so status() can never surface it."""
+    registry, project = isolated
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    sibling = _sibling()
+    monkeypatch.setattr(seats, "scan_siblings", lambda: [sibling])
+    report = onboarding.inspect(str(project), now=NOW)
+    revision = str(report["candidate_revision"])
+    with pytest.raises(channel.ChannelError, match="detected launcher script"):
+        onboarding.approve(
+            str(project), allow=[sibling.seat_id], candidate_revision=revision,
+            confirmed=True, now=NOW,
+        )
+    status_report = onboarding.status(str(project))
+    assert status_report["approved_seats"] == []
+    assert status_report["profile_state"] == "missing"

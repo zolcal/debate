@@ -159,7 +159,13 @@ def status(project: str) -> dict[str, object]:
 def _candidates(registry: seats.Registry, existing_ids: set[str]) -> list[dict[str, object]]:
     """Sanitized candidate rows, deterministically ordered. `existing_ids`
     labels what came from a pre-existing registry: existing state is
-    candidate INPUT, visibly labelled, never silent approval."""
+    candidate INPUT, visibly labelled, never silent approval.
+
+    Detected launcher scripts (wrapper siblings) are appended to the SAME
+    list and sorted into place by seat_id -- one sort over the union, so
+    consumers see one deterministic ordering and no new schema. I3: a
+    sibling row is evidence, never a registered seat -- `approve` refuses
+    its id form outright (see `approve`)."""
     rows: list[dict[str, object]] = []
     for seat_id, seat in sorted(registry.seats.items()):
         rows.append(
@@ -176,6 +182,22 @@ def _candidates(registry: seats.Registry, existing_ids: set[str]) -> list[dict[s
                 "existing": seat_id in existing_ids,
             }
         )
+    for sibling in seats.scan_siblings():
+        rows.append(
+            {
+                "seat_id": sibling.seat_id,
+                "vendor": sibling.vendor,
+                "submodel": None,
+                "effort": None,
+                "command": [sibling.binary_path],
+                "source": "unverified-wrapper",
+                "present": True,
+                "smoke": "never",
+                "cost_mode": "unknown",
+                "existing": False,
+            }
+        )
+    rows.sort(key=lambda row: str(row["seat_id"]))
     return rows
 
 
@@ -267,6 +289,16 @@ def approve(
         )
     present_by_id = {str(row["seat_id"]): bool(row["present"]) for row in rows}
     for seat_id in allow:
+        # I3: detection is never approval. Checked by ID FORM, before the
+        # registry-membership check below, so it fires even though the id
+        # IS present among the candidate rows -- a sibling row is evidence,
+        # never a registrable seat.
+        if "/wrapper:" in seat_id:
+            raise channel.ChannelError(
+                f"refused: {seat_id!r} is a detected launcher script, not a "
+                "registered seat; tell me its command and who pays and I'll "
+                "register it with 'debate seats add', then approve it"
+            )
         if seat_id not in registry.seats:
             raise channel.ChannelError(
                 f"refused: {seat_id!r} is not a detected candidate"
