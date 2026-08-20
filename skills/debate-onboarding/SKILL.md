@@ -42,7 +42,14 @@ Core rules, non-negotiable:
 3. Before asking for approval, ask ONCE: "Any other agents or wrappers I
    should know about that are not listed?" If the user names one, COLLECT its
    command and cost mode from the user -- write NOTHING yet. Both are the
-   user's; never invent either. Tell them plainly which kind they are
+   user's; never invent either. Investigating a named agent is BOUNDED: you
+   may run the CLI's own `--help` and read the wrapper script the user
+   points you at -- you NEVER search or read credential or auth material
+   (auth.json, tokens, keyrings, `.secrets`, session stores), and you never
+   sweep configuration directories to infer a model pin (a config sweep on
+   2026-08-20 printed a live OAuth token into a transcript; that class of
+   action is banned here). Anything you infer rather than the user stating
+   it is presented as UNVERIFIED and confirmed by the user before use. Tell them plainly which kind they are
    declaring: a `{prompt}` wrapper works on legacy version-1 channels only,
    while a debate-capable seat must be a bridge accepting BOTH `{input_path}`
    and `{result_path}` -- the brokered start-a-debate path will refuse a
