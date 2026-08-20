@@ -40,16 +40,25 @@ Core rules, non-negotiable:
    footer, verbatim in spirit: "Wrappers with operator-owned pins are not
    auto-detected -- name any agent that is missing and I will register it."
 3. Before asking for approval, ask ONCE: "Any other agents or wrappers I
-   should know about that are not listed?" If the user names one, register it
-   as a manual seat with THEIR declared command and cost:
-   `<launcher> seats add <vendor>/<submodel> --command "<argv with {prompt} or
-   {input_path}/{result_path}>" --cost-mode <their answer or unknown>` --
-   then RE-RUN inspect (the candidate revision changes) and present the
-   updated table. Never invent a command or a cost; both are the user's.
-4. Ask which seats to approve for THIS project. Prefer the host's structured
-   question tool (multi-select); fall back to a numbered in-terminal question.
-   Zero selections: report that onboarding stays incomplete, write nothing.
-5. Only after the user's answer, run:
+   should know about that are not listed?" If the user names one, COLLECT its
+   command and cost mode from the user -- write NOTHING yet. Both are the
+   user's; never invent either. Tell them plainly which kind they are
+   declaring: a `{prompt}` wrapper works on legacy version-1 channels only,
+   while a debate-capable seat must be a bridge accepting BOTH `{input_path}`
+   and `{result_path}` -- the brokered start-a-debate path will refuse a
+   `{prompt}`-only seat, so say that BEFORE they decide, not after.
+4. Ask which seats to approve for THIS project, listing the user-named
+   wrappers from step 3 as pending rows labelled "will be registered on
+   approval". Prefer the host's structured question tool (multi-select); fall
+   back to a numbered in-terminal question. Zero selections: report that
+   onboarding stays incomplete, write nothing.
+5. Only after the user's answer: FIRST register any SELECTED pending wrappers
+   -- disclosing that this writes the machine registry and is undone with
+   `seats remove <SEAT>` --
+   `<launcher> seats add <vendor>/<submodel> --command "<their argv>"
+   --cost-mode <their answer or unknown>`
+   (an unselected pending wrapper is never registered at all), then re-run
+   inspect for the fresh candidate revision, then run:
    `<launcher> onboarding approve --project <ABS-CWD> --candidate-revision <rev>
    --allow <SEAT> [--allow <SEAT> ...] --confirmed --json`
    A "candidate set changed" refusal means the machine changed under you:
@@ -95,6 +104,9 @@ Core rules, non-negotiable:
 
 ## What this skill never does
 
-Never writes a registry or profile without the approve flow; never invokes a
-seat model during setup; never edits channel files by hand; never merges or
-publishes anything; never seats this interactive session as a debater.
+Never writes a registry or profile ahead of the user's approval answer (the
+one carve-out: a wrapper the user NAMED and then SELECTED is registered as a
+manual seat right before approve, disclosed, undoable via `seats remove`);
+never invokes a seat model during setup; never edits channel files by hand;
+never merges or publishes anything; never seats this interactive session as
+a debater.
