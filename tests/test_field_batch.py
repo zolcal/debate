@@ -87,7 +87,7 @@ def _signal(updated_at: str) -> dict[str, Any]:
 
 def test_brokered_in_flight_seat_is_driving_not_stale(tmp_path: Path) -> None:
     """Field finding: watch-status cried STALE while a seat legitimately
-    thought for minutes under the held tick lock."""
+    thought for minutes under the held tick lock (uninvoked arm)."""
     config = _brokered_config(tmp_path)
     held = LockState(
         held=True, pid=4242, stamp="2026-08-20T11:57:00+00:00", cwd="/x", channel="/y"
@@ -96,6 +96,24 @@ def test_brokered_in_flight_seat_is_driving_not_stale(tmp_path: Path) -> None:
     assert verdict.verdict == "DRIVING"
     assert "in flight" in verdict.detail
     assert "1200s" in verdict.detail
+
+
+def test_brokered_in_flight_covers_the_invoked_past_retry_arm(tmp_path: Path) -> None:
+    """Round-10 gate finding (MSG-45 F1): a LIVE invocation reaches the
+    invoked-past-retry arm (count > 0, past retry_seconds) -- the in-flight
+    check must cover it too, or every brokered seat call reads STALE 30s in."""
+    config = _brokered_config(tmp_path)
+    held = LockState(
+        held=True, pid=4242, stamp="2026-08-20T11:57:00+00:00", cwd="/x", channel="/y"
+    )
+    state = {"invocations": {"3": {"count": 1, "last_at": "2026-08-20T11:57:30+00:00"}}}
+    verdict = status(_signal("2026-08-20T11:56:00+00:00"), state, config, NOW, held)
+    assert verdict.verdict == "DRIVING"
+    assert "in flight" in verdict.detail
+    # Same state with a FREE lock: genuinely stale.
+    free = LockState(held=False, pid=None, stamp="", cwd=None)
+    stale = status(_signal("2026-08-20T11:56:00+00:00"), state, config, NOW, free)
+    assert stale.verdict == "STALE"
 
 
 def test_brokered_lock_past_seat_budget_is_stale(tmp_path: Path) -> None:
@@ -162,6 +180,14 @@ def test_interactive_open_defaults_to_a_snappy_tick(
     )
     config = json.loads(result.config_path.read_text(encoding="utf-8"))
     assert config["scheduler_interval_seconds"] == 5
+    # Round-10 gate finding (MSG-45 F2): the JSON value alone drives nothing.
+    # The watch loop's cadence must DEFAULT from it: this is the behavior the
+    # field finding was about.
+    from debate.__main__ import _watch_interval, _watcher_config as load_config
+
+    loaded = load_config(project / "collab", result.config_path, result.channel_name)
+    assert _watch_interval(None, loaded) == 5      # config-driven default
+    assert _watch_interval(42, loaded) == 42       # explicit flag wins
 
 
 def test_open_survives_post_creation_bookkeeping_failure(

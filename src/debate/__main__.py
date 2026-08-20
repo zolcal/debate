@@ -198,6 +198,23 @@ def _watcher_config(
     )
 
 
+def _watch_interval(explicit: int | None, config: WatcherConfig) -> int:
+    """The watch loop's tick cadence: explicit flag > the brokered config's
+    scheduler_interval_seconds > the 180s legacy default.
+
+    Round-10 gate finding (2026-08-20): the brokered open wrote a snappy
+    scheduler_interval_seconds that NO scheduler read -- the interactive
+    product path idled on this loop's own default. The config value is now
+    the loop's default, so an interactive debate ticks at the cadence its
+    open declared, and cron deployments still pin --interval explicitly.
+    """
+    if explicit is not None:
+        return explicit
+    if config.broker is not None:
+        return max(1, int(config.broker.timing.scheduler_interval_seconds))
+    return 180
+
+
 # Verdicts that mean "a human should look now". Exit 4 matches `watch()`'s
 # escalation code, so an alerting scheduler treats both the same way.
 _NEEDS_ATTENTION = ("STALE", "ESCALATED", "INVALID", "ERROR")
@@ -528,7 +545,11 @@ def main(argv: list[str] | None = None) -> int:
     p_watchloop.add_argument("--root", type=Path, default=Path("."))
     add_channel_flag(p_watchloop)
     p_watchloop.add_argument("--config", type=Path, required=True, help="watcher config JSON (see README)")
-    p_watchloop.add_argument("--interval", type=_positive_int, default=180, metavar="SECONDS")
+    p_watchloop.add_argument(
+        "--interval", type=_positive_int, default=None, metavar="SECONDS",
+        help="seconds between ticks (default: the config's scheduler_interval_seconds "
+        "for brokered channels, else 180)",
+    )
     p_watchloop.add_argument("--until-close", action="store_true", help="exit 0 when no thread is open")
     p_watchloop.add_argument("--max-ticks", type=_positive_int, default=None)
 
@@ -1129,10 +1150,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"recorded brokered artifact revision as {entry_id}; party turn unchanged")
         elif args.command == "watch":
+            watch_config = _watcher_config(args.root, args.config, name)
             try:
                 return watch(
-                    _watcher_config(args.root, args.config, name),
-                    interval_seconds=args.interval,
+                    watch_config,
+                    interval_seconds=_watch_interval(args.interval, watch_config),
                     until_close=args.until_close,
                     max_ticks=args.max_ticks,
                     # flush=True or nothing reaches a redirected log until the
