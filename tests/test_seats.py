@@ -469,6 +469,302 @@ def test_derived_source_taxonomy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert "claude/opus@high" not in reg.seats
 
 
+# --- Slice C1: catalog isolation/config-home/capability data, declared -----
+# manual-seat flags, wrapper sibling scan -------------------------------------
+
+
+def test_old_registry_without_new_fields_loads_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _registry_env(tmp_path, monkeypatch)
+    path.write_text(json.dumps({
+        "registry_version": 1,
+        "tool_version": "0.7.0",
+        "discovered_at": "t0",
+        "seats": {
+            "glm/glm-5.3": {
+                "vendor": "glm",
+                "submodel": "glm-5.3",
+                "effort": None,
+                "commands": [["/usr/bin/glm-agent", "{prompt}"]],
+                "source": "catalog",
+                "present": True,
+                "smoke": None,
+                "cost_mode": "unknown",
+            }
+        },
+        "last_pair": {},
+    }), encoding="utf-8")
+    reg = seats.load_registry()
+    seat = reg.seats["glm/glm-5.3"]
+    assert seat.capability_class is None
+    assert seat.isolation_argv == []
+    assert seat.no_persistence_argv == []
+    assert seat.config_home is None
+
+
+def test_registry_round_trip_preserves_new_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg.seats["claude/opus"] = seats.Seat(
+        seat_id="claude/opus", vendor="claude", submodel="opus", effort=None,
+        commands=[["/usr/bin/claude", "-p", "{prompt}", "--model", "opus"]],
+        source="catalog", present=True, smoke=None,
+        capability_class="frontier",
+        isolation_argv=["--safe-mode", "--strict-mcp-config"],
+        no_persistence_argv=["--no-session-persistence"],
+        config_home="CLAUDE_CONFIG_DIR=.claude",
+    )
+    seats.save_registry(reg)
+    again = seats.load_registry()
+    seat = again.seats["claude/opus"]
+    assert seat.capability_class == "frontier"
+    assert seat.isolation_argv == ["--safe-mode", "--strict-mcp-config"]
+    assert seat.no_persistence_argv == ["--no-session-persistence"]
+    assert seat.config_home == "CLAUDE_CONFIG_DIR=.claude"
+
+
+def test_seat_from_raw_refuses_bad_capability_class(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(channel.ChannelError, match="refused"):
+        seats._seat_from_raw("x/y", {
+            "vendor": "x", "submodel": "y", "effort": None,
+            "commands": [["/bin/tool", "{prompt}"]],
+            "source": "manual", "present": True, "smoke": None,
+            "capability_class": "medium",
+        })
+
+
+def test_seat_from_raw_refuses_invalid_stored_config_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(channel.ChannelError, match="refused"):
+        seats._seat_from_raw("x/y", {
+            "vendor": "x", "submodel": "y", "effort": None,
+            "commands": [["/bin/tool", "{prompt}"]],
+            "source": "manual", "present": True, "smoke": None,
+            "config_home": "1ABC=.m",
+        })
+
+
+def test_add_seat_refuses_colon_in_model_part(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    tool = tmp_path / "mytool"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    tool.chmod(0o755)
+    reg = seats.load_registry()
+    with pytest.raises(channel.ChannelError, match="must not contain ':'"):
+        seats.add_seat(
+            reg, "custom/wrapper:mytool", f"{tool} {{prompt}}",
+            which=_which_from({str(tool): str(tool)}),
+        )
+
+
+def test_add_seat_stores_declarations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    tool = tmp_path / "mytool"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    tool.chmod(0o755)
+    home = tmp_path / "home"
+    home.mkdir()
+    reg = seats.load_registry()
+    seats.add_seat(
+        reg, "custom/one", f"{tool} {{prompt}}",
+        which=_which_from({str(tool): str(tool)}),
+        capability_class="frontier",
+        isolation_argv=["--iso"],
+        no_persistence_argv=["--no-persist"],
+        config_home="MYTOOL_HOME=.mytool",
+        home=home,
+    )
+    seat = reg.seats["custom/one"]
+    assert seat.capability_class == "frontier"
+    assert seat.isolation_argv == ["--iso"]
+    assert seat.no_persistence_argv == ["--no-persist"]
+    assert seat.config_home == "MYTOOL_HOME=.mytool"
+
+
+def test_add_seat_append_path_applies_declarations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    tool = tmp_path / "mytool"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    tool.chmod(0o755)
+    home = tmp_path / "home"
+    home.mkdir()
+    reg = seats.load_registry()
+    seats.add_seat(reg, "custom/one", f"{tool} {{prompt}}", which=_which_from({str(tool): str(tool)}))
+    assert reg.seats["custom/one"].capability_class is None
+    # None/empty on the append path leaves the stored value untouched.
+    seats.add_seat(
+        reg, "custom/one", f"{tool} --alt {{prompt}}",
+        which=_which_from({str(tool): str(tool)}),
+    )
+    assert reg.seats["custom/one"].capability_class is None
+    assert reg.seats["custom/one"].isolation_argv == []
+    # A non-empty declaration on the append path APPLIES.
+    seats.add_seat(
+        reg, "custom/one", f"{tool} --alt2 {{prompt}}",
+        which=_which_from({str(tool): str(tool)}),
+        capability_class="light",
+        isolation_argv=["--iso"],
+        no_persistence_argv=["--no-persist"],
+        config_home="MYTOOL_HOME=.mytool",
+        home=home,
+    )
+    seat = reg.seats["custom/one"]
+    assert seat.capability_class == "light"
+    assert seat.isolation_argv == ["--iso"]
+    assert seat.no_persistence_argv == ["--no-persist"]
+    assert seat.config_home == "MYTOOL_HOME=.mytool"
+
+
+def test_discover_fills_catalog_seat_declarations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(
+        reg,
+        which=_which_from({
+            "claude": "/x/claude",
+            "kimi": "/x/kimi",
+            "deepseek-flash-agent": "/x/deepseek-flash-agent",
+        }),
+        now="t1",
+    )
+    assert reg.seats["claude/haiku"].capability_class == "light"
+    assert reg.seats["claude/opus"].capability_class == "frontier"
+    assert reg.seats["kimi/kimi-code/kimi-for-coding"].capability_class is None
+    assert reg.seats["deepseek/deepseek-v4-flash"].capability_class == "light"
+
+    claude_opus = reg.seats["claude/opus"]
+    assert claude_opus.isolation_argv == [
+        "--safe-mode", "--setting-sources", "", "--strict-mcp-config",
+        "--disable-slash-commands",
+    ]
+    assert claude_opus.no_persistence_argv == ["--no-session-persistence"]
+    assert claude_opus.config_home == "CLAUDE_CONFIG_DIR=.claude"
+
+    deepseek = reg.seats["deepseek/deepseek-v4-flash"]
+    assert deepseek.isolation_argv == []
+    assert deepseek.no_persistence_argv == []
+    assert deepseek.config_home is None
+
+
+def test_add_effort_seat_inherits_declarations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({"claude": "/x/claude"}), now="t1")
+    seats.add_effort_seat(reg, "claude/opus@high")
+    derived = reg.seats["claude/opus@high"]
+    base = reg.seats["claude/opus"]
+    assert derived.capability_class == base.capability_class
+    assert derived.isolation_argv == base.isolation_argv
+    assert derived.no_persistence_argv == base.no_persistence_argv
+    assert derived.config_home == base.config_home
+
+
+# --- validate_config_home: the exact matrix ---------------------------------
+
+
+@pytest.mark.parametrize("value", [
+    "HOME=.config",
+    "XDG_CONFIG_HOME=x",
+    "TMPDIR=t",
+    "PATH=p",
+    "GIT_DIR=g",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD=x",
+    "DEBATE_BRIDGE_REAL_HOME=x",
+    "mytool=.m",
+    "1ABC=.m",
+    "A-B=.m",
+    "noequalssign",
+    "MYTOOL_HOME=/etc",
+    "MYTOOL_HOME=../x",
+    "MYTOOL_HOME=",
+])
+def test_validate_config_home_refuses(tmp_path: Path, value: str) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    with pytest.raises(channel.ChannelError, match="refused"):
+        seats.validate_config_home(value, home=home)
+
+
+@pytest.mark.parametrize("value,expected_var", [
+    ("CLAUDE_CONFIG_DIR=.claude", "CLAUDE_CONFIG_DIR"),
+    ("CODEX_HOME=.codex", "CODEX_HOME"),
+    ("MYTOOL_HOME=.mytool", "MYTOOL_HOME"),
+    ("MYTOOL_HOME=.config/mytool", "MYTOOL_HOME"),
+])
+def test_validate_config_home_accepts(tmp_path: Path, value: str, expected_var: str) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    var, resolved = seats.validate_config_home(value, home=home)
+    assert var == expected_var
+    assert resolved.is_relative_to(home.resolve())
+    assert resolved != home.resolve()
+
+
+def test_cli_seats_add_with_new_flags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from debate.__main__ import main
+
+    _registry_env(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    tool = tmp_path / "mytool"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    tool.chmod(0o755)
+    assert main([
+        "seats", "add", "custom/one",
+        "--command", f"{tool} {{prompt}}",
+        "--capability-class", "frontier",
+        "--isolation-argv", "--iso --flag",
+        "--no-persistence-argv=--no-persist",
+        "--config-home", "MYTOOL_HOME=.mytool",
+    ]) == 0
+    reg = seats.load_registry()
+    seat = reg.seats["custom/one"]
+    assert seat.capability_class == "frontier"
+    assert seat.isolation_argv == ["--iso", "--flag"]
+    assert seat.no_persistence_argv == ["--no-persist"]
+    assert seat.config_home == "MYTOOL_HOME=.mytool"
+
+
+def test_cli_seats_add_refuses_bad_config_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from debate.__main__ import main
+
+    _registry_env(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    tool = tmp_path / "mytool"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    tool.chmod(0o755)
+    rc = main([
+        "seats", "add", "custom/one",
+        "--command", f"{tool} {{prompt}}",
+        "--config-home", "HOME=.config",
+    ])
+    assert rc == 1
+    message = capsys.readouterr().err.lower()
+    assert "refused" in message
+    assert "bridge" not in message
+    assert "brokered" not in message
+    assert "placeholder" not in message
+
+
 def test_cli_seats_remove_help_names_every_removable_class(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

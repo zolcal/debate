@@ -10,19 +10,33 @@ MORE endpoint argvs and v1 selection is always the first-listed.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
 from . import channel
-from .seat_catalog import CATALOG
+from .seat_catalog import CATALOG, CAPABILITY_CLASSES, VENDOR_CONFIG_HOME_VARS
 from .setup import SECRET_PATTERN
 
 REGISTRY_PATH = Path("~/.config/debate/seats.json")
 REGISTRY_VERSION = 1
+
+# Environment names the sandbox itself relies on -- a config_home declaration
+# may never redirect one of these, on top of the controller's _RESERVED_ENV
+# (checked separately, lazy-imported to avoid an import cycle).
+SANDBOX_ENV: frozenset[str] = frozenset({
+    "HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "TMPDIR",
+    "TEMP", "TMP", "GIT_CEILING_DIRECTORIES", "PYTHONDONTWRITEBYTECODE",
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD", "PYTEST_ADDOPTS", "PATH", "PYTHONPATH",
+    "DEBATE_BRIDGE_REAL_HOME",
+})
+
+_CONFIG_HOME_VAR_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 @dataclass
@@ -48,6 +62,16 @@ class Seat:
     # leaves "unknown" and the operator declares better via
     # `seats add --cost-mode`. Values mirror the controller's COST_MODES.
     cost_mode: str = "unknown"
+    # "frontier" | "light" | None (undeclared). Catalog seats inherit it from
+    # seat_catalog.CatalogEntry.capability_classes; manual seats declare it
+    # via `seats add --capability-class`.
+    capability_class: str | None = None
+    # VERIFIED extra argv for review isolation and for suppressing session
+    # persistence, respectively -- see CatalogEntry's fields of the same name.
+    isolation_argv: list[str] = field(default_factory=list)
+    no_persistence_argv: list[str] = field(default_factory=list)
+    # "VAR=relative/dir", validated by validate_config_home. None = undeclared.
+    config_home: str | None = None
 
 
 COST_MODES = ("subscription", "api", "local", "unknown")
@@ -63,6 +87,65 @@ class Registry:
 
 def registry_path() -> Path:
     return Path(os.environ.get("DEBATE_SEATS_REGISTRY", str(REGISTRY_PATH))).expanduser()
+
+
+def validate_config_home(value: str, *, home: Path) -> tuple[str, Path]:
+    """Validate a declared ``VAR=relative/dir`` config-home pointer.
+
+    Refuses (with a plain-words message) unless ALL hold: ``value`` is
+    exactly one ``VAR=dir`` with both sides non-empty; ``VAR`` is one of the
+    documented vendor variables (CLAUDE_CONFIG_DIR, CODEX_HOME) OR looks like
+    an environment variable name and is neither reserved by the controller
+    nor part of the sandbox's own environment; and ``dir`` is a relative path
+    with no ``..`` segment that resolves strictly inside ``home``.
+
+    Returns ``(VAR, resolved_dir)`` on success -- callers that persist the
+    declaration store the ORIGINAL ``VAR=dir`` string, never the resolved path.
+    """
+    if value.count("=") != 1:
+        raise channel.ChannelError(
+            f"refused: config-home {value!r} must look like VAR=dir (a "
+            "variable name, an equals sign, and a folder)"
+        )
+    var, _, dir_part = value.partition("=")
+    if not var or not dir_part:
+        raise channel.ChannelError(
+            f"refused: config-home {value!r} must look like VAR=dir, with "
+            "both the variable name and the folder non-empty"
+        )
+    if var not in VENDOR_CONFIG_HOME_VARS:
+        if not _CONFIG_HOME_VAR_PATTERN.match(var):
+            raise channel.ChannelError(
+                f"refused: config-home variable {var!r} must look like an "
+                "environment variable name: uppercase letters, digits and "
+                "underscores, starting with a letter"
+            )
+        from .controller import _RESERVED_ENV
+
+        if var in _RESERVED_ENV or var in SANDBOX_ENV:
+            raise channel.ChannelError(
+                f"refused: config-home variable {var!r} is already used by "
+                "this tool or its sandbox and cannot be redirected"
+            )
+    dir_path = Path(dir_part)
+    if dir_path.is_absolute():
+        raise channel.ChannelError(
+            f"refused: config-home folder {dir_part!r} must be relative to "
+            "your home directory, not an absolute path"
+        )
+    if ".." in dir_path.parts:
+        raise channel.ChannelError(
+            f"refused: config-home folder {dir_part!r} must not contain a "
+            "'..' segment"
+        )
+    home_resolved = home.resolve()
+    resolved = (home / dir_path).resolve()
+    if resolved == home_resolved or not resolved.is_relative_to(home_resolved):
+        raise channel.ChannelError(
+            f"refused: config-home folder {dir_part!r} must resolve to a "
+            "folder strictly inside your home directory"
+        )
+    return var, resolved
 
 
 def _seat_from_raw(seat_id: str, raw: object) -> Seat:
@@ -98,6 +181,31 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
             f"refused: registry seat {seat_id!r} cost_mode {cost_mode!r} "
             f"must be one of {COST_MODES}"
         )
+    capability_class_raw = raw.get("capability_class")
+    capability_class = str(capability_class_raw) if capability_class_raw is not None else None
+    if capability_class is not None and capability_class not in CAPABILITY_CLASSES:
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} capability_class {capability_class!r} "
+            f"must be one of {CAPABILITY_CLASSES}"
+        )
+    isolation_argv_raw = raw.get("isolation_argv", [])
+    if not isinstance(isolation_argv_raw, list) or not all(
+        isinstance(part, str) for part in isolation_argv_raw
+    ):
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} isolation_argv must be a list of strings"
+        )
+    no_persistence_argv_raw = raw.get("no_persistence_argv", [])
+    if not isinstance(no_persistence_argv_raw, list) or not all(
+        isinstance(part, str) for part in no_persistence_argv_raw
+    ):
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} no_persistence_argv must be a list of strings"
+        )
+    config_home_raw = raw.get("config_home")
+    config_home = str(config_home_raw) if config_home_raw is not None else None
+    if config_home is not None:
+        validate_config_home(config_home, home=Path.home())
     return Seat(
         seat_id=seat_id,
         vendor=str(raw.get("vendor", "")),
@@ -108,6 +216,10 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
         present=present_raw,
         smoke=smoke,
         cost_mode=cost_mode,
+        capability_class=capability_class,
+        isolation_argv=list(isolation_argv_raw),
+        no_persistence_argv=list(no_persistence_argv_raw),
+        config_home=config_home,
     )
 
 
@@ -183,6 +295,10 @@ def registry_payload(registry: Registry) -> dict[str, object]:
                     else None
                 ),
                 "cost_mode": seat.cost_mode,
+                "capability_class": seat.capability_class,
+                "isolation_argv": seat.isolation_argv,
+                "no_persistence_argv": seat.no_persistence_argv,
+                "config_home": seat.config_home,
             }
             for seat_id, seat in sorted(registry.seats.items())
         },
@@ -289,6 +405,7 @@ def discover(
                 part.replace("{submodel}", submodel) for part in entry.submodel_argv
             ]
             argv = _assemble_argv(str(binary_path), entry.invocation, extra)
+            capability_class = entry.capability_classes.get(submodel)
             existing = registry.seats.get(seat_id)
             if existing is None:
                 registry.seats[seat_id] = Seat(
@@ -300,6 +417,10 @@ def discover(
                     source="catalog",
                     present=True,
                     smoke=None,
+                    capability_class=capability_class,
+                    isolation_argv=list(entry.isolation_argv),
+                    no_persistence_argv=list(entry.no_persistence_argv),
+                    config_home=entry.config_home,
                 )
                 diff.append(f"+ {seat_id} ({argv[0]})")
             elif existing.source == "catalog":
@@ -309,6 +430,10 @@ def discover(
                 old_argv = list(existing.commands[0])
                 base_changed = old_argv != argv
                 existing.commands = [argv] + existing.commands[1:]
+                existing.capability_class = capability_class
+                existing.isolation_argv = list(entry.isolation_argv)
+                existing.no_persistence_argv = list(entry.no_persistence_argv)
+                existing.config_home = entry.config_home
                 if base_changed:
                     for derived in registry.seats.values():
                         if derived.source != "derived":
@@ -339,6 +464,68 @@ def discover(
     registry.discovered_at = now
     registry.tool_version = __version__
     return registry, diff
+
+
+# --- Slice C1: wrapper-sibling scan ------------------------------------------
+
+
+@dataclass(frozen=True)
+class SiblingCandidate:
+    """An executable on PATH that looks like another wrapper for a vendor
+    whose OWN catalogued wrapper is already resolvable -- a candidate for
+    `seats add`, never seated automatically. Zero model calls, zero writes."""
+
+    vendor: str
+    binary_name: str
+    binary_path: str
+    seat_id: str  # f"{vendor}/wrapper:{binary_name}"
+
+
+def scan_siblings(
+    *,
+    which: Callable[[str], str | None] = shutil.which,
+    path_entries: Callable[[], list[str]] | None = None,
+) -> list[SiblingCandidate]:
+    """Executable file names on PATH matching a catalog entry's
+    ``sibling_pattern``, excluding the entry's own catalogued binary names,
+    for entries whose own binary resolves via ``which``. An entry whose own
+    binary does NOT resolve, or whose ``sibling_pattern`` is None (claude,
+    kimi -- bare CLIs), contributes nothing. One row per name (first PATH
+    directory wins, matching ``which``'s own precedence); reads no file's
+    contents; rows are sorted by seat_id."""
+    dirs = path_entries() if path_entries is not None else os.environ.get("PATH", "").split(os.pathsep)
+    names: dict[str, str] = {}
+    for directory in dirs:
+        if not directory:
+            continue
+        try:
+            entries = sorted(os.listdir(directory))
+        except OSError:
+            continue
+        for name in entries:
+            if name in names:
+                continue
+            candidate = os.path.join(directory, name)
+            if not os.path.isfile(candidate) or not os.access(candidate, os.X_OK):
+                continue
+            names[name] = candidate
+    rows: list[SiblingCandidate] = []
+    for entry in CATALOG:
+        if entry.sibling_pattern is None:
+            continue
+        if not any(which(binary) for binary in entry.binaries):
+            continue
+        for name, path in names.items():
+            if name in entry.binaries:
+                continue
+            if fnmatch.fnmatchcase(name, entry.sibling_pattern):
+                rows.append(SiblingCandidate(
+                    vendor=entry.vendor,
+                    binary_name=name,
+                    binary_path=path,
+                    seat_id=f"{entry.vendor}/wrapper:{name}",
+                ))
+    return sorted(rows, key=lambda row: row.seat_id)
 
 
 # --- Slice 2: freshness, upgrade trigger, manual seats, smoke ---------------
@@ -452,17 +639,40 @@ def add_seat(
     *,
     which: Callable[[str], str | None] = shutil.which,
     cost_mode: str = "unknown",
+    capability_class: str | None = None,
+    isolation_argv: list[str] | None = None,
+    no_persistence_argv: list[str] | None = None,
+    config_home: str | None = None,
+    home: Path | None = None,
 ) -> None:
     """Create a manual seat, or APPEND an endpoint option to an existing
     manual one (another provider account of the SAME serving, section 2.9;
     a different serving is its own seat -- section 2.10). Selection stays
-    first-listed (owner ruling 4)."""
+    first-listed (owner ruling 4).
+
+    The declared fields (capability_class, isolation_argv,
+    no_persistence_argv, config_home) follow the SAME rule as cost_mode on
+    the append path: a non-None/non-empty declaration APPLIES, None/empty
+    leaves the stored value untouched."""
     from .setup import split_argv
 
     if "/" not in seat_id:
         raise channel.ChannelError(
             f"refused: seat id {seat_id!r} must be vendor/submodel"
         )
+    model_part = seat_id.split("/", 1)[1]
+    if ":" in model_part:
+        raise channel.ChannelError(
+            f"refused: seat id {seat_id!r} must not contain ':' in the "
+            "model part (that namespace is reserved for wrapper-sibling ids)"
+        )
+    if capability_class is not None and capability_class not in CAPABILITY_CLASSES:
+        raise channel.ChannelError(
+            f"refused: capability_class {capability_class!r} must be one of "
+            f"{CAPABILITY_CLASSES}"
+        )
+    if config_home is not None:
+        validate_config_home(config_home, home=home if home is not None else Path.home())
     argv = split_argv(command_text)
     joined = " ".join(argv)
     prompt_style = "{prompt}" in joined
@@ -499,9 +709,18 @@ def add_seat(
         existing.commands.append(argv)
         # A declared cost mode on the append path APPLIES (a silent no-op was
         # the branch-gate round-2 finding); "unknown" leaves the declaration
-        # untouched rather than regressing it.
+        # untouched rather than regressing it. The four new fields follow the
+        # same rule.
         if cost_mode != "unknown":
             existing.cost_mode = cost_mode
+        if capability_class is not None:
+            existing.capability_class = capability_class
+        if isolation_argv:
+            existing.isolation_argv = list(isolation_argv)
+        if no_persistence_argv:
+            existing.no_persistence_argv = list(no_persistence_argv)
+        if config_home:
+            existing.config_home = config_home
         return
     vendor, _, submodel = seat_id.partition("/")
     base_id, _, effort = seat_id.partition("@")
@@ -515,6 +734,10 @@ def add_seat(
         present=True,
         smoke=None,
         cost_mode=cost_mode,
+        capability_class=capability_class,
+        isolation_argv=list(isolation_argv) if isolation_argv else [],
+        no_persistence_argv=list(no_persistence_argv) if no_persistence_argv else [],
+        config_home=config_home,
     )
 
 
@@ -576,6 +799,10 @@ def add_effort_seat(registry: Registry, seat_id: str) -> None:
         present=base.present,
         smoke=None,
         cost_mode=base.cost_mode,
+        capability_class=base.capability_class,
+        isolation_argv=list(base.isolation_argv),
+        no_persistence_argv=list(base.no_persistence_argv),
+        config_home=base.config_home,
     )
 
 

@@ -288,6 +288,36 @@ def main(argv: list[str] | None = None) -> int:
         choices=("subscription", "api", "local", "unknown"),
         help="who pays when this seat runs; declared by you, shown before every spend",
     )
+    p_seats_add.add_argument(
+        "--capability-class",
+        dest="seats_add_capability_class",
+        default=None,
+        choices=("frontier", "light"),
+        help="how capable this seat is, declared by you",
+    )
+    p_seats_add.add_argument(
+        "--isolation-argv",
+        dest="seats_add_isolation_argv",
+        default=None,
+        metavar="ARGS",
+        help="extra arguments that make this tool ignore its user settings, plugins and hooks while it reviews "
+             "(if the arguments start with a dash, write --isolation-argv=ARGS)",
+    )
+    p_seats_add.add_argument(
+        "--no-persistence-argv",
+        dest="seats_add_no_persistence_argv",
+        default=None,
+        metavar="ARGS",
+        help="extra arguments that stop this tool from saving a session to disk "
+             "(if the arguments start with a dash, write --no-persistence-argv=ARGS)",
+    )
+    p_seats_add.add_argument(
+        "--config-home",
+        dest="seats_add_config_home",
+        default=None,
+        metavar="VAR=dir",
+        help="the tool's documented configuration variable and its folder under your home, e.g. CLAUDE_CONFIG_DIR=.claude",
+    )
     p_seats_setcost = seats_sub.add_parser(
         "set-cost-mode",
         help="declare who pays for an existing seat (catalog, derived, or manual)",
@@ -836,9 +866,21 @@ def main(argv: list[str] | None = None) -> int:
                 return worst
             if args.seats_command == "add":
                 if args.seats_add_command_text is not None:
+                    from .setup import split_argv
+
                     seats.add_seat(
                         registry, args.seat_id, args.seats_add_command_text,
                         cost_mode=args.seats_add_cost_mode,
+                        capability_class=args.seats_add_capability_class,
+                        isolation_argv=(
+                            split_argv(args.seats_add_isolation_argv)
+                            if args.seats_add_isolation_argv is not None else None
+                        ),
+                        no_persistence_argv=(
+                            split_argv(args.seats_add_no_persistence_argv)
+                            if args.seats_add_no_persistence_argv is not None else None
+                        ),
+                        config_home=args.seats_add_config_home,
                     )
                 elif "@" in args.seat_id:
                     seats.add_effort_seat(registry, args.seat_id)
