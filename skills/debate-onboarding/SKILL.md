@@ -52,7 +52,9 @@ Core rules, non-negotiable:
    `cost_mode` before the user decides ("unknown" means the operator never
    declared it -- say exactly that and treat the spend as potentially metered;
    never invent a cost claim). Only on an explicit yes:
-   `<launcher> seats smoke <SEAT> --yes`.
+   `<launcher> seats smoke <SEAT> --yes` -- run smoke commands ONE AT A TIME,
+   sequentially, never in parallel (each is a spend the user authorized
+   individually, and sequential runs keep the spend narrative auditable).
 
 ## Flow 2 — "start a debate"
 

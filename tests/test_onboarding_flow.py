@@ -607,6 +607,76 @@ def test_add_seat_append_validates_cost_mode(isolated: tuple[Path, Path], tmp_pa
         )
 
 
+def test_concurrent_smoke_results_both_survive(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    """Field finding (2026-08-20): two concurrent `seats smoke` processes each
+    held a stale in-memory registry and the LAST save clobbered the other's
+    result. update_registry applies only the observed result to a fresh load
+    under a lock, so both survive the exact interleaving that lost one."""
+    registry, _ = isolated
+    _brokered_registry(registry, tmp_path)
+
+    # Process A loads its stale snapshot...
+    stale_snapshot = seats.load_registry()
+    smoke_a = seats.SmokeStatus(at=NOW, result="pass")
+    stale_snapshot.seats["alpha/fake"].smoke = smoke_a
+    # ...meanwhile process B records beta's result through the locked path.
+    smoke_b = seats.SmokeStatus(at=NOW, result="pass")
+
+    def apply_b(fresh: seats.Registry) -> None:
+        fresh.seats["beta/fake"].smoke = smoke_b
+
+    seats.update_registry(apply_b)
+
+    # Process A now applies ONLY alpha's observed result (the fixed path) --
+    # the old `save_registry(stale_snapshot)` would have erased beta's PASS.
+    def apply_a(fresh: seats.Registry) -> None:
+        fresh.seats["alpha/fake"].smoke = smoke_a
+
+    seats.update_registry(apply_a)
+    final = seats.load_registry()
+    assert final.seats["alpha/fake"].smoke is not None
+    assert final.seats["beta/fake"].smoke is not None
+
+
+def test_update_registry_lock_contention_times_out(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    registry, _ = isolated
+    _brokered_registry(registry, tmp_path)
+    lock = seats.registry_path().parent / (seats.registry_path().name + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text("held", encoding="utf-8")
+    try:
+        with pytest.raises(channel.ChannelError, match="registry lock"):
+            seats.update_registry(lambda fresh: None, timeout_seconds=0.2)
+    finally:
+        lock.unlink()
+
+
+def test_cli_smoke_uses_config_local_scratch_and_locked_apply(
+    isolated: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Field finding (2026-08-20): smoke scratch defaulted to the system temp
+    dir. The CLI must pass a scratch base under the registry's own directory
+    and apply results through the locked path."""
+    from debate.__main__ import main
+
+    registry, _ = isolated
+    _brokered_registry(registry, tmp_path)
+    captured: dict[str, object] = {}
+
+    def fake_smoke(reg: seats.Registry, seat_id: str, **kwargs: object) -> str:
+        captured["scratch_base"] = kwargs.get("scratch_base")
+        reg.seats[seat_id].smoke = seats.SmokeStatus(at=NOW, result="pass")
+        return "pass"
+
+    monkeypatch.setattr(seats, "smoke_seat", fake_smoke)
+    rc = main(["seats", "smoke", "alpha/fake", "--yes"])
+    assert rc == 0
+    scratch = captured["scratch_base"]
+    assert isinstance(scratch, Path)
+    assert scratch.parent == seats.registry_path().parent
+    assert seats.load_registry().seats["alpha/fake"].smoke is not None
+
+
 def test_stub_debate_reaches_typed_close(
     isolated: tuple[Path, Path], tmp_path: Path
 ) -> None:

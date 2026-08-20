@@ -191,12 +191,66 @@ def registry_payload(registry: Registry) -> dict[str, object]:
 
 
 def save_registry(registry: Registry) -> Path:
-    """Validate fully -- credential screen included -- then write once."""
+    """Validate fully -- credential screen included -- then write ATOMICALLY
+    (tmp + os.replace): a reader never sees a torn registry."""
+    import tempfile
+
     screen_credentials(registry)
     path = registry_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(registry_payload(registry), indent=2) + "\n", encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(prefix=".seats-", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(registry_payload(registry), indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return path
+
+
+def update_registry(
+    mutate: Callable[[Registry], None], *, timeout_seconds: float = 15.0
+) -> Registry:
+    """Serialized read-modify-write: lock, load FRESH, mutate, save, unlock.
+
+    Exists because two concurrent `seats smoke` processes each held a stale
+    in-memory registry and the last save clobbered the other's result (field
+    finding, 2026-08-20). Apply an observed result through this, never by
+    saving a registry object loaded minutes ago."""
+    import time
+
+    lock = registry_path().parent / (registry_path().name + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            break
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise channel.ChannelError(
+                    f"refused: registry lock {lock} is held; another debate "
+                    "process is writing the registry -- retry, or remove the "
+                    "lock file if its owner is gone"
+                ) from None
+            time.sleep(0.05)
+    try:
+        registry = load_registry()
+        mutate(registry)
+        save_registry(registry)
+        return registry
+    finally:
+        try:
+            os.unlink(str(lock))
+        except OSError:
+            pass
 
 
 def _assemble_argv(binary_path: str, invocation: tuple[str, ...], extra: list[str]) -> list[str]:

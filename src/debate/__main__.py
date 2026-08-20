@@ -766,12 +766,26 @@ def main(argv: list[str] | None = None) -> int:
                             f"refused: no seat {seat_id!r} in the registry"
                         )
                 worst = 0
+                # Scratch channels live under the registry's own directory,
+                # never the system temp dir (field finding, 2026-08-20: the
+                # default landed smoke scratch in /tmp).
+                scratch_base = seats.registry_path().parent / "smoke-scratch"
                 for seat_id in args.seat_ids:
                     smoke_result = seats.smoke_seat(
                         registry, seat_id, now=now, emit=_flushing_print,
-                        assume_yes=args.assume_yes,
+                        assume_yes=args.assume_yes, scratch_base=scratch_base,
                     )
-                    seats.save_registry(registry)
+                    observed = registry.seats[seat_id].smoke
+                    # Apply ONLY the observed result to a freshly loaded
+                    # registry under the lock: a concurrent smoke of another
+                    # seat must not be clobbered by this process's stale
+                    # in-memory copy (field finding, 2026-08-20).
+
+                    def _apply(fresh: seats.Registry, _seat: str = seat_id) -> None:
+                        if _seat in fresh.seats:
+                            fresh.seats[_seat].smoke = observed
+
+                    seats.update_registry(_apply)
                     if smoke_result != "pass":
                         worst = 1
                 return worst
