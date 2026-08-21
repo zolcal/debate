@@ -287,6 +287,10 @@ OPENING_MARKERS = (
     "fully managed debate",
     "a fully managed debate needs the commit its seats will review",
     "a fully managed debate needs --author-vendor",
+    "small review, quick pair",
+    "full review, strongest pair",
+    "the pair you picked last time",
+    "pick a number, or two seats (a,b)",
 )
 
 MAIN_MARKERS = (
@@ -294,10 +298,20 @@ MAIN_MARKERS = (
     "a fully managed debate needs --pair",
     "a fully managed debate needs --author-vendor",
     "seat a lightweight model against a frontier model anyway",
+    "seat one of these with --pair a,b:",
+    "how much review material still counts as a small review",
 )
 
 # The pairing helpers are new in full, so every string in them is scanned.
-NEW_PAIRING_FUNCTIONS = ("classify_pair", "_uneven_pair_sentence", "_pair_gate")
+NEW_PAIRING_FUNCTIONS = (
+    "classify_pair",
+    "_uneven_pair_sentence",
+    "_pair_gate",
+    "docket_byte_size",
+    "suggest_pair",
+    "pair_choices",
+    "pair_menu",
+)
 
 
 def _source(module_name: str) -> str:
@@ -359,3 +373,243 @@ def test_every_string_in_the_pairing_helpers_is_plain(tmp_path: Path) -> None:
                 continue
             _assert_plain(inner.value, f"opening.{node.name}")
     assert seen == len(NEW_PAIRING_FUNCTIONS)
+
+
+# --- the size-proportional suggestion (A2) ----------------------------------
+
+
+def _admissible(
+    seat_id: str,
+    tool: Path,
+    *,
+    capability_class: str | None = None,
+    isolated: bool = True,
+) -> seats.Seat:
+    """A seat a fully managed debate would actually admit: it takes a question
+    and its isolation and no-saving settings are both on record."""
+    seat = _seat(seat_id, tool)
+    seat.capability_class = capability_class
+    if isolated:
+        seat.isolation_argv = ["--no-config"]
+        seat.no_persistence_argv = ["--no-history"]
+    return seat
+
+
+def _suggestion_registry(tmp_path: Path, **classes: str | None) -> seats.Registry:
+    registry = seats.Registry()
+    for name, capability_class in classes.items():
+        seat_id = name.replace("__", "/")
+        registry.seats[seat_id] = _admissible(
+            seat_id, _fake_tool(tmp_path, name), capability_class=capability_class,
+        )
+    return registry
+
+
+FOUR_SEATS = {
+    "claude__haiku": "light",
+    "deepseek__flash": "light",
+    "claude__opus": "frontier",
+    "deepseek__pro": "frontier",
+}
+
+
+def test_a_small_docket_suggests_a_quick_symmetric_pair(tmp_path: Path) -> None:
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=200,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    ) == ("claude/haiku", "deepseek/flash")
+
+
+def test_a_large_docket_suggests_the_strongest_symmetric_pair(tmp_path: Path) -> None:
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    ) == ("claude/opus", "deepseek/pro")
+
+
+def test_without_a_matching_pair_the_remembered_one_stands(tmp_path: Path) -> None:
+    registry = _suggestion_registry(
+        tmp_path, claude__opus="frontier", deepseek__pro="frontier",
+    )
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        last_pair=("claude/opus", "deepseek/pro"),
+    ) == ("claude/opus", "deepseek/pro")
+
+
+def test_nothing_to_suggest_and_nothing_remembered_suggests_nothing(tmp_path: Path) -> None:
+    registry = _suggestion_registry(tmp_path, claude__opus="frontier")
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    ) is None
+
+
+def test_a_seat_a_managed_debate_cannot_admit_is_never_suggested(tmp_path: Path) -> None:
+    registry = _suggestion_registry(tmp_path, claude__haiku="light")
+    registry.seats["deepseek/flash"] = _admissible(
+        "deepseek/flash", _fake_tool(tmp_path, "deepseek-flash"),
+        capability_class="light", isolated=False,
+    )
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    ) is None
+
+
+def test_a_seat_with_no_declared_class_is_never_suggested(tmp_path: Path) -> None:
+    registry = _suggestion_registry(
+        tmp_path, claude__haiku="light", deepseek__flash=None,
+    )
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    ) is None
+
+
+def test_two_seats_from_one_vendor_pair_up_only_as_a_last_resort(tmp_path: Path) -> None:
+    registry = _suggestion_registry(
+        tmp_path, claude__haiku="light", claude__mini="light",
+    )
+    same_vendor = opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    )
+    assert same_vendor == ("claude/haiku", "claude/mini")
+    registry.seats["deepseek/flash"] = _admissible(
+        "deepseek/flash", _fake_tool(tmp_path, "deepseek-flash"), capability_class="light",
+    )
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    ) == ("claude/haiku", "deepseek/flash")
+
+
+def test_a_seat_outside_the_approved_list_is_never_suggested(tmp_path: Path) -> None:
+    """Half of the quick pair is not approved here, so the quick pair is not
+    offered at all -- the approved strongest pair is not a substitute for it."""
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    approved = ("claude/haiku", "claude/opus", "deepseek/pro")
+    assert opening.suggest_pair(
+        registry, allowlist=approved, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    ) is None
+    assert opening.suggest_pair(
+        registry, allowlist=approved, docket_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    ) == ("claude/opus", "deepseek/pro")
+
+
+# --- the numbered list ------------------------------------------------------
+
+
+def _numbered(lines: list[str]) -> list[str]:
+    return [line for line in lines if line.strip()[:1].isdigit()]
+
+
+def test_the_menu_numbers_every_choice_and_reasons_the_first(tmp_path: Path) -> None:
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    suggestion = opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    )
+    lines = opening.pair_menu(
+        registry, allowlist=None, suggestion=suggestion, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+    )
+    numbered = _numbered(lines)
+    assert numbered[0].startswith("1  claude/haiku + deepseek/flash")
+    assert "small review, quick pair" in numbered[0]
+    assert [line.split()[0] for line in numbered] == [
+        str(index) for index in range(1, len(numbered) + 1)
+    ]
+    assert len(numbered) <= 6
+
+
+def test_the_menu_reasons_a_full_review_by_its_size(tmp_path: Path) -> None:
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    big = opening.QUICK_REVIEW_MAX_BYTES + 1
+    suggestion = opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=big,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    )
+    lines = opening.pair_menu(
+        registry, allowlist=None, suggestion=suggestion, docket_bytes=big,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+    )
+    assert "full review, strongest pair" in _numbered(lines)[0]
+
+
+def test_a_long_menu_is_capped_and_says_how_many_it_left_out(tmp_path: Path) -> None:
+    registry = _suggestion_registry(
+        tmp_path,
+        claude__haiku="light", deepseek__flash="light", zed__small="light",
+        claude__opus="frontier", deepseek__pro="frontier", zed__big="frontier",
+    )
+    suggestion = opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    )
+    lines = opening.pair_menu(
+        registry, allowlist=None, suggestion=suggestion, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+    )
+    assert len(_numbered(lines)) == 6
+    assert any("more" in line for line in lines)
+
+
+# --- pick_pair consumes both ------------------------------------------------
+
+
+def test_the_pick_shows_the_numbered_list_and_takes_a_number(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    pair = opening.pick_pair(
+        registry, project=str(tmp_path), requested=None, assume_yes=False,
+        ask=lambda prompt: "", now=NOW, docket_bytes=10,
+    )
+    printed = capsys.readouterr().out
+    assert "1  claude/haiku + deepseek/flash" in printed
+    assert "small review, quick pair" in printed
+    assert pair == ("claude/haiku", "deepseek/flash")
+
+
+def test_yes_accepts_the_first_item(tmp_path: Path) -> None:
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    assert opening.pick_pair(
+        registry, project=str(tmp_path), requested=None, assume_yes=True,
+        ask=_no_ask, now=NOW, docket_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+    ) == ("claude/opus", "deepseek/pro")
+
+
+def test_an_uneven_remembered_pair_is_never_the_first_item(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The remembered pair was a lightweight model against a frontier one; a
+    matched pair exists, so the matched pair leads and --yes takes it."""
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    registry.last_pair[str(tmp_path)] = ["claude/opus", "deepseek/flash"]
+    assert opening.pick_pair(
+        registry, project=str(tmp_path), requested=None, assume_yes=True,
+        ask=_no_ask, now=NOW, docket_bytes=10,
+    ) == ("claude/haiku", "deepseek/flash")
+
+
+def test_a_typed_number_picks_that_line(tmp_path: Path) -> None:
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    seen: list[str] = []
+
+    def answer(prompt: str) -> str:
+        seen.append(prompt)
+        return "2"
+
+    pair = opening.pick_pair(
+        registry, project=str(tmp_path), requested=None, assume_yes=False,
+        ask=answer, now=NOW, docket_bytes=10, allow_mismatched_pair=True,
+    )
+    assert pair != ("claude/haiku", "deepseek/flash")
+    assert seen

@@ -177,6 +177,19 @@ def _watcher_config(
                 f"refused: {config_path}: 'sealed_concurrency' must be \"concurrent\" (ask both seats "
                 f"at the same time) or \"sequential\" (one seat at a time), got {sealed_concurrency!r}"
             )
+        # Informational for now -- no engine decision reads it -- but it is a
+        # hand-editable number in a hand-editable file, so a typo refuses here
+        # rather than reaching whatever reads it next.
+        quick_review_max_bytes = raw.get("quick_review_max_bytes", opening.QUICK_REVIEW_MAX_BYTES)
+        if (
+            isinstance(quick_review_max_bytes, bool)
+            or not isinstance(quick_review_max_bytes, int)
+            or quick_review_max_bytes < 1
+        ):
+            raise channel.ChannelError(
+                f"refused: {config_path}: 'quick_review_max_bytes' must be a whole number of "
+                f"bytes above zero, got {quick_review_max_bytes!r}"
+            )
         ordered_profiles = (profiles[channel_config.parties[0]], profiles[channel_config.parties[1]])
         timing = TimingPolicy(
             thread_cap=channel_config.thread_cap,
@@ -455,6 +468,16 @@ def main(argv: list[str] | None = None) -> int:
         "material (repeatable)",
     )
     p_open.add_argument(
+        "--quick-review-max-bytes",
+        type=_positive_int,
+        default=opening.QUICK_REVIEW_MAX_BYTES,
+        dest="quick_review_max_bytes",
+        metavar="BYTES",
+        help="how much review material still counts as a small review; below this "
+        "a quick pair is suggested, at or above it the strongest pair "
+        "(default: 16384, and recorded with the debate)",
+    )
+    p_open.add_argument(
         "--author-vendor",
         default=None,
         dest="author_vendor",
@@ -713,10 +736,37 @@ def main(argv: list[str] | None = None) -> int:
             registry = seats.load_registry()
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
             if args.pair is None:
-                raise channel.ChannelError(
+                # The refusal stands -- this path never picks for the user --
+                # but it hands the skill the numbered list to show, sized by
+                # how much there is to review.
+                project_root = opening.project_key(args.root)
+                approved = seats.load_profile(project_root, registry)
+                allowlist = None if approved is None else approved.allowlist
+                review_bytes = opening.docket_byte_size(project_root, args.docket_files)
+                lines = [
                     "refused: a fully managed debate needs --pair (the product skill "
                     "passes the user's exact two-seat choice)"
+                ]
+                suggestion = opening.suggest_pair(
+                    registry,
+                    allowlist=allowlist,
+                    docket_bytes=review_bytes,
+                    quick_review_max_bytes=args.quick_review_max_bytes,
+                    last_pair=opening.remembered_pair(
+                        registry, project=project_root, allowlist=allowlist
+                    ),
                 )
+                menu = opening.pair_menu(
+                    registry,
+                    allowlist=allowlist,
+                    suggestion=suggestion,
+                    docket_bytes=review_bytes,
+                    quick_review_max_bytes=args.quick_review_max_bytes,
+                )
+                if menu:
+                    lines.append("seat one of these with --pair a,b:")
+                    lines.extend(menu)
+                raise channel.ChannelError("\n".join(lines))
             parts = tuple(part.strip() for part in args.pair.split(","))
             if len(parts) != 2 or not all(parts):
                 raise channel.ChannelError(
@@ -756,6 +806,7 @@ def main(argv: list[str] | None = None) -> int:
                     allow_identical_seats=args.allow_identical_seats,
                     allow_mismatched_pair=args.allow_mismatched_pair,
                     docket_files=tuple(args.docket_files),
+                    quick_review_max_bytes=args.quick_review_max_bytes,
                 ),
                 registry,
                 load_config_fn=_watcher_config,
@@ -799,15 +850,18 @@ def main(argv: list[str] | None = None) -> int:
                         f"refused: --pair needs exactly two seat ids, got {args.pair!r}"
                     )
                 requested = (parts[0], parts[1])
+            project_root = opening.project_key(args.root)
             pair = opening.pick_pair(
                 registry,
-                project=opening.project_key(args.root),
+                project=project_root,
                 requested=requested,
                 assume_yes=args.assume_yes,
                 ask=input,
                 allow_identical=args.allow_identical_seats,
                 allow_mismatched_pair=args.allow_mismatched_pair,
                 now=now,
+                docket_bytes=opening.docket_byte_size(project_root, args.docket_files),
+                quick_review_max_bytes=args.quick_review_max_bytes,
             )
             from debate import __version__
 

@@ -16,13 +16,18 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Protocol, Sequence
 
 from . import channel
 from .seats import Registry, Seat
 from .setup import SetupSpec, build_prompt, derive_paths, scaffold_protocol, validate
 
 _SLUG_KEEP = re.compile(r"[^a-z0-9-]+")
+
+# How much review material still counts as a small review, in bytes (16 KiB).
+# Below it a quick pair is enough; at or above it the strongest pair is worth
+# its cost. A per-debate setting: every open may say its own number.
+QUICK_REVIEW_MAX_BYTES = 16384
 
 
 class _LoadedConfig(Protocol):
@@ -73,6 +78,9 @@ class BrokeredOpenSpec:
     allow_identical_seats: bool = False
     allow_mismatched_pair: bool = False
     docket_files: tuple[str, ...] = ()  # project-relative review inputs for the seats
+    # Where the line between a small review and a full one falls for THIS
+    # debate, in bytes; recorded for the tools that suggest a pair later.
+    quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES
 
 
 def slugify_seat_id(seat_id: str) -> str:
@@ -182,6 +190,211 @@ def _pair_gate(
         raise channel.ChannelError("refused: pair not confirmed")
 
 
+# How many pairs the numbered list shows before it says how many it left out.
+PAIR_MENU_LIMIT = 6
+
+QUICK_PAIR_REASON = "small review, quick pair"
+FULL_PAIR_REASON = "full review, strongest pair"
+REMEMBERED_PAIR_REASON = "the pair you picked last time"
+
+
+def docket_byte_size(project: str | Path, docket_files: Sequence[str]) -> int:
+    """How much review material this debate hands its seats, in bytes.
+
+    Names are project-relative; one that is absolute, missing or unreadable
+    counts as nothing, because this only sizes a suggestion. The open itself
+    refuses such a name later, with the name in the refusal.
+    """
+    base = Path(project)
+    total = 0
+    for name in docket_files:
+        candidate = Path(name)
+        if candidate.is_absolute():
+            continue
+        try:
+            total += (base / candidate).stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _wanted_class(docket_bytes: int, quick_review_max_bytes: int) -> str:
+    return "light" if docket_bytes < quick_review_max_bytes else "frontier"
+
+
+def _admits_managed_run(seat: Seat) -> bool:
+    """Whether a fully managed debate could seat this one at all (plan 3.4).
+
+    A command that reads a request file and writes an answer file already
+    speaks the protocol. A command that only takes the question text is run
+    under Debate's own runner, and that runner needs the seat's isolation and
+    no-saving settings on record -- so without both, this seat is not one to
+    put in front of anybody as a suggestion.
+    """
+    argv = " ".join(seat.commands[0])
+    if "{input_path}" in argv and "{result_path}" in argv:
+        return True
+    if "{prompt}" not in argv:
+        return False
+    return bool(seat.isolation_argv) and bool(seat.no_persistence_argv)
+
+
+def _pairable(first: Seat, second: Seat) -> bool:
+    """Two seats the identity guard would let through: different seats,
+    different commands, and not one serving under two labels."""
+    return (
+        first.seat_id != second.seat_id
+        and first.commands[0] != second.commands[0]
+        and (first.vendor, first.submodel) != (second.vendor, second.submodel)
+    )
+
+
+def _offerable_seats(registry: Registry, allowlist: tuple[str, ...] | None) -> list[Seat]:
+    """Every seat this project may put in a suggestion, in seat-id order."""
+    from .seats import head_resolves
+
+    return [
+        seat
+        for seat_id, seat in sorted(registry.seats.items())
+        if seat.present
+        and (allowlist is None or seat_id in allowlist)
+        and head_resolves(seat.commands[0][0])
+        and _admits_managed_run(seat)
+    ]
+
+
+def remembered_pair(
+    registry: Registry, *, project: str, allowlist: tuple[str, ...] | None
+) -> tuple[str, str] | None:
+    """The pair this project used last time, if it can still be seated.
+
+    A remembered pair outside the project's approved list, or one naming a
+    seat that has since vanished, is DROPPED rather than offered.
+    """
+    for default in (registry.last_pair.get(project), registry.last_pair.get("")):
+        if not default or len(default) != 2:
+            continue
+        if allowlist is not None and not all(seat_id in allowlist for seat_id in default):
+            continue
+        try:
+            _seatable(registry, default[0])
+            _seatable(registry, default[1])
+        except channel.ChannelError:
+            continue
+        return (default[0], default[1])
+    return None
+
+
+def suggest_pair(
+    registry: Registry,
+    *,
+    allowlist: tuple[str, ...] | None,
+    docket_bytes: int,
+    quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES,
+    last_pair: tuple[str, str] | None,
+) -> tuple[str, str] | None:
+    """The pair to put first, chosen by how much there is to review.
+
+    Under the limit a small review is enough, so two evenly matched
+    lightweight seats lead; at or above it, two evenly matched frontier seats
+    do. Different vendors win over the same vendor twice, because two vendors
+    disagree more usefully. A seat that could not be seated, or that never
+    declared how strong it is, is never suggested -- it can still be picked by
+    name. With no matched pair to offer, the pair from last time stands.
+    """
+    wanted = _wanted_class(docket_bytes, quick_review_max_bytes)
+    matched = [
+        seat for seat in _offerable_seats(registry, allowlist)
+        if seat.capability_class == wanted
+    ]
+    same_vendor: tuple[str, str] | None = None
+    for index, first in enumerate(matched):
+        for second in matched[index + 1:]:
+            if not _pairable(first, second):
+                continue
+            if first.vendor != second.vendor:
+                return (first.seat_id, second.seat_id)
+            if same_vendor is None:
+                same_vendor = (first.seat_id, second.seat_id)
+    return same_vendor if same_vendor is not None else last_pair
+
+
+def pair_choices(
+    registry: Registry,
+    *,
+    allowlist: tuple[str, ...] | None,
+    suggestion: tuple[str, str] | None,
+    docket_bytes: int,
+    quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES,
+) -> list[tuple[str, str]]:
+    """The suggestion first, then every other pair this project could seat.
+
+    The rest are ordered by how well they fit the size of this review: the
+    matched pairs of the right strength first, then the other evenly matched
+    ones, then the uneven ones.
+    """
+    if suggestion is None:
+        return []
+    wanted = _wanted_class(docket_bytes, quick_review_max_bytes)
+    offerable = _offerable_seats(registry, allowlist)
+    ranked: list[tuple[int, str, str]] = []
+    for index, first in enumerate(offerable):
+        for second in offerable[index + 1:]:
+            if not _pairable(first, second):
+                continue
+            if {first.seat_id, second.seat_id} == set(suggestion):
+                continue
+            kind = classify_pair(first, second)
+            if kind == "symmetric" and first.capability_class == wanted:
+                rank = 0
+            elif kind == "symmetric":
+                rank = 1
+            else:
+                rank = 2
+            ranked.append((rank, first.seat_id, second.seat_id))
+    return [suggestion] + [(first, second) for _rank, first, second in sorted(ranked)]
+
+
+def pair_menu(
+    registry: Registry,
+    *,
+    allowlist: tuple[str, ...] | None,
+    suggestion: tuple[str, str] | None,
+    docket_bytes: int,
+    quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES,
+    limit: int = PAIR_MENU_LIMIT,
+) -> list[str]:
+    """The choices as a numbered list, the first one carrying its reason."""
+    choices = pair_choices(
+        registry, allowlist=allowlist, suggestion=suggestion,
+        docket_bytes=docket_bytes, quick_review_max_bytes=quick_review_max_bytes,
+    )
+    if not choices:
+        return []
+    wanted = _wanted_class(docket_bytes, quick_review_max_bytes)
+    first = registry.seats.get(choices[0][0])
+    second = registry.seats.get(choices[0][1])
+    fits = (
+        first is not None
+        and second is not None
+        and first.capability_class == wanted
+        and second.capability_class == wanted
+    )
+    if not fits:
+        reason = REMEMBERED_PAIR_REASON
+    elif wanted == "light":
+        reason = QUICK_PAIR_REASON
+    else:
+        reason = FULL_PAIR_REASON
+    lines = [f"1  {choices[0][0]} + {choices[0][1]}  --  {reason}"]
+    for number, choice in enumerate(choices[1:limit], start=2):
+        lines.append(f"{number}  {choice[0]} + {choice[1]}")
+    left_out = len(choices) - limit
+    if left_out > 0:
+        lines.append(f"and {left_out} more")
+    return lines
+
+
 def pick_pair(
     registry: Registry,
     *,
@@ -192,6 +405,8 @@ def pick_pair(
     now: str,
     allow_identical: bool = False,
     allow_mismatched_pair: bool = False,
+    docket_bytes: int = 0,
+    quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES,
 ) -> tuple[str, str]:
     """The owner picks; the previous pick is the one-Enter default. When the
     project carries a `debate-profile.json`, the picker is RESTRICTED to its
@@ -204,17 +419,14 @@ def pick_pair(
         return profile is None or seat_id in profile.allowlist
 
     if requested is None:
-        usable = None
-        for default in (registry.last_pair.get(project), registry.last_pair.get("")):
-            if not default or len(default) != 2 or not all(allowed(sid) for sid in default):
-                continue  # a default outside the allowlist is DROPPED
-            try:
-                _seatable(registry, default[0])
-                _seatable(registry, default[1])
-                usable = (default[0], default[1])
-                break
-            except channel.ChannelError:
-                continue  # a default containing an unseatable seat is DROPPED
+        # The size of the review material picks the pair to lead with; the
+        # pair from last time is what stands when nothing matches it.
+        allowlist = None if profile is None else profile.allowlist
+        usable = suggest_pair(
+            registry, allowlist=allowlist, docket_bytes=docket_bytes,
+            quick_review_max_bytes=quick_review_max_bytes,
+            last_pair=remembered_pair(registry, project=project, allowlist=allowlist),
+        )
         if assume_yes:
             if usable is None:
                 raise channel.ChannelError(
@@ -225,17 +437,28 @@ def pick_pair(
         else:
             from .seats import head_resolves as _resolves
 
+            shown = pair_choices(
+                registry, allowlist=allowlist, suggestion=usable,
+                docket_bytes=docket_bytes, quick_review_max_bytes=quick_review_max_bytes,
+            )[:PAIR_MENU_LIMIT]
+            for line in pair_menu(
+                registry, allowlist=allowlist, suggestion=usable,
+                docket_bytes=docket_bytes, quick_review_max_bytes=quick_review_max_bytes,
+            ):
+                print(line)
             listing = ", ".join(
                 sid for sid, seat in sorted(registry.seats.items())
                 if seat.present and allowed(sid) and _resolves(seat.commands[0][0])
             )
-            prompt = f"seatable: {listing}\npick two seats (a,b)"
+            prompt = f"seatable: {listing}\npick a number, or two seats (a,b)"
             prompt += f" [default: {usable[0]},{usable[1]}]: " if usable else ": "
             answer = ask(prompt).strip()
             if not answer:
                 if usable is None:
                     raise channel.ChannelError("refused: no default pair to accept")
                 requested = usable
+            elif answer.isdigit() and 1 <= int(answer) <= len(shown):
+                requested = shown[int(answer) - 1]
             else:
                 parts = tuple(part.strip() for part in answer.split(",") if part.strip())
                 if len(parts) != 2:
@@ -686,6 +909,8 @@ def open_debate_brokered(
         # between phases (field finding, 2026-08-20); unattended channels can
         # raise this in their config, the product default stays snappy.
         "scheduler_interval_seconds": 5,
+        # How much review material still counts as a small review here.
+        "quick_review_max_bytes": spec.quick_review_max_bytes,
         "retry_seconds": 30,
         "adapters": adapters,
         "docket_files": list(spec.docket_files),

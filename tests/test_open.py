@@ -1018,3 +1018,143 @@ def test_yes_alone_refuses_an_uneven_remembered_pair(tmp_path: Path) -> None:
             ask=_no_ask, now="2026-08-20T00:00:00+00:00",
         )
     assert "--allow-mismatched-pair" in str(caught.value)
+
+
+# --- Slice A2: the size-proportional suggestion and its size limit ----------
+
+
+def _quick_pair_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, str]:
+    """Four approved seats: a quick pair and a strongest pair, both admissible."""
+    rows = {
+        "claude/haiku": _raw_seat(
+            [str(_fake_tool(tmp_path, "claude-haiku")), "{prompt}"],
+            vendor="claude", submodel="haiku", source="catalog",
+            capability_class="light",
+            isolation_argv=["--strict-mcp-config"],
+            no_persistence_argv=["--no-session-persistence"],
+        ),
+        "deepseek/flash": _raw_seat(
+            [str(_fake_tool(tmp_path, "deepseek-flash")), "{prompt}"],
+            vendor="deepseek", submodel="flash", source="catalog",
+            capability_class="light",
+            isolation_argv=["--offline"], no_persistence_argv=["--forget"],
+        ),
+        "claude/opus": _raw_seat(
+            [str(_fake_tool(tmp_path, "claude-opus")), "{prompt}"],
+            vendor="claude", submodel="opus", source="catalog",
+            capability_class="frontier",
+            isolation_argv=["--strict-mcp-config"],
+            no_persistence_argv=["--no-session-persistence"],
+        ),
+        "deepseek/pro": _raw_seat(
+            [str(_fake_tool(tmp_path, "deepseek-pro")), "{prompt}"],
+            vendor="deepseek", submodel="pro", source="catalog",
+            capability_class="frontier",
+            isolation_argv=["--offline"], no_persistence_argv=["--forget"],
+        ),
+    }
+    return managed_project(
+        tmp_path, monkeypatch, rows,
+        ["claude/haiku", "deepseek/flash", "claude/opus", "deepseek/pro"],
+    )
+
+
+def test_managed_open_records_the_small_review_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, head = _quick_pair_project(tmp_path, monkeypatch)
+    result = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=project / "collab", label="stub",
+            pair=("claude/opus", "deepseek/pro"),
+            source_ref=head, author_vendor="claude",
+        ),
+        seats.load_registry(), load_config_fn=_watcher_config,
+        now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
+    )
+    config = json.loads(result.config_path.read_text(encoding="utf-8"))
+    assert config["quick_review_max_bytes"] == opening.QUICK_REVIEW_MAX_BYTES == 16384
+    loaded = _watcher_config(project / "collab", result.config_path, result.channel_name)
+    assert loaded.managed_problem() is None
+
+
+def test_the_small_review_limit_is_a_per_debate_setting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, head = _quick_pair_project(tmp_path, monkeypatch)
+    result = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=project / "collab", label="stub",
+            pair=("claude/opus", "deepseek/pro"),
+            source_ref=head, author_vendor="claude",
+            quick_review_max_bytes=4096,
+        ),
+        seats.load_registry(), load_config_fn=_watcher_config,
+        now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
+    )
+    config = json.loads(result.config_path.read_text(encoding="utf-8"))
+    assert config["quick_review_max_bytes"] == 4096
+
+
+def test_a_hand_edited_small_review_limit_refuses_instead_of_crashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, head = _quick_pair_project(tmp_path, monkeypatch)
+    result = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=project / "collab", label="stub",
+            pair=("claude/opus", "deepseek/pro"),
+            source_ref=head, author_vendor="claude",
+        ),
+        seats.load_registry(), load_config_fn=_watcher_config,
+        now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
+    )
+    config = json.loads(result.config_path.read_text(encoding="utf-8"))
+    config["quick_review_max_bytes"] = "sixteen thousand"
+    result.config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    with pytest.raises(channel.ChannelError, match="quick_review_max_bytes"):
+        _watcher_config(project / "collab", result.config_path, result.channel_name)
+
+
+def test_the_docket_size_is_the_sum_of_its_files(tmp_path: Path) -> None:
+    (tmp_path / "one.md").write_text("x" * 100, encoding="utf-8")
+    (tmp_path / "two.md").write_text("y" * 20, encoding="utf-8")
+    assert opening.docket_byte_size(str(tmp_path), ("one.md", "two.md")) == 120
+    assert opening.docket_byte_size(str(tmp_path), ()) == 0
+    assert opening.docket_byte_size(str(tmp_path), ("missing.md",)) == 0
+
+
+def test_cli_managed_open_without_a_pair_offers_a_numbered_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project, _head = _quick_pair_project(tmp_path, monkeypatch)
+    monkeypatch.chdir(project)
+    rc = main([
+        "open", "--brokered", "--root", str(project / "collab"),
+        "--label", "market-research", "--author-vendor", "claude",
+    ])
+    assert rc == 1
+    printed = capsys.readouterr().err
+    assert "a fully managed debate needs --pair" in printed
+    assert "1  claude/haiku + deepseek/flash" in printed
+    assert "small review, quick pair" in printed
+    assert "2  " in printed
+
+
+def test_cli_managed_open_sizes_its_suggestion_by_the_review_material(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project, _head = _quick_pair_project(tmp_path, monkeypatch)
+    (project / "big-docket.md").write_text("z" * 20000, encoding="utf-8")
+    monkeypatch.chdir(project)
+    rc = main([
+        "open", "--brokered", "--root", str(project / "collab"),
+        "--label", "market-research", "--author-vendor", "claude",
+        "--docket-file", "big-docket.md",
+    ])
+    assert rc == 1
+    printed = capsys.readouterr().err
+    assert "1  claude/opus + deepseek/pro" in printed
+    assert "full review, strongest pair" in printed
