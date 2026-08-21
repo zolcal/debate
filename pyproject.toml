@@ -32,7 +32,10 @@ Issues = "https://github.com/zolcal/debate/issues"
 # red. That happened on 2026-08-02 — code green on 0.7.x failed on 0.16.1 with
 # 17 findings, 8 of them in files untouched for weeks. Bump this deliberately,
 # with the rule changes reviewed, rather than inheriting them on a random push.
-dev = ["pytest>=8.0.0", "ruff>=0.7,<0.8", "mypy>=1.10.0"]
+# mypy carries the same upper bound for the same reason: an unbounded checker
+# makes the third CI gate non-reproducible (branch gate branch-v080-part2-19846
+# MSG-6, 2026-08-21).
+dev = ["pytest>=8.0.0", "ruff>=0.7,<0.8", "mypy>=1.10.0,<2.4"]
 
 [project.scripts]
 debate = "debate.__main__:main"
