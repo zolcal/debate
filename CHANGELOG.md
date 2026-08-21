@@ -91,6 +91,10 @@ default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
   everything a tool needs to take part. The configuration folder is validated: a
   documented or well-formed variable name, and a folder strictly inside your home
   directory. Gated on `plan-v080-part2-63227` (PASS, MSG-38).
+- **Cache-friendly prompt order** — the seat adapter sends the review material first
+  and the round-specific part last, so a provider that caches a shared prefix can
+  reuse it across a debate's calls. This is a cost saving only; no speed change is
+  claimed or measured. Gated on `plan-v080-part2-63227` (PASS, MSG-38).
 
 ### Changed
 

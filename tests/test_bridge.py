@@ -231,6 +231,59 @@ def test_prompt_block_order_is_instruction_docket_source_phase(tmp_path: Path, s
     assert instruction < docket < source < phase
 
 
+def test_prompt_order_keeps_the_stable_prefix_first(tmp_path: Path, seat: FakeSeat) -> None:
+    """O15: the docket and the source -- the bulk material that stays the same
+    across a case's calls -- go before the round-specific phase block, in the
+    order instruction, docket, source, phase. This is a cost feature only; no
+    speedup is claimed or measured here.
+
+    Note: the instruction block itself is NOT byte-identical between the sealed
+    and deliberation phases (its stance paragraph reads ADVERSARIAL for sealed,
+    ANALYTICAL for deliberation -- see test_sealed_prompt_is_adversarial_and_
+    deliberation_is_analytical above), so this test pins byte-identity for the
+    docket and source blocks specifically, not for the whole prefix string.
+    """
+    # Same docket, same source export for both phases -- only "phase" (and the
+    # transcript that comes with it) differs, per the O15 contract.
+    sealed = _make_case(tmp_path, phase="sealed")
+    assert main(_argv(sealed, seat, extra=["--deliberation-input", "full"])) == 0
+    sealed_prompt = seat.prompt()
+    sealed_payload = json.loads(sealed.input_path.read_text(encoding="utf-8"))
+
+    deliberation_payload = dict(sealed_payload)
+    deliberation_payload["phase"] = "deliberation"
+    deliberation_payload["current_thread"] = DEFAULT_TRANSCRIPT
+    deliberation_input_path = tmp_path / "deliberation-input.json"
+    deliberation_input_path.write_text(json.dumps(deliberation_payload, indent=2, sort_keys=True), encoding="utf-8")
+    deliberation = Case(
+        input_path=deliberation_input_path,
+        result_path=tmp_path / "deliberation-result.json",
+        source_root=sealed.source_root,
+        docket_root=sealed.docket_root,
+        docket=sealed.docket,
+    )
+
+    seat.log.unlink()
+    assert main(_argv(deliberation, seat, extra=["--deliberation-input", "full"])) == 0
+    deliberation_prompt = seat.prompt()
+
+    # (a) whichever of the four block markers are present appear in the
+    # cache-friendly order: instruction, docket, source, phase.
+    for prompt in (sealed_prompt, deliberation_prompt):
+        instruction = prompt.index(bridge.INSTRUCTION_HEADER)
+        docket = prompt.index(bridge.DOCKET_HEADER)
+        source = prompt.index(bridge.SOURCE_HEADER)
+        assert instruction < docket < source
+    assert bridge.TRANSCRIPT_HEADER not in sealed_prompt
+    phase = deliberation_prompt.index(bridge.TRANSCRIPT_HEADER)
+    assert deliberation_prompt.index(bridge.SOURCE_HEADER) < phase
+
+    # (b) the docket and source blocks -- the material a provider prefix cache
+    # would actually reuse -- are byte-identical between the two phases.
+    assert bridge._docket_block(sealed_payload) == bridge._docket_block(deliberation_payload)
+    assert bridge._source_block(sealed_payload) == bridge._source_block(deliberation_payload)
+
+
 def test_sealed_prompt_is_adversarial_and_deliberation_is_analytical(tmp_path: Path, seat: FakeSeat) -> None:
     sealed = _make_case(tmp_path / "sealed", phase="sealed")
     assert main(_argv(sealed, seat)) == 0
