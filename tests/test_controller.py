@@ -344,7 +344,7 @@ def test_broker_open_snapshots_before_supervisor_docket_and_assigns_first_seat(
     )
 
     assert code == 0
-    assert "opened brokered case as MSG-1" in capsys.readouterr().out
+    assert "opened the case as MSG-1" in capsys.readouterr().out
     entry = channel.read_entries(root, name)[0]
     signal = channel.read_signal(root, name)
     assert entry.sender == "owner"

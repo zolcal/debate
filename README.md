@@ -42,7 +42,7 @@ your audit trail).
 - **`<channel>.channel.md`** is the conversation. Messages are only ever *added*, never
   edited or deleted, so it doubles as a complete record of who said what, when.
 - **`<channel>.signal.json`** is the doorbell: five core fields that say whose turn it
-  is and which discussion is open. Brokered cases also persist their phase, absolute
+  is and which discussion is open. Fully managed cases also persist their phase, absolute
   deadline, and typed terminal result there.
 
 `<channel>` is the channel's own name — `debate init` generates it once, as
@@ -63,10 +63,10 @@ deprecated since 0.5; `debate migrate` renames one in place, byte-identically.)
 </p>
 
 One channel writer is the only code that writes to either file — whether called by the
-legacy `debate post` surface or the brokered controller — and it *enforces* the rules
-instead of politely asking: you can't post out of turn, you can't open
-a second discussion while one is open, and a runaway back-and-forth gets cut off by a
-message cap. A small scheduled job wakes whichever agent the doorbell points at. No server,
+legacy `debate post` surface or the controller that runs a fully managed debate — and it
+*enforces* the rules instead of politely asking: you can't post out of turn, you can't
+open a second discussion while one is open, and a runaway back-and-forth gets cut off by
+a message cap. A small scheduled job wakes whichever agent the doorbell points at. No server,
 no message broker, no API keys, no framework to adopt.
 
 ## What a review looks like
@@ -119,8 +119,8 @@ which locally detected agents this project may seat. Detection is evidence, not
 approval: nothing found on PATH, in an old registry, or in a previous project's
 remembered pair is ever approved silently, and discovery makes zero model calls. Then
 say **"start a debate"**, pick exactly two approved seats, and Debate creates a fresh
-brokered (managed version 2) channel — the agent you are talking to stays outside both
-seats, and you are the supervisor. When everything is healthy, session start is silent.
+fully managed channel — the agent you are talking to stays outside both seats, and you
+are the supervisor. When everything is healthy, session start is silent.
 
 Uninstalling the plugin removes the host integration only: your registry
 (`~/.config/debate/seats.json`), project profiles (`debate-profile.json`), and channel
@@ -198,7 +198,7 @@ debate seats doctor
 debate open --root ./collab --label market-research \
     --pair codex/gpt-5.6-sol,glm/glm-5.3 --yes
 
-# The 0.8 product default: mint a BROKERED managed-version-2 channel instead.
+# The 0.8 product default: start a FULLY MANAGED debate instead.
 # Requires project approval (a debate-profile.json written by the onboarding
 # flow), seats Debate can run (see the bullets below), and --author-vendor:
 # the interactive author's vendor, declared so a same-vendor seat is recorded
@@ -245,12 +245,12 @@ verified pin — the registry never claims a selection the pipe cannot make.
 
 ## Running it unattended
 
-There are two recorded managed versions. **Version 2 is the brokered path for new isolated
-gates.** Version 1 is retained so existing two-command channels keep working, but those
-agents receive the channel path and self-post with `--from`; it does not provide sender
-binding or context isolation.
+A channel records which of two arrangements it was born with. **The fully managed one is
+the path for new isolated gates**: Debate runs both seats itself. The older one is retained
+so existing two-command channels keep working, but those agents receive the channel path
+and self-post with `--from`; it does not provide sender binding or context isolation.
 
-### Brokered managed version 2
+### Fully managed: Debate runs both seats (recorded `managed_version` 2)
 
 <p align="center">
   <picture>
@@ -259,7 +259,7 @@ binding or context isolation.
   </picture>
 </p>
 
-Initialize the channel explicitly as brokered, then fill in
+Initialize the channel explicitly as fully managed, then fill in
 [`watcher.brokered.example.json`](watcher.brokered.example.json). Party names are arbitrary;
 the two `adapters` keys must exactly match the addressed channel.
 
@@ -369,7 +369,7 @@ sealed-submission state stored elsewhere below the same project-local case runti
 separation does not stop a hostile same-user process from traversing parent directories.
 Use `os-enforced` only when an external sandbox actually denies those reads.
 
-### Managed version 1 compatibility
+### Compatibility with the older arrangement (recorded `managed_version` 1)
 
 `debate watch-once` is one tick of a deliberately simple watcher. Put it on a schedule
 (cron, every minute): it checks the doorbell, prints any new messages to stdout —
@@ -393,7 +393,7 @@ config file:
 }
 ```
 
-Prompts may address their channel through two placeholders instead of hardcoded
+Prompts may address their channel through two markers instead of hardcoded
 paths: `{channel_root}` expands to the resolved absolute channel folder and
 `{channel_name}` to the channel id, both in one fixed pass before `{prompt}` is
 substituted into the argv. A prompt carrying `--root {channel_root} --channel
@@ -421,13 +421,13 @@ Agents run in the watcher's own working directory — `cd` to your project root 
 "Start in" explicitly, or relative paths in your pinned prompts will resolve somewhere
 surprising.
 
-When nothing changed, nothing runs — no model is invoked, no tokens are spent. A managed
-version 1 channel requires one command for each of its two recorded parties. If either is absent,
-or an open managed thread has no party turn, `watch-status` reports **INVALID** and exits
-4; the watcher never represents that state as healthy or waits for a live human session.
+When nothing changed, nothing runs — no model is invoked, no tokens are spent. A channel on
+the older arrangement requires one command for each of its two recorded parties. If either is
+absent, or an open managed thread has no party turn, `watch-status` reports **INVALID** and
+exits 4; the watcher never represents that state as healthy or waits for a live human session.
 Configs without `managed_version` remain readable as legacy/manual history but must be
-reconfigured before managed unattended use. Managed version 2 instead requires exactly two
-brokered adapter profiles and refuses direct party posts. Headless seats normally use zero
+reconfigured before managed unattended use. A fully managed channel instead requires exactly
+two seat profiles for the controller to run, and refuses direct party posts. Headless seats normally use zero
 debounce.
 
 ### Running to completion
@@ -522,7 +522,7 @@ Be precise about what this tool guarantees, especially before running agents una
   (the mailbox entry always lands before the doorbell rings, so a watcher can never read a
   half-written message). An agent that breaks these rules gets its post *refused*, not a
   warning.
-- **Broker-enforced for managed version 2:** exact party/profile binding, at least one
+- **Enforced by the controller in a fully managed debate:** exact party/profile binding, at least one
   author-independent seat, a full pinned source export with no reachable parent Git store,
   immutable docket/profile/config hashes, clean environment and project-local runtime,
   controller-owned sender, schema-validated typed results, sealed paired reveal, deadline
@@ -556,7 +556,7 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
    never breaks the agents' alternation.
 6. **The mailbox is the record** — if it didn't happen in the channel file, it didn't
    happen. Corrections are new messages, never edits.
-7. **A brokered seat never self-posts** — it receives no live channel path; the controller
+7. **A seat in a fully managed debate never self-posts** — it receives no live channel path; the controller
    validates its result file and derives the sender from the configured seat.
 8. **Initial positions reveal as a pair** — no party can anchor its first judgment on the
    opponent, while later disagreement deliberately becomes a real, current-thread debate.

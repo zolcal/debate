@@ -136,11 +136,13 @@ def _watcher_config(
     adapter_raw = _mapping(raw, "adapters", config_path)
     if adapter_raw:
         if channel_config.name is None or channel_config.project is None:
-            raise channel.ChannelError("refused: brokered adapters require a named project-bound channel")
+            raise channel.ChannelError(
+                "refused: a fully managed channel must be named and bound to a project"
+            )
         for required in ("runtime_root", "source_ref", "whole_case_timeout_seconds"):
             if required not in raw:
                 raise channel.ChannelError(
-                    f"refused: brokered watcher config {config_path} has no {required!r}"
+                    f"refused: the fully managed watcher config {config_path} has no {required!r}"
                 )
         profiles = {
             str(party): AdapterProfile.from_mapping(str(party), profile)
@@ -589,26 +591,32 @@ def main(argv: list[str] | None = None) -> int:
     p_watchloop.add_argument(
         "--interval", type=_positive_int, default=None, metavar="SECONDS",
         help="seconds between ticks (default: the config's scheduler_interval_seconds "
-        "for brokered channels, else 180)",
+        "for a fully managed channel, else 180)",
     )
     p_watchloop.add_argument("--until-close", action="store_true", help="exit 0 when no thread is open")
     p_watchloop.add_argument("--max-ticks", type=_positive_int, default=None)
 
     p_doctor = sub.add_parser(
         "adapter-doctor",
-        help="validate brokered profiles, topology, cost mode, runtime placement, and timing without invocation",
+        help="validate a fully managed debate's seat profiles, topology, cost mode, "
+        "runtime placement, and timing without invoking anything",
     )
     p_doctor.add_argument("--root", type=Path, default=Path("."))
     add_channel_flag(p_doctor)
-    p_doctor.add_argument("--config", type=Path, required=True, help="brokered watcher config JSON")
+    p_doctor.add_argument(
+        "--config", type=Path, required=True, help="the fully managed debate's watcher config JSON"
+    )
 
     p_broker_open = sub.add_parser(
         "broker-open",
-        help="snapshot and open a neutral brokered review case; the supervisor authors the docket",
+        help="snapshot and open a neutral review case for a fully managed debate; "
+        "the supervisor authors the docket",
     )
     p_broker_open.add_argument("--root", type=Path, default=Path("."))
     add_channel_flag(p_broker_open)
-    p_broker_open.add_argument("--config", type=Path, required=True, help="brokered watcher config JSON")
+    p_broker_open.add_argument(
+        "--config", type=Path, required=True, help="the fully managed debate's watcher config JSON"
+    )
     p_broker_open.add_argument("--thread", required=True)
     p_broker_open.add_argument("--first-seat", required=True)
     p_broker_open.add_argument("--refs", default="")
@@ -622,7 +630,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_broker_revise.add_argument("--root", type=Path, default=Path("."))
     add_channel_flag(p_broker_revise)
-    p_broker_revise.add_argument("--config", type=Path, required=True, help="updated brokered watcher config JSON")
+    p_broker_revise.add_argument(
+        "--config", type=Path, required=True,
+        help="the fully managed debate's updated watcher config JSON",
+    )
     p_broker_revise.add_argument("--thread", required=True)
     p_broker_revise.add_argument("--refs", default="")
     revise_body = p_broker_revise.add_mutually_exclusive_group(required=True)
@@ -1015,8 +1026,8 @@ def main(argv: list[str] | None = None) -> int:
             chan_config = channel.load_config(args.root, name)
             if chan_config.managed_version == channel.BROKERED_MANAGED_VERSION:
                 raise channel.ChannelError(
-                    "refused: this channel is managed version 2 (brokered) -- its seats are "
-                    "adapter profiles, not watcher commands. Start from "
+                    "refused: this channel is fully managed -- Debate runs its seats "
+                    "itself, so they are seat profiles, not watcher commands. Start from "
                     "watcher.brokered.example.json and validate with `debate adapter-doctor`."
                 )
             flag_commands: dict[str, list[str] | None] = {}
@@ -1192,7 +1203,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "broker-open":
             config = _watcher_config(args.root, args.config, name)
             if config.broker is None or name is None:
-                raise channel.ChannelError("refused: broker-open requires a named brokered channel")
+                raise channel.ChannelError(
+                    "refused: broker-open needs a named, fully managed channel"
+                )
             text = args.body if args.body is not None else args.body_file.read_text(encoding="utf-8")
             entry_id = BrokerController(config.broker).open_case(
                 channel_root=args.root,
@@ -1202,11 +1215,13 @@ def main(argv: list[str] | None = None) -> int:
                 body=text,
                 refs=args.refs,
             )
-            print(f"opened brokered case as {entry_id}; first seat {args.first_seat!r}")
+            print(f"opened the case as {entry_id}; first seat {args.first_seat!r}")
         elif args.command == "broker-revise":
             config = _watcher_config(args.root, args.config, name)
             if config.broker is None or name is None:
-                raise channel.ChannelError("refused: broker-revise requires a named brokered channel")
+                raise channel.ChannelError(
+                    "refused: broker-revise needs a named, fully managed channel"
+                )
             text = args.body if args.body is not None else args.body_file.read_text(encoding="utf-8")
             entry_id = BrokerController(config.broker).revise_case(
                 channel_root=args.root,
@@ -1215,7 +1230,7 @@ def main(argv: list[str] | None = None) -> int:
                 body=text,
                 refs=args.refs,
             )
-            print(f"recorded brokered artifact revision as {entry_id}; party turn unchanged")
+            print(f"recorded the new artifact revision as {entry_id}; party turn unchanged")
         elif args.command == "watch":
             watch_config = _watcher_config(args.root, args.config, name)
             try:
