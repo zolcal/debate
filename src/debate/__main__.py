@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -277,13 +278,19 @@ def _project_relative(project_root: Path, raw: str, label: str) -> str:
 
 def _delta_round_docket(
     args: argparse.Namespace, config: BrokerConfig, channel_root: Path, channel_name: str
-) -> tuple[Path, tuple[str, ...]]:
+) -> tuple[Path, tuple[str, ...], Callable[[], None]]:
     """Compose the round docket, then put its inputs in front of the seats.
 
     Every refusal below runs BEFORE the first byte is written: half a round --
     a docket on disk that the config does not carry, or a config naming a file
     that was never written -- is worse than no round at all. The order is
     read-everything, refuse, then write the docket and the config together.
+
+    The refusals here are not the only ones the round can meet: `revise_case`
+    has its own (a stuck half-finished revision, a changed profile, topology or
+    deadline, a case manifest that is gone), and those fire AFTER these two
+    writes. So the third return value undoes them -- caller's job to call it
+    when the recording fails -- and the round is all-or-nothing either way.
     """
     if args.goal is None or not args.goal.strip():
         raise channel.ChannelError(
@@ -399,10 +406,35 @@ def _delta_round_docket(
             additions.append(path)
 
     destination = project / relative
+    config_path = Path(args.config)
+    # Captured BEFORE the write, so the undo restores the operator's file byte
+    # for byte -- not a re-serialization of what we think it held.
+    original_config = config_path.read_bytes()
+    parent_existed = destination.parent.exists()
+
+    def rollback() -> None:
+        """Undo exactly this run's two writes, and nothing else.
+
+        The docket file is always this run's own: an existing --docket-out is
+        refused above and the default takes the next free number. The
+        materialized prior versions are NOT ours -- they are the author's files,
+        named on the command line -- so they stay.
+        """
+        config_path.write_bytes(original_config)
+        try:
+            destination.unlink()
+        except FileNotFoundError:  # pragma: no cover - only a concurrent remove
+            pass
+        if not parent_existed:
+            try:
+                destination.parent.rmdir()
+            except OSError:  # pragma: no cover - something else landed in it
+                pass
+
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(text, encoding="utf-8")
-    _add_docket_files(Path(args.config), additions)
-    return destination, tuple(additions)
+    _add_docket_files(config_path, additions)
+    return destination, tuple(additions), rollback
 
 
 def _add_docket_files(config_path: Path, additions: list[str]) -> None:
@@ -1513,27 +1545,46 @@ def main(argv: list[str] | None = None) -> int:
                     "belong to --delta-round; add --delta-round or drop them"
                 )
             broker = config.broker
+            docket_path: Path | None = None
+            added: tuple[str, ...] = ()
+            rollback: Callable[[], None] | None = None
             if args.delta_round:
-                docket_path, added = _delta_round_docket(args, broker, args.root, name)
+                docket_path, added, rollback = _delta_round_docket(args, broker, args.root, name)
+            try:
+                if rollback is not None:
+                    # The config just changed on disk; the revision has to
+                    # record the file list the seats will actually receive,
+                    # not the one loaded a moment ago.
+                    reloaded = _watcher_config(args.root, args.config, name)
+                    if reloaded.broker is None:
+                        raise channel.ChannelError(
+                            "refused: broker-revise needs a named, fully managed channel"
+                        )
+                    broker = reloaded.broker
+                entry_id = BrokerController(broker).revise_case(
+                    channel_root=args.root,
+                    channel_name=name,
+                    thread=args.thread,
+                    body=text,
+                    refs=args.refs,
+                )
+            except Exception:
+                # Recording refused (a stuck half-finished revision, a changed
+                # profile or deadline, an unreadable case) or failed outright:
+                # put the docket and the config back the way they were, then
+                # let the operator read the original refusal, unchanged. A
+                # round that was not recorded must leave no trace claiming it
+                # was.
+                if rollback is not None:
+                    rollback()
+                raise
+            # Spoken only once the round is REAL. Announcing the docket before
+            # the recording would have printed a sentence the rollback then
+            # made false.
+            if docket_path is not None:
                 print(f"wrote this round's instruction sheet to {docket_path}")
                 if added:
                     print("added to the files this case puts in front of the seats: " + ", ".join(added))
-                # The config just changed on disk; the revision has to record
-                # the file list the seats will actually receive, not the one
-                # loaded a moment ago.
-                reloaded = _watcher_config(args.root, args.config, name)
-                if reloaded.broker is None:
-                    raise channel.ChannelError(
-                        "refused: broker-revise needs a named, fully managed channel"
-                    )
-                broker = reloaded.broker
-            entry_id = BrokerController(broker).revise_case(
-                channel_root=args.root,
-                channel_name=name,
-                thread=args.thread,
-                body=text,
-                refs=args.refs,
-            )
             print(f"recorded the new artifact revision as {entry_id}; party turn unchanged")
         elif args.command == "watch":
             watch_config = _watcher_config(args.root, args.config, name)

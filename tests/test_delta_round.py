@@ -416,3 +416,57 @@ def test_an_artifact_is_not_its_own_prior_version(tmp_path: Path, capsys: pytest
     assert code == 1
     assert "its own prior version" in capsys.readouterr().err
     assert not (case.repo / "var" / "debate" / case.name).exists()
+
+
+def test_a_refused_recording_rolls_the_docket_and_the_config_back(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The writes land before `revise_case` runs, and `revise_case` has its own
+    refusals. A round that was not recorded must leave nothing claiming it was.
+    """
+    case = open_case(tmp_path)
+    post_verdict(case, "NO_PASS: one blocking finding, round 1.")
+    config_before = case.config_path.read_bytes()
+    runtime_before = tree_digest(case.runtime)
+    record_before = tree_digest(case.root)
+
+    def refuse(self: BrokerController, **kwargs: Any) -> str:
+        raise channel.ChannelError("refused: the case says otherwise")
+
+    monkeypatch.setattr(BrokerController, "revise_case", refuse)
+
+    code = main(delta_argv(case))
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "the case says otherwise" in captured.err
+    assert "instruction sheet" not in captured.out
+    assert case.config_path.read_bytes() == config_before
+    assert tree_digest(case.runtime) == runtime_before
+    assert tree_digest(case.root) == record_before
+    assert not (case.repo / "var" / "debate" / case.name).exists()
+
+
+def test_a_real_revise_refusal_rolls_back_through_the_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The same rollback, driven by a refusal the controller raises for itself:
+    a different half-finished revision left in the case manifest."""
+    case = open_case(tmp_path)
+    post_verdict(case, "NO_PASS: one blocking finding, round 1.")
+    manifest_path = case.runtime / "cases" / THREAD / "case.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["pending_revision"] = {"revision_sha256": "f" * 64}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    config_before = case.config_path.read_bytes()
+    manifest_before = manifest_path.read_bytes()
+    record_before = tree_digest(case.root)
+
+    code = main(delta_argv(case))
+
+    assert code == 1
+    assert "half-finished revision" in capsys.readouterr().err
+    assert case.config_path.read_bytes() == config_before
+    assert manifest_path.read_bytes() == manifest_before
+    assert tree_digest(case.root) == record_before
+    assert not (case.repo / "var" / "debate" / case.name).exists()
