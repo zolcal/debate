@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from debate import channel, onboarding, opening, seats
+from debate import bridge, channel, onboarding, opening, seats
 from debate.controller import AdapterProfile, BrokerConfig, BrokerController, TimingPolicy, doctor_lines
 from debate.watcher import WatcherConfig, read_status, run_once, watch
 
@@ -233,7 +233,9 @@ def _watch_status_report(root: Path, config_path: Path, grace: int, channel_name
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="debate", description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
+    # metavar: the auto-generated choices line would list every subcommand,
+    # including the hidden one below, which is the one thing it must not do.
+    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     def add_channel_flag(sub_parser: argparse.ArgumentParser) -> None:
         sub_parser.add_argument(
@@ -619,6 +621,14 @@ def main(argv: list[str] | None = None) -> int:
     revise_body.add_argument("--body")
     revise_body.add_argument("--body-file", type=Path)
 
+    # Hidden on purpose: nobody types this. The channel-opening flow writes it
+    # into a seat's adapter command so an ordinary prompt-taking CLI can answer
+    # a review pass, and the doctor reads it back. Passing help=SUPPRESS is NOT
+    # enough -- argparse still prints the row, with "==SUPPRESS==" as its text --
+    # so the parser is registered with no help at all, which keeps it out of the
+    # listing entirely; the metavar above keeps it out of the usage line.
+    bridge.configure_parser(sub.add_parser("bridge"))
+
     args = parser.parse_args(argv)
 
     try:
@@ -626,8 +636,11 @@ def main(argv: list[str] | None = None) -> int:
         # None means the legacy layout; init CREATES a channel and never
         # discovers one, and `seats` addresses the host registry, not a root.
         name: str | None = None
-        if args.command not in ("init", "migrate", "seats", "open", "onboarding"):
+        if args.command not in ("init", "migrate", "seats", "open", "onboarding", "bridge"):
             name = channel.discover_channel(args.root, getattr(args, "channel", None))
+
+        if args.command == "bridge":
+            return bridge.run_bridge_command(args)
 
         if args.command == "onboarding":
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
