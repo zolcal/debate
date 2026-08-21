@@ -477,11 +477,15 @@ _OPEN_FENCE = re.compile(r"```[ \t]*json[ \t]*\r?\n", re.IGNORECASE)
 
 
 def _last_object_after_a_fence(output: str) -> tuple[str, Any, ValueError | None]:
-    """Read fenced answer blocks left to right and keep the last one that decodes.
+    """Read fenced answer blocks left to right and answer with the LAST one.
 
     Each decoded block tells us where it ended, so a fence quoted INSIDE it is
     skipped rather than mistaken for the next block -- that is what keeps "the
     last block wins" true for a body that quotes a fenced snippet.
+
+    The last block that was actually ATTEMPTED decides the outcome. A seat that
+    prints a draft verdict, thinks again and then botches its final JSON must be
+    refused, not credited with the draft it walked away from.
     """
     decoder = json.JSONDecoder()
     fenced = False
@@ -491,6 +495,8 @@ def _last_object_after_a_fence(output: str) -> tuple[str, Any, ValueError | None
     end_of_last = 0
     for match in _OPEN_FENCE.finditer(output):
         if match.start() < end_of_last:
+            # Quoted inside a block we already read: part of that answer's text,
+            # not an answer of its own.
             continue
         fenced = True
         start = match.end()
@@ -499,9 +505,13 @@ def _last_object_after_a_fence(output: str) -> tuple[str, Any, ValueError | None
         try:
             candidate, length = decoder.raw_decode(output[start:])
         except ValueError as error:
+            # This attempt is the seat's latest word, and it is unreadable.
             failure = error
+            decoded = False
+            value = None
             continue
         decoded = True
+        failure = None
         value = candidate
         end_of_last = start + length
     if decoded:

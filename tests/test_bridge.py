@@ -377,6 +377,32 @@ def test_a_body_that_quotes_a_fenced_snippet_survives_intact(
     assert result["body"] == body
 
 
+def test_a_malformed_last_block_refuses_instead_of_taking_an_earlier_one(
+    tmp_path: Path, seat: FakeSeat, capsys: pytest.CaptureFixture[str]
+) -> None:
+    case = _make_case(tmp_path)
+    seat.respond(
+        stdout=(
+            _verdict_block("PASS", "first valid, should be superseded")
+            + "\nOn reflection:\n"
+            + '```json\n{"schema_version": 1, "entry_type": \n```\n'
+        )
+    )
+    assert main(_argv(case, seat)) == 2
+    assert not case.result_path.exists()
+    errors = [line for line in capsys.readouterr().err.splitlines() if line.startswith("refused:")]
+    assert len(errors) == 1
+
+
+def test_a_block_quoting_a_fence_with_nothing_after_it_still_wins(tmp_path: Path, seat: FakeSeat) -> None:
+    case = _make_case(tmp_path)
+    seat.respond(stdout=_verdict_block("NO_PASS", QUOTED_BLOCK_BODY))
+    assert main(_argv(case, seat)) == 0
+    result = case.result()
+    assert result["decision"] == "NO_PASS"
+    assert result["body"] == QUOTED_BLOCK_BODY
+
+
 def test_the_last_block_still_wins_when_an_earlier_body_quotes_a_fence(
     tmp_path: Path, seat: FakeSeat
 ) -> None:
