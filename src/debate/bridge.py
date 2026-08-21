@@ -129,6 +129,7 @@ class BridgeSpec:
     no_persistence_argv: tuple[str, ...]
     config_home: str | None
     deliberation_input: str
+    isolation_flags_basis: str
 
 
 # --- the command line -------------------------------------------------------
@@ -210,6 +211,7 @@ def spec_from_arguments(args: argparse.Namespace) -> BridgeSpec:
         no_persistence_argv=_string_list(str(args.no_persistence_argv_json), "the no-history arguments"),
         config_home=None if args.config_home is None else str(args.config_home),
         deliberation_input=str(args.deliberation_input),
+        isolation_flags_basis=str(args.isolation_flags_basis),
     )
 
 
@@ -620,7 +622,7 @@ def _run(args: argparse.Namespace) -> int:
         spec=spec,
         decision=decision,
         body=body,
-        isolation_flags_basis=str(args.isolation_flags_basis),
+        isolation_flags_basis=spec.isolation_flags_basis,
     )
     return 0
 

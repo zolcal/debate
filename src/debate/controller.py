@@ -1847,24 +1847,6 @@ class BrokerController:
         )
 
 
-def _bridge_isolation_flags_basis(command: tuple[str, ...]) -> str:
-    """Read a bridge seat's declared --isolation-flags-basis straight from its recorded argv.
-
-    ``bridge.BridgeSpec`` does not carry this value -- it is a required,
-    choice-validated flag on the bridge subcommand that ``spec_from_arguments``
-    consumes only to pass on to ``write_result``, never storing it on the
-    spec. Call this only after ``bridge.parse_bridge_command`` has already
-    confirmed ``command`` is a well-formed bridge command, so the flag and its
-    value are guaranteed present.
-    """
-    for index, token in enumerate(command):
-        if token == "--isolation-flags-basis" and index + 1 < len(command):
-            return str(command[index + 1])
-        if token.startswith("--isolation-flags-basis="):
-            return token.split("=", 1)[1]
-    return "declared"
-
-
 def doctor_lines(config: BrokerConfig) -> list[str]:
     """Non-charge-bearing validation/report used by ``debate adapter-doctor``."""
     from . import bridge
@@ -1909,9 +1891,9 @@ def doctor_lines(config: BrokerConfig) -> list[str]:
                 configuration_home = f"OPERATOR ({spec.config_home.partition('=')[0]})"
             else:
                 configuration_home = "SANDBOX"
-            isolation_flags_basis = _bridge_isolation_flags_basis(profile.command)
             lines.append(
-                f"seat {party}: configuration home {configuration_home}; isolation flags {isolation_flags_basis}"
+                f"seat {party}: configuration home {configuration_home}; "
+                f"isolation flags {spec.isolation_flags_basis}"
             )
     timing = config.timing.report()
     lines.append(f"unconstrained schedule: {timing['unconstrained_schedule_seconds']}s")

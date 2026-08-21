@@ -920,6 +920,42 @@ def test_doctor_lines_reports_configuration_home_and_isolation_flags_only_for_br
     assert "seat bob: configuration home SANDBOX; isolation flags declared" in lines_without_config_home
 
 
+def test_doctor_lines_reads_isolation_flags_basis_through_an_abbreviated_flag(tmp_path: Path) -> None:
+    # argparse (stock, via bridge.configure_parser) accepts unambiguous flag
+    # abbreviations, e.g. --isolation-flags-b for --isolation-flags-basis.
+    # The doctor must read the parsed BridgeSpec, not re-scan raw argv tokens,
+    # so it has to understand the abbreviated form exactly like the real
+    # parser does.
+    repo, sha = make_repository(tmp_path)
+    hand_authored = make_profile("alice", "author-affiliated")
+    command = list(
+        _bridge_seat_command(seat_id="bob", config_home=None, isolation_flags_basis="catalogued")
+    )
+    index = command.index("--isolation-flags-basis")
+    command[index] = "--isolation-flags-b"
+    bridge_abbreviated = AdapterProfile(
+        **{**make_profile("bob", "author-independent").__dict__, "command": tuple(command)}
+    )
+    profiles = {"alice": hand_authored, "bob": bridge_abbreviated}
+    timing = TimingPolicy(
+        thread_cap=12,
+        scheduler_interval_seconds=60,
+        retry_seconds=120,
+        whole_case_timeout_seconds=900,
+        profiles=(profiles["alice"], profiles["bob"]),
+    )
+    config = BrokerConfig(
+        repository_root=repo,
+        runtime_root=repo / "var" / "debate" / "doctor-bridge-abbreviated-flag",
+        source_ref=sha,
+        profiles=profiles,
+        timing=timing,
+        config_sha256="a" * 64,
+    )
+    lines = doctor_lines(config)
+    assert "seat bob: configuration home SANDBOX; isolation flags catalogued" in lines
+
+
 def test_runtime_root_below_a_tool_cache_is_refused(tmp_path: Path) -> None:
     repo, sha = make_repository(tmp_path)
     broker = make_broker(repo, sha)

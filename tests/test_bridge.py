@@ -612,6 +612,7 @@ def test_parse_bridge_command_round_trips_a_command_built_from_the_same_flags(
     assert list(spec.no_persistence_argv) == ["--no-session-persistence"]
     assert spec.config_home == "CODEX_HOME=.codex"
     assert spec.deliberation_input == "full"
+    assert spec.isolation_flags_basis == "catalogued"
 
 
 def test_parse_bridge_command_reads_a_placeholder_command(tmp_path: Path, seat: FakeSeat) -> None:
