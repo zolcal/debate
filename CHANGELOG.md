@@ -54,6 +54,35 @@ default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
   validated against known vendors — a typo refuses instead of silently
   degrading), and a seat sharing the interactive author's vendor is recorded
   author-affiliated in the adapter config and channel provenance.
+- **Any tool can hold a seat in a debate Debate runs itself** — a seat whose command
+  takes the question text is now run through Debate's own runner, carrying the
+  arguments that turn that tool's settings, plugins and session saving off while it
+  reviews. Claude and Codex seats carry those arguments from the packaged catalog and
+  need nothing declared; for any other tool they are declared once. Nothing waives the
+  rule: a seat without them is refused in plain words, naming the two ways forward
+  (declare the arguments, or record a seat command of your own). Because an ordinary
+  tool never reports which model actually answered, every entry such a seat posts
+  states that its model identity is declared rather than verified
+  (`runtime-model-basis: declared`), which configuration folder it read
+  (`configuration-home`), and where its isolation arguments came from
+  (`isolation-flags`). Gated on `plan-v080-part2-63227` (PASS, MSG-38).
+- **Detected launcher scripts** — `onboarding inspect` lists a launcher script found
+  next to a tool Debate already knows as a candidate of its own, with its model
+  unverified; `approve` refuses such a row outright and points at the declaration that
+  turns it into a real seat. Detection stays evidence, never approval. Gated on
+  `plan-v080-part2-63227` (PASS, MSG-38).
+- **Declared capability classes and the uneven-pair warning** — a seat can say how
+  capable it is (frontier or lightweight; the packaged catalog declares it for the
+  tools it knows). Pairing a lightweight model against a frontier model is warned
+  about and confirmed, never seated quietly: interactively it is a numbered choice,
+  and where nobody can answer it is refused until `--allow-mismatched-pair` says so
+  deliberately — `--yes` never answers it. Gated on `plan-v080-part2-63227`
+  (PASS, MSG-38).
+- **`debate seats add` declaration flags** — `--capability-class`, `--isolation-argv`,
+  `--no-persistence-argv` and `--config-home VAR=dir`, so one command records
+  everything a tool needs to take part. The configuration folder is validated: a
+  documented or well-formed variable name, and a folder strictly inside your home
+  directory. Gated on `plan-v080-part2-63227` (PASS, MSG-38).
 
 ### Changed
 

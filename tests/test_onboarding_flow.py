@@ -97,7 +97,7 @@ def test_manual_bridge_seat_is_addable(isolated: tuple[Path, Path], tmp_path: Pa
         f"{sys.executable} {script} {{input_path}} {{result_path}}",
     )
     assert registry.seats["gamma/fake"].source == "manual"
-    with pytest.raises(channel.ChannelError, match="placeholder"):
+    with pytest.raises(channel.ChannelError, match="marker"):
         seats.add_seat(registry, "delta/fake", "/bin/sh -c true")
 
 
@@ -518,7 +518,7 @@ def test_v1_open_refuses_bridge_seats(isolated: tuple[Path, Path], tmp_path: Pat
     _approve_all(project)
     root = project / "collab"
     spec = opening.OpenSpec(root=root, label="stub", pair=("alpha/fake", "beta/fake"))
-    with pytest.raises(channel.ChannelError, match="version-1 watcher can never wake it"):
+    with pytest.raises(channel.ChannelError, match="nowhere to put the question text"):
         opening.open_debate(
             spec, seats.load_registry(), load_config_fn=_watcher_config,
             now=NOW, tool_version="test",

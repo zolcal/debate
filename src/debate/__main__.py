@@ -426,8 +426,8 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         dest="source_ref",
         metavar="SHA",
-        help="brokered only: the commit the controller exports for the seats "
-        "(default: the project repository's HEAD)",
+        help="fully managed debates only: the commit the seats review "
+        "(default: the project repository's latest commit)",
     )
     p_open.add_argument(
         "--docket-file",
@@ -435,15 +435,17 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         dest="docket_files",
         metavar="PROJECT_RELATIVE_PATH",
-        help="brokered only: a review input snapshotted into the case docket (repeatable)",
+        help="fully managed debates only: a review input copied into the case "
+        "material (repeatable)",
     )
     p_open.add_argument(
         "--author-vendor",
         default=None,
         dest="author_vendor",
         metavar="VENDOR",
-        help="brokered only, required: the interactive author's vendor (catalog id, "
-        "e.g. 'claude' or 'codex'); a seat sharing it is recorded author-affiliated",
+        help="fully managed debates only, required: the vendor of the tool "
+        "you are running in (e.g. 'claude' or 'codex'); a seat sharing it is "
+        "recorded author-affiliated",
     )
 
     p_init = sub.add_parser("init", help="create a channel directory")

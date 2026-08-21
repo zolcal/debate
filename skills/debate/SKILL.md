@@ -15,6 +15,15 @@ and it enforces the rules: turn order, one open thread at a time, message caps.
 
 **Core principle: if it didn't happen through `debate post`, it didn't happen.**
 
+Where Debate runs the seats itself, every posted verdict ends with three lines
+saying how that seat ran: `runtime-model-basis` (whether the model name was
+checked while it ran, or simply declared when the seat was recorded),
+`configuration-home` (whether the seat read a folder of the operator's own
+settings, or ran with none of them), and `isolation-flags` (whether the
+arguments that switched its settings, plugins and session saving off came from
+Debate's own list of known tools or from the operator). Read them before you
+treat a verdict's model identity as fact.
+
 ## Preflight — every wake-up, in order
 
 1. **Engine present?** Prefer the plugin's bundled launcher when the session-start

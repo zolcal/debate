@@ -1,0 +1,235 @@
+"""Two ordinary prompt-taking CLIs debate each other, start to finish.
+
+Nothing in this test hand-writes an adapter. Two seats are recorded the way
+`debate seats add` records them -- an executable, one place for the question,
+the arguments that switch the tool's settings and session saving off, and (for
+one of them) the tool's own configuration folder -- and from there the real
+code paths do the rest: the fully managed open wraps each seat, the CLI opens
+the case, the CLI's watch loop drives it, and the channel closes with a typed
+terminal result.
+
+What the seats run is a stand-in for a vendor CLI: it ignores the question it
+was handed, records what it was actually invoked with, and prints a
+well-formed answer block. That is enough to prove the whole path without a
+model call.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+import pytest
+
+from debate import channel, opening, seats
+from debate.__main__ import _watcher_config, main
+
+NOW = "2026-08-20T12:00:00+00:00"
+
+# The stand-in vendor CLI. argv[1] is where it logs each invocation; the rest
+# is whatever the seat command and its flags handed it.
+FAKE_VENDOR_CLI = '''\
+import json
+import os
+import sys
+from pathlib import Path
+
+log = Path(sys.argv[1])
+log.mkdir(parents=True, exist_ok=True)
+record = {"argv": sys.argv[2:], "config_home": os.environ.get("MYTOOL_HOME")}
+(log / ("call-%d.json" % len(list(log.glob("call-*.json"))))).write_text(
+    json.dumps(record), encoding="utf-8"
+)
+print("I read the review material and ran the check it asks for.")
+print("```json")
+print(json.dumps({
+    "schema_version": 1,
+    "entry_type": "verdict",
+    "decision": "PASS",
+    "body": "I ran the check the review material asks for and it passed.",
+}))
+print("```")
+'''
+
+
+def _seat_row(
+    argv: list[str],
+    *,
+    vendor: str,
+    submodel: str,
+    isolation_argv: list[str],
+    no_persistence_argv: list[str],
+    config_home: str | None,
+) -> dict[str, object]:
+    return {
+        "vendor": vendor,
+        "submodel": submodel,
+        "effort": None,
+        "commands": [argv],
+        "source": "manual",
+        "present": True,
+        "smoke": None,
+        "cost_mode": "local",
+        "capability_class": "frontier",
+        "isolation_argv": list(isolation_argv),
+        "no_persistence_argv": list(no_persistence_argv),
+        "config_home": config_home,
+    }
+
+
+def _git(project: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(project), "-c", "user.email=t@t", "-c", "user.name=t", *arguments],
+        capture_output=True, text=True, check=True,
+    )
+
+
+def _project(tmp_path: Path) -> tuple[Path, str]:
+    """A git project with something to review and something to review it against."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".gitignore").write_text("collab/\nvar/\ndebate-profile.json\n", encoding="utf-8")
+    (project / "docket.md").write_text(
+        "# What to check\n\nThe project module answers 42. PASS only if it does.\n",
+        encoding="utf-8",
+    )
+    (project / "project_module.py").write_text("VALUE = 42\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", "-b", "main", str(project)], check=True)
+    _git(project, "add", ".")
+    _git(project, "commit", "-qm", "fixture")
+    return project, _git(project, "rev-parse", "HEAD").stdout.strip()
+
+
+@dataclass
+class World:
+    """Everything the debate below needs, and nothing else."""
+
+    project: Path
+    head: str
+    home: Path
+    logs: dict[str, Path]
+
+
+@pytest.fixture()
+def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
+    registry_path = tmp_path / "config" / "seats.json"
+    monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(registry_path))
+    tool = tmp_path / "fake_vendor_cli.py"
+    tool.write_text(FAKE_VENDOR_CLI, encoding="utf-8")
+    logs = {"mytool": tmp_path / "calls-mytool", "othertool": tmp_path / "calls-othertool"}
+    rows = {
+        "mytool/big": _seat_row(
+            [sys.executable, str(tool), str(logs["mytool"]), "{prompt}"],
+            vendor="mytool", submodel="big",
+            isolation_argv=["--no-config"], no_persistence_argv=["--no-history"],
+            config_home="MYTOOL_HOME=.mytool",
+        ),
+        "othertool/large": _seat_row(
+            [sys.executable, str(tool), str(logs["othertool"]), "{prompt}"],
+            vendor="othertool", submodel="large",
+            isolation_argv=["--ignore-user-config"], no_persistence_argv=["--ephemeral"],
+            config_home=None,
+        ),
+    }
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        json.dumps({
+            "registry_version": 1,
+            "tool_version": "test",
+            "discovered_at": NOW,
+            "seats": rows,
+            "last_pair": {},
+        }) + "\n",
+        encoding="utf-8",
+    )
+    project, head = _project(tmp_path)
+    (project / seats.PROFILE_NAME).write_text(
+        json.dumps({"profile_version": 1, "allowlist": ["mytool/big", "othertool/large"]}) + "\n",
+        encoding="utf-8",
+    )
+    home = tmp_path / "home"
+    home.mkdir()
+    return World(project=project, head=head, home=home, logs=logs)
+
+
+@dataclass
+class Call:
+    """One invocation of the stand-in vendor CLI, as it saw itself."""
+
+    argv: list[str]
+    config_home: str | None
+
+
+def _calls(log: Path) -> list[Call]:
+    calls: list[Call] = []
+    for path in sorted(log.glob("call-*.json")):
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        home = raw["config_home"]
+        calls.append(Call(argv=[str(part) for part in raw["argv"]], config_home=home))
+    return calls
+
+
+def test_two_ordinary_cli_seats_debate_to_a_typed_close(world: World) -> None:
+    project, home, logs = world.project, world.home, world.logs
+    root = project / "collab"
+
+    opened = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=root,
+            label="e2e",
+            pair=("mytool/big", "othertool/large"),
+            source_ref=world.head,
+            author_vendor="claude",
+            docket_files=("docket.md",),
+        ),
+        seats.load_registry(),
+        load_config_fn=_watcher_config,
+        now=NOW,
+        tool_version="test",
+        real_home=home,
+    )
+
+    assert main([
+        "broker-open",
+        "--root", str(root),
+        "--channel", opened.channel_name,
+        "--config", str(opened.config_path),
+        "--thread", "does-it-answer-42",
+        "--first-seat", "mytool",
+        "--refs", f"main@{world.head[:12]}",
+        "--body", "Verify the criterion in the review material against the pinned source.",
+    ]) == 0
+
+    assert main([
+        "watch",
+        "--root", str(root),
+        "--channel", opened.channel_name,
+        "--config", str(opened.config_path),
+        "--until-close",
+    ]) == 0
+
+    entries = channel.read_entries(root, opened.channel_name)
+    closing = entries[-1]
+    assert closing.entry_type == "close"
+    assert "terminal-result: PASS" in closing.body
+
+    verdicts = {entry.sender: entry for entry in entries if entry.entry_type == "verdict"}
+    assert sorted(verdicts) == ["mytool", "othertool"]
+    for entry in verdicts.values():
+        assert "- runtime-model-basis: declared" in entry.body
+        assert "- isolation-flags: declared" in entry.body
+    assert "- configuration-home: operator (MYTOOL_HOME)" in verdicts["mytool"].body
+    assert "- configuration-home: sandbox" in verdicts["othertool"].body
+
+    mytool_calls = _calls(logs["mytool"])
+    othertool_calls = _calls(logs["othertool"])
+    assert mytool_calls and othertool_calls
+    for call in mytool_calls:
+        assert call.argv[-2:] == ["--no-config", "--no-history"]
+        assert call.config_home == str(home / ".mytool")
+    for call in othertool_calls:
+        assert call.argv[-2:] == ["--ignore-user-config", "--ephemeral"]
+        assert call.config_home is None

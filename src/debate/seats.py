@@ -680,8 +680,9 @@ def add_seat(
     if not argv or not (prompt_style or bridge_style):
         raise channel.ChannelError(
             "refused: a seat command needs an executable and either a {prompt} "
-            "placeholder (v1 watcher seat) or both {input_path} and "
-            "{result_path} placeholders (brokered bridge seat)"
+            "marker (where the question text goes) or both {input_path} and "
+            "{result_path} (a command that reads a request file and writes an "
+            "answer file)"
         )
     head = argv[0]
     if not head_resolves(head, which):

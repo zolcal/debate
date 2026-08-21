@@ -316,9 +316,9 @@ def open_debate(
     for seat in (first, second):
         if "{prompt}" not in " ".join(seat.commands[0]):
             raise channel.ChannelError(
-                f"refused: seat {seat.seat_id!r} is a brokered bridge (no {{prompt}} "
-                "placeholder); the version-1 watcher can never wake it. Open the "
-                "debate with --brokered instead."
+                f"refused: seat {seat.seat_id!r} has nowhere to put the question text, "
+                "so this form of open can never wake it. Open a fully managed debate "
+                "with --brokered instead."
             )
 
     if first.vendor != second.vendor:

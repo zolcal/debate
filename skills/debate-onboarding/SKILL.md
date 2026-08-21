@@ -1,6 +1,6 @@
 ---
 name: debate-onboarding
-description: Use when the Debate session-start notice offers setup, when the user says "set up Debate", or when the user asks to start a debate ("start a debate", "debate this") in a project with the Debate plugin installed. Guides seat approval and starts brokered debates through the bundled engine; the user never types registry or environment commands.
+description: Use when the Debate session-start notice offers setup, when the user says "set up Debate", or when the user asks to start a debate ("start a debate", "debate this") in a project with the Debate plugin installed. Guides seat approval and starts fully managed debates through the bundled engine; the user never types registry or environment commands.
 compatibility: Ships inside the Debate plugin; uses the bundled engine via the launcher path the session-start hook injects (no pip install, no PATH dependency)
 ---
 
@@ -25,13 +25,13 @@ Core rules, non-negotiable:
   approval question in the CURRENT turn. Never pre-answer it.
 - Internal commands are implementation detail: describe outcomes to the user in
   plain language; show commands only if they ask for details.
-- **Plain words, always.** User-facing text never says "managed version 1/2",
-  "{prompt}", "{input_path}/{result_path}", or "operator-owned pins". Say
-  instead: an *agent* is an AI tool installed on this machine (claude, codex,
-  kimi, ...); a *wrapper* is a small script of the user's that launches one
-  with fixed settings; a *bridge* is a small adapter a seat needs before it
-  can take part in a fully managed debate. Define a term the first time you
-  use it. The technical names live behind a "details" answer.
+- **Plain words, always.** Say *agent* for an AI tool installed on this
+  machine (claude, codex, kimi, ...), and *wrapper* for a small script of the
+  user's that launches one with fixed settings. Define a term the first time
+  you use it. The technical names live behind a "details" answer.
+  (Engine fact for YOU, never for the user's ears: user-facing text never says
+  "managed version 1/2", "bridge", "brokered", "{prompt}",
+  "{input_path}/{result_path}", "placeholder" or "operator-owned pins".)
 
 ## Flow 1 — "set up Debate" (approval)
 
@@ -42,22 +42,29 @@ Core rules, non-negotiable:
    AND cost mode (the `cost_mode` field: subscription quota, metered API, local
    compute, or unknown -- report "unknown" as undeclared, never guess a value),
    and source (`catalog` = discovered, `derived`, `manual` = operator-authored,
-   plus "existing registry entry" where labelled). Label existing state visibly
+   `unverified-wrapper` = a launcher script found next to a tool I know, plus
+   "existing registry entry" where labelled). Label existing state visibly
    as existing state -- it is candidate input only. After the table, in plain
    language and roughly this order:
    (a) one sentence on where the list comes from: "I found these by scanning
    this machine for AI tools I recognize";
    (b) one sentence of glossary if you will use the words: what an agent and
    a wrapper are (see the plain-words rule);
-   (c) ONLY IF some listed seats cannot join managed debates yet, one
-   low-key sentence such as: "These seats can act as reviewers right away;
-   for a fully managed debate each one first needs a small adapter (a
-   'bridge') -- nothing to decide now, I'll offer to set that up when you
-   start your first debate." Never lead with legacy/version terminology;
-   a new user does not care which channel version anything is;
+   (c) ONLY IF the table holds seats from vendors other than Claude and
+   Codex, one low-key sentence such as: "Claude and Codex seats can take part in a fully managed
+   debate as they are; for any other tool I first need to know how it turns
+   off its settings, plugins and session saving -- I'll ask for that only if
+   you pick such a seat for a debate." Never lead with legacy/version
+   terminology; a new user does not care which channel version anything is;
    (d) the invitation: "Personal launcher scripts can't be detected
    automatically -- is there an AI tool or script of yours that should be on
-   this list but isn't? Name it and I'll add it."
+   this list but isn't? Name it and I'll add it.";
+   (e) ONLY IF the table holds rows whose source is `unverified-wrapper`:
+   these are launcher scripts found sitting next to a tool Debate already
+   knows. Give them the state "detected launcher script, model not verified
+   -- declare to register" in the same table, and say that picking one is not
+   approval on its own: it goes through the questions in step 3 first, and
+   what gets approved is the seat those answers describe.
 3. That invitation IS the ask-once step. When the user names an agent, the
    LEGWORK IS YOURS -- the user never composes a command template or fills
    in a form. LOCATE-THEN-CONFIRM:
@@ -78,19 +85,26 @@ Core rules, non-negotiable:
    a word. Write NOTHING yet.
    (c) Only when nothing locatable matches do you ask the user where the
    tool lives -- one plain question, never a format specification, never a
-   placeholder syntax.
+   fill-in-the-blank form.
    (d) "No model calls" means no AI spend -- it does NOT automatically mean
    no network: a metadata subcommand (a `<tool> models` listing, a version
    check) may contact the vendor's service. Prefer offline checks; when a
    command does phone home, say so in one honest clause ("the tool checked
    its service; no AI was called").
-   Tell them plainly, BEFORE they decide, what the seat will be able to do
-   -- in user words, not placeholders: "as it stands this can act as a
-   reviewer, but it can't join a fully managed debate until it gets a
-   bridge adapter; I can help with that when you start one." (Engine fact
-   for YOU, never for the user's ears: a {prompt}-style command is
-   v1-watcher-only, and the brokered open refuses any seat without both
-   {input_path} and {result_path}.)
+   (e) Settle what the seat will be able to do BEFORE they decide, with one
+   numbered question: "Does this tool take extra command-line arguments?
+   1 yes  2 no  3 I don't know." On answer 1, work out the arguments
+   yourself and put ONE proposal to them, labelled as your inference: the
+   arguments that make it ignore its own settings, plugins and hooks while
+   it reviews (recorded with `--isolation-argv`), the ones that stop it
+   saving a session (`--no-persistence-argv`), and, where the tool documents
+   a configuration folder of its own, `--config-home VAR=dir`. On answer 2
+   or 3, say plainly that the seat can still act as a reviewer in a classic
+   debate, and that a small command of your own -- one that reads a request
+   file and writes an answer file -- is the way into a fully managed one. (Engine fact for YOU, never for the user's ears: a
+   fully managed open now accepts a {prompt}-style seat as soon as both flag
+   lists are on record; a command taking {input_path} and {result_path} is a
+   hand-authored adapter and is admitted without them.)
 4. Ask which seats to approve for THIS project, listing the user-named
    wrappers from step 3 as pending rows labelled "will be registered on
    approval". Prefer the host's structured question tool (multi-select); fall
@@ -100,9 +114,11 @@ Core rules, non-negotiable:
    -- disclosing that this writes the machine registry and is undone with
    `seats remove <SEAT>` --
    `<launcher> seats add <vendor>/<submodel> --command "<their argv>"
-   --cost-mode <their answer or unknown>`
-   (an unselected pending wrapper is never registered at all), then re-run
-   inspect for the fresh candidate revision, then run:
+   --cost-mode <their answer or unknown> [--isolation-argv=<args>]
+   [--no-persistence-argv=<args>] [--config-home VAR=dir]`
+   (the last three only where step 3 confirmed them; an unselected pending
+   wrapper is never registered at all), then re-run inspect for the fresh
+   candidate revision, then run:
    `<launcher> onboarding approve --project <ABS-CWD> --candidate-revision <rev>
    --allow <SEAT> [--allow <SEAT> ...] --confirmed --json`
    A "candidate set changed" refusal means the machine changed under you:
@@ -137,8 +153,12 @@ Core rules, non-negotiable:
    record; you are the supervisor, and I never vote" -- and get the user's
    confirmation. If the two picks are clearly different capability classes
    (a lightweight fast model against a frontier reasoning model), say so
-   plainly before confirming: mismatched seats often produce one-sided
-   verdicts and cost an extra deliberation lap. (Engine fact for YOU, never
+   plainly before confirming: seats of different weight often produce
+   one-sided verdicts and cost an extra deliberation lap. The engine enforces
+   this too -- an uneven pair is refused rather than seated quietly. Relay
+   that refusal in plain words and ask a numbered question: "1 keep this pair
+   2 pick again". Pass `--allow-mismatched-pair` ONLY after answer 1 in the
+   current turn; answer 2 sends you back to step 2. (Engine fact for YOU, never
    for the user's ears: what gets created is a managed-version-2 brokered
    channel.)
 4. Run EXACTLY this form (agent-only engine fact: `--brokered` is NOT
@@ -154,6 +174,11 @@ Core rules, non-negotiable:
    twice and identical commands are refused outright; the same vendor/model at
    two efforts needs `--allow-identical-seats` -- ask the user explicitly before
    passing it, and only with a dedicated warning.
+   If the engine refuses a seat because it does not know how that tool turns
+   off its settings, plugins and session saving, relay the two ways forward as
+   a numbered question: "1 tell me those arguments and I'll record them once
+   2 let me write a small command for this tool instead". On answer 1, collect
+   and record them exactly as in Flow 1 step 3, then run the open again.
 5. Open the docket with the `broker-open` hint the engine prints (the request
    body states what to verify), then drive it with the printed `watch
    --until-close` command. Set the expectation once -- "this takes a few
