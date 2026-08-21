@@ -424,6 +424,18 @@ class AdapterResult:
     appendix_markdown: str
     runtime_model: str
     decision: str | None
+    # Whether the reported runtime_model was itself verified by the adapter or
+    # only declared -- an ordinary CLI cannot tell us which model actually
+    # answered, so the record says where the name came from.
+    runtime_model_basis: str = "verified"
+    # Where the seat's tool configuration came from for this run: "sandbox"
+    # (nothing of the operator's own configuration was exposed) or
+    # "operator (VAR)" naming the one environment variable that pointed at it.
+    configuration_home: str = "sandbox"
+    # Whether the isolation/no-persistence arguments came from the catalog or
+    # were declared by the operator; absent for hand-authored adapters that
+    # never went through the bridge.
+    isolation_flags: str | None = None
 
 
 @dataclass(frozen=True)
@@ -757,6 +769,25 @@ def _parse_result(path: Path, party: str, profile: AdapterProfile) -> AdapterRes
         raise AdapterError(
             f"refused: adapter {party!r} supplied a decision on non-verdict entry type {entry_type!r}"
         )
+    runtime_model_basis = raw.get("runtime_model_basis", "verified")
+    if runtime_model_basis not in ("verified", "declared"):
+        raise AdapterError(
+            f"refused: adapter {party!r} runtime_model_basis must be 'verified' or 'declared'"
+        )
+    configuration_home = raw.get("configuration_home", "sandbox")
+    valid_configuration_home = configuration_home == "sandbox" or (
+        isinstance(configuration_home, str)
+        and re.fullmatch(r"operator \([A-Z][A-Z0-9_]*\)", configuration_home) is not None
+    )
+    if not valid_configuration_home:
+        raise AdapterError(
+            f"refused: adapter {party!r} configuration_home must be 'sandbox' or match 'operator (VAR)'"
+        )
+    isolation_flags = raw.get("isolation_flags")
+    if isolation_flags is not None and isolation_flags not in ("catalogued", "declared"):
+        raise AdapterError(
+            f"refused: adapter {party!r} isolation_flags must be 'catalogued' or 'declared'"
+        )
     return AdapterResult(
         entry_type,
         body.strip(),
@@ -764,6 +795,9 @@ def _parse_result(path: Path, party: str, profile: AdapterProfile) -> AdapterRes
         appendix.strip(),
         runtime_model.strip(),
         str(decision) if decision is not None else None,
+        str(runtime_model_basis),
+        str(configuration_home),
+        str(isolation_flags) if isolation_flags is not None else None,
     )
 
 
@@ -1227,8 +1261,12 @@ class BrokerController:
             f"- runtime-model: {result.runtime_model}\n"
             f"- reasoning-effort: {profile.reasoning_effort}\n"
             f"- cli-version: {profile.cli_version}\n"
-            f"- isolation-mode: {profile.isolation_mode}"
+            f"- isolation-mode: {profile.isolation_mode}\n"
+            f"- runtime-model-basis: {result.runtime_model_basis}\n"
+            f"- configuration-home: {result.configuration_home}"
         )
+        if result.isolation_flags is not None:
+            provenance += f"\n- isolation-flags: {result.isolation_flags}"
         return result.body + appendix + typed + reveal + provenance
 
     @staticmethod
@@ -1243,6 +1281,9 @@ class BrokerController:
                 "appendix_markdown": result.appendix_markdown,
                 "runtime_model": result.runtime_model,
                 "decision": result.decision,
+                "runtime_model_basis": result.runtime_model_basis,
+                "configuration_home": result.configuration_home,
+                "isolation_flags": result.isolation_flags,
             },
             "evidence": {key: str(value) for key, value in evidence.items()},
             "captured_at": captured_at,
@@ -1254,6 +1295,9 @@ class BrokerController:
                     "appendix_markdown": result.appendix_markdown,
                     "runtime_model": result.runtime_model,
                     "decision": result.decision,
+                    "runtime_model_basis": result.runtime_model_basis,
+                    "configuration_home": result.configuration_home,
+                    "isolation_flags": result.isolation_flags,
                     "evidence": {key: str(value) for key, value in evidence.items()},
                     "captured_at": captured_at,
                 }
@@ -1267,6 +1311,7 @@ class BrokerController:
         if not isinstance(raw_result, dict) or not isinstance(raw_evidence, dict):
             raise channel.ChannelError("refused: malformed private sealed submission")
         try:
+            isolation_flags_raw = raw_result.get("isolation_flags")
             result = AdapterResult(
                 entry_type=str(raw_result["entry_type"]),
                 body=str(raw_result["body"]),
@@ -1274,6 +1319,9 @@ class BrokerController:
                 appendix_markdown=str(raw_result.get("appendix_markdown", "")),
                 runtime_model=str(raw_result["runtime_model"]),
                 decision=str(raw_result["decision"]),
+                runtime_model_basis=str(raw_result.get("runtime_model_basis", "verified")),
+                configuration_home=str(raw_result.get("configuration_home", "sandbox")),
+                isolation_flags=str(isolation_flags_raw) if isolation_flags_raw is not None else None,
             )
         except KeyError as error:
             raise channel.ChannelError("refused: incomplete private sealed submission") from error
@@ -1799,8 +1847,28 @@ class BrokerController:
         )
 
 
+def _bridge_isolation_flags_basis(command: tuple[str, ...]) -> str:
+    """Read a bridge seat's declared --isolation-flags-basis straight from its recorded argv.
+
+    ``bridge.BridgeSpec`` does not carry this value -- it is a required,
+    choice-validated flag on the bridge subcommand that ``spec_from_arguments``
+    consumes only to pass on to ``write_result``, never storing it on the
+    spec. Call this only after ``bridge.parse_bridge_command`` has already
+    confirmed ``command`` is a well-formed bridge command, so the flag and its
+    value are guaranteed present.
+    """
+    for index, token in enumerate(command):
+        if token == "--isolation-flags-basis" and index + 1 < len(command):
+            return str(command[index + 1])
+        if token.startswith("--isolation-flags-basis="):
+            return token.split("=", 1)[1]
+    return "declared"
+
+
 def doctor_lines(config: BrokerConfig) -> list[str]:
     """Non-charge-bearing validation/report used by ``debate adapter-doctor``."""
+    from . import bridge
+
     resolved = str(_git(config.repository_root, ["rev-parse", f"{config.source_ref}^{{commit}}"])).strip()
     if resolved != config.source_ref:
         raise channel.ChannelError(
@@ -1835,6 +1903,16 @@ def doctor_lines(config: BrokerConfig) -> list[str]:
             f"cost_mode={profile.cost_mode} "
             f"isolation={profile.isolation_mode} profile_sha256={profile.profile_sha256}"
         )
+        spec = bridge.parse_bridge_command(profile.command)
+        if spec is not None:
+            if spec.config_home is not None:
+                configuration_home = f"OPERATOR ({spec.config_home.partition('=')[0]})"
+            else:
+                configuration_home = "SANDBOX"
+            isolation_flags_basis = _bridge_isolation_flags_basis(profile.command)
+            lines.append(
+                f"seat {party}: configuration home {configuration_home}; isolation flags {isolation_flags_basis}"
+            )
     timing = config.timing.report()
     lines.append(f"unconstrained schedule: {timing['unconstrained_schedule_seconds']}s")
     lines.append(f"whole-case deadline: {timing['whole_case_timeout_seconds']}s")

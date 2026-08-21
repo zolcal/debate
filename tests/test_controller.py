@@ -19,6 +19,7 @@ from debate.controller import (
     BrokerController,
     TimingPolicy,
     _baseline_environment,
+    _parse_result,
     create_source_export,
     doctor_lines,
     materialize_docket,
@@ -61,6 +62,10 @@ if mode == "wrong-sender":
     result["sender"] = "intruder"
 if mode == "missing-decision":
     result.pop("decision")
+if os.environ.get("FAKE_EXTRA_PROVENANCE") == "1":
+    result["runtime_model_basis"] = os.environ.get("FAKE_RUNTIME_MODEL_BASIS", "declared")
+    result["configuration_home"] = os.environ.get("FAKE_CONFIGURATION_HOME", "operator (CLAUDE_CONFIG_DIR)")
+    result["isolation_flags"] = os.environ.get("FAKE_ISOLATION_FLAGS", "catalogued")
 result_path.write_text(json.dumps(result), encoding="utf-8")
 """
 
@@ -641,6 +646,278 @@ def test_profiles_refuse_live_user_settings_and_controller_owned_environment() -
     with pytest.raises(channel.ChannelError, match="controller-owned environment"):
         profile = make_profile("seat", "author-independent")
         AdapterProfile(**{**profile.__dict__, "environment": {"GIT_CONFIG_KEY_0": "include.path"}})
+    with pytest.raises(channel.ChannelError, match="controller-owned environment"):
+        profile = make_profile("seat", "author-independent")
+        AdapterProfile(**{**profile.__dict__, "environment": {"CLAUDE_CONFIG_DIR": "/host/.claude"}})
+    bridge_shaped = AdapterProfile(
+        **{
+            **make_profile("seat", "author-independent").__dict__,
+            "environment": {"PYTHONPATH": "src", "DEBATE_BRIDGE_REAL_HOME": "/home/x"},
+            "environment_allowlist": (
+                "PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR",
+                "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+            ),
+        }
+    )
+    assert bridge_shaped.environment == {"PYTHONPATH": "src", "DEBATE_BRIDGE_REAL_HOME": "/home/x"}
+
+
+def _write_result(path: Path, extra: dict[str, object]) -> None:
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "entry_type": "verdict",
+        "body": "seat review text",
+        "runtime_model": "seat-runtime-1",
+        "decision": "PASS",
+    }
+    payload.update(extra)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_parse_result_defaults_accepts_and_refuses_runtime_model_basis_configuration_home_isolation_flags(
+    tmp_path: Path,
+) -> None:
+    profile = make_profile("seat", "author-independent")
+    result_path = tmp_path / "result.json"
+
+    _write_result(result_path, {})
+    absent = _parse_result(result_path, "seat", profile)
+    assert absent.runtime_model_basis == "verified"
+    assert absent.configuration_home == "sandbox"
+    assert absent.isolation_flags is None
+
+    _write_result(
+        result_path,
+        {
+            "runtime_model_basis": "declared",
+            "configuration_home": "operator (CLAUDE_CONFIG_DIR)",
+            "isolation_flags": "catalogued",
+        },
+    )
+    declared = _parse_result(result_path, "seat", profile)
+    assert declared.runtime_model_basis == "declared"
+    assert declared.configuration_home == "operator (CLAUDE_CONFIG_DIR)"
+    assert declared.isolation_flags == "catalogued"
+
+    _write_result(
+        result_path,
+        {
+            "runtime_model_basis": "verified",
+            "configuration_home": "sandbox",
+            "isolation_flags": "declared",
+        },
+    )
+    verified = _parse_result(result_path, "seat", profile)
+    assert verified.runtime_model_basis == "verified"
+    assert verified.configuration_home == "sandbox"
+    assert verified.isolation_flags == "declared"
+
+    _write_result(result_path, {"runtime_model_basis": "bogus"})
+    with pytest.raises(AdapterError, match="runtime_model_basis must be 'verified' or 'declared'"):
+        _parse_result(result_path, "seat", profile)
+
+    _write_result(result_path, {"configuration_home": "bogus"})
+    with pytest.raises(AdapterError, match="configuration_home must be"):
+        _parse_result(result_path, "seat", profile)
+
+    _write_result(result_path, {"configuration_home": "operator (lowercase)"})
+    with pytest.raises(AdapterError, match="configuration_home must be"):
+        _parse_result(result_path, "seat", profile)
+
+    _write_result(result_path, {"isolation_flags": "bogus"})
+    with pytest.raises(AdapterError, match="isolation_flags must be"):
+        _parse_result(result_path, "seat", profile)
+
+
+def test_published_body_shows_default_and_extended_provenance_lines(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    evidence: dict[str, str | Path] = {
+        "source_manifest_sha256": "source-sha",
+        "docket_revision_sha256": "docket-sha",
+        "input_sha256": "input-sha",
+    }
+
+    default_result = AdapterResult("verdict", "body text", "", "", "bob-runtime-1", "PASS")
+    default_body = controller._published_body(party="bob", result=default_result, evidence=evidence, phase="sealed")
+    assert "- runtime-model-basis: verified" in default_body
+    assert "- configuration-home: sandbox" in default_body
+    assert "- isolation-flags:" not in default_body
+
+    extended_result = AdapterResult(
+        "verdict",
+        "body text",
+        "",
+        "",
+        "bob-runtime-1",
+        "PASS",
+        runtime_model_basis="declared",
+        configuration_home="operator (CLAUDE_CONFIG_DIR)",
+        isolation_flags="catalogued",
+    )
+    extended_body = controller._published_body(
+        party="bob", result=extended_result, evidence=evidence, phase="sealed"
+    )
+    assert "- runtime-model-basis: declared" in extended_body
+    assert "- configuration-home: operator (CLAUDE_CONFIG_DIR)" in extended_body
+    assert "- isolation-flags: catalogued" in extended_body
+
+
+def test_sealed_capture_round_trip_publishes_extended_provenance_lines_after_reveal(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(
+        repo,
+        sha,
+        bob_additions={"FAKE_EXTRA_PROVENANCE": "1"},
+    )
+    open_brokered_thread(root, name, broker)
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+    )
+
+    run_once(config)
+
+    entries = channel.read_entries(root, name)
+    bob_entry = next(entry for entry in entries if entry.sender == "bob")
+    alice_entry = next(entry for entry in entries if entry.sender == "alice")
+    assert "- runtime-model-basis: declared" in bob_entry.body
+    assert "- configuration-home: operator (CLAUDE_CONFIG_DIR)" in bob_entry.body
+    assert "- isolation-flags: catalogued" in bob_entry.body
+    assert "- runtime-model-basis: verified" in alice_entry.body
+    assert "- configuration-home: sandbox" in alice_entry.body
+    assert "- isolation-flags:" not in alice_entry.body
+
+
+def test_recorded_sealed_submission_without_new_provenance_keys_loads_with_defaults(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="pre-c4-record",
+        first_party="alice",
+        body="Inspect the pinned source and return a structured review.",
+    )
+    for party in ("alice", "bob"):
+        controller.capture_sealed(
+            channel_root=root,
+            channel_name=name,
+            party=party,
+            thread="pre-c4-record",
+            sequence=1,
+            attempt=1,
+        )
+    case_path = broker.runtime_root / "cases" / "pre-c4-record" / "case.json"
+    state = json.loads(case_path.read_text(encoding="utf-8"))
+    for party in ("alice", "bob"):
+        record_result = state["sealed_submissions"][party]["result"]
+        record_result.pop("runtime_model_basis", None)
+        record_result.pop("configuration_home", None)
+        record_result.pop("isolation_flags", None)
+    case_path.write_text(json.dumps(state), encoding="utf-8")
+
+    controller.reveal_pair(channel_root=root, channel_name=name, thread="pre-c4-record")
+
+    entries = channel.read_entries(root, name)
+    published = [entry for entry in entries if entry.sender in ("alice", "bob")]
+    assert len(published) == 2
+    for entry in published:
+        assert "- runtime-model-basis: verified" in entry.body
+        assert "- configuration-home: sandbox" in entry.body
+        assert "- isolation-flags:" not in entry.body
+
+
+def _bridge_seat_command(
+    *, seat_id: str, config_home: str | None, isolation_flags_basis: str
+) -> tuple[str, ...]:
+    command = [
+        sys.executable, "-m", "debate", "bridge",
+        "--seat-id", seat_id,
+        "--vendor", "anthropic",
+        "--submodel", "claude-opus",
+        "--argv-json", json.dumps(["claude", "{prompt}"]),
+        "--isolation-argv-json", json.dumps(["--strict-mcp-config"]),
+        "--no-persistence-argv-json", json.dumps(["--no-session"]),
+    ]
+    if config_home is not None:
+        command += ["--config-home", config_home]
+    command += [
+        "--deliberation-input", "full",
+        "--isolation-flags-basis", isolation_flags_basis,
+        "{input_path}", "{result_path}",
+    ]
+    return tuple(command)
+
+
+def test_doctor_lines_reports_configuration_home_and_isolation_flags_only_for_bridge_seats(
+    tmp_path: Path,
+) -> None:
+    repo, sha = make_repository(tmp_path)
+
+    hand_authored = make_profile("alice", "author-affiliated")
+    bridge_with_config_home = AdapterProfile(
+        **{
+            **make_profile("bob", "author-independent").__dict__,
+            "command": _bridge_seat_command(
+                seat_id="bob", config_home="CLAUDE_CONFIG_DIR=.claude", isolation_flags_basis="catalogued"
+            ),
+        }
+    )
+    profiles_with_config_home = {"alice": hand_authored, "bob": bridge_with_config_home}
+    timing_with_config_home = TimingPolicy(
+        thread_cap=12,
+        scheduler_interval_seconds=60,
+        retry_seconds=120,
+        whole_case_timeout_seconds=900,
+        profiles=(profiles_with_config_home["alice"], profiles_with_config_home["bob"]),
+    )
+    config_with_config_home = BrokerConfig(
+        repository_root=repo,
+        runtime_root=repo / "var" / "debate" / "doctor-bridge-config-home",
+        source_ref=sha,
+        profiles=profiles_with_config_home,
+        timing=timing_with_config_home,
+        config_sha256="a" * 64,
+    )
+    lines_with_config_home = doctor_lines(config_with_config_home)
+    assert "seat bob: configuration home OPERATOR (CLAUDE_CONFIG_DIR); isolation flags catalogued" in (
+        lines_with_config_home
+    )
+    assert not any(line.startswith("seat alice: configuration home") for line in lines_with_config_home)
+
+    bridge_without_config_home = AdapterProfile(
+        **{
+            **make_profile("bob", "author-independent").__dict__,
+            "command": _bridge_seat_command(
+                seat_id="bob", config_home=None, isolation_flags_basis="declared"
+            ),
+        }
+    )
+    profiles_without_config_home = {"alice": hand_authored, "bob": bridge_without_config_home}
+    timing_without_config_home = TimingPolicy(
+        thread_cap=12,
+        scheduler_interval_seconds=60,
+        retry_seconds=120,
+        whole_case_timeout_seconds=900,
+        profiles=(profiles_without_config_home["alice"], profiles_without_config_home["bob"]),
+    )
+    config_without_config_home = BrokerConfig(
+        repository_root=repo,
+        runtime_root=repo / "var" / "debate" / "doctor-bridge-sandbox",
+        source_ref=sha,
+        profiles=profiles_without_config_home,
+        timing=timing_without_config_home,
+        config_sha256="a" * 64,
+    )
+    lines_without_config_home = doctor_lines(config_without_config_home)
+    assert "seat bob: configuration home SANDBOX; isolation flags declared" in lines_without_config_home
 
 
 def test_runtime_root_below_a_tool_cache_is_refused(tmp_path: Path) -> None:
