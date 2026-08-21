@@ -1,0 +1,11 @@
+{
+  "parties": [
+    "opus",
+    "codex"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "branch-v080-part2-19846",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 2
+}
