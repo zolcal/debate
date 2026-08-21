@@ -129,10 +129,36 @@ def test_no_string_literal_in_the_watcher_can_carry_non_ascii() -> None:
         _sweep_one_module(source_file)
 
 
+# The one documented exception, named constant by constant. `R3_CLAUSE` is
+# protocol TEXT, not output: it is fixed word for word (a test pins it
+# byte-exact against the plan), it is written into a round docket with an
+# explicit `encoding="utf-8"`, and a seat reads it from that file. Nothing
+# prints it, so the cp1252 hazard this law exists for cannot reach it -- and
+# its em dashes (U+2014) are part of the wording the seats read. Naming the
+# one constant keeps every other literal in that module under the law.
+PROTOCOL_TEXT_EXCEPTIONS: dict[str, tuple[str, ...]] = {
+    "delta.py": ("R3_CLAUSE",),
+}
+
+
+def _exempt_constants(tree: Any, names: tuple[str, ...]) -> set[int]:
+    """ids of the module-level string constants bound to the named globals."""
+    import ast
+
+    exempt: set[int] = set()
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Constant):
+            continue
+        if any(isinstance(target, ast.Name) and target.id in names for target in node.targets):
+            exempt.add(id(node.value))
+    return exempt
+
+
 def _sweep_one_module(source_file: Path) -> None:
     import ast
 
     tree = ast.parse(source_file.read_text(encoding="utf-8"))
+    exempt = _exempt_constants(tree, PROTOCOL_TEXT_EXCEPTIONS.get(source_file.name, ()))
 
     docstrings = set()
     for node in ast.walk(tree):
@@ -150,7 +176,17 @@ def _sweep_one_module(source_file: Path) -> None:
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
         and id(node) not in docstrings
+        and id(node) not in exempt
         and any(ord(char) > 127 for char in node.value)
     ]
 
     assert not offenders, f"non-ASCII string literals reachable by print/emit: {offenders}"
+
+
+def test_every_protocol_text_exception_is_still_needed() -> None:
+    """An exception for an ASCII constant is a stale exception."""
+    from debate import delta
+
+    for name in PROTOCOL_TEXT_EXCEPTIONS["delta.py"]:
+        text = getattr(delta, name)
+        assert any(ord(char) > 127 for char in text), f"{name} is ASCII now; drop its exception"

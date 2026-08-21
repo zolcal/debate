@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from debate import bridge, channel, onboarding, opening, seats
+from debate import bridge, channel, delta, onboarding, opening, seats
 from debate.controller import (
     SEALED_CONCURRENCY_MODES,
     AdapterProfile,
@@ -258,6 +258,167 @@ def _watch_status_report(root: Path, config_path: Path, grace: int, channel_name
         print(line)
     print(f"\n{result.verdict}: {result.detail}")
     return 4 if result.verdict in _NEEDS_ATTENTION else 0
+
+
+def _project_relative(project_root: Path, raw: str, label: str) -> str:
+    """One project-relative path, or a refusal naming what the caller gave."""
+    candidate = Path(raw).expanduser()
+    absolute = candidate if candidate.is_absolute() else (project_root / candidate)
+    try:
+        resolved = absolute.resolve()
+    except OSError as error:  # pragma: no cover - only a broken symlink loop reaches this
+        raise channel.ChannelError(f"refused: cannot resolve {label} {raw!r}: {error}") from error
+    if resolved == project_root or not resolved.is_relative_to(project_root):
+        raise channel.ChannelError(
+            f"refused: {label} {raw!r} is outside the project {project_root}"
+        )
+    return resolved.relative_to(project_root).as_posix()
+
+
+def _delta_round_docket(
+    args: argparse.Namespace, config: BrokerConfig, channel_root: Path, channel_name: str
+) -> tuple[Path, tuple[str, ...]]:
+    """Compose the round docket, then put its inputs in front of the seats.
+
+    Every refusal below runs BEFORE the first byte is written: half a round --
+    a docket on disk that the config does not carry, or a config naming a file
+    that was never written -- is worse than no round at all. The order is
+    read-everything, refuse, then write the docket and the config together.
+    """
+    if args.goal is None or not args.goal.strip():
+        raise channel.ChannelError(
+            "refused: a fold-delta round needs --goal, the one sentence saying what this round verifies"
+        )
+    if args.fold_list_file is None:
+        raise channel.ChannelError(
+            "refused: a fold-delta round needs --fold-list-file, the author's own list of folds"
+        )
+    if not args.prior:
+        raise channel.ChannelError(
+            "refused: a fold-delta round needs at least one --prior CURRENT=PRIOR, so the seats "
+            "can diff the artifact against the version they reviewed last round"
+        )
+    project = config.repository_root.resolve()
+    try:
+        fold_list = Path(args.fold_list_file).read_text(encoding="utf-8")
+    except (OSError, ValueError) as error:
+        raise channel.ChannelError(
+            f"refused: cannot read the fold list {args.fold_list_file}: {error}"
+        ) from error
+
+    known = [_project_relative(project, item, "docket file") for item in config.docket_files]
+    pairs: list[tuple[str, str]] = []
+    for raw in args.prior:
+        current_raw, separator, prior_raw = str(raw).partition("=")
+        if not separator or not current_raw.strip() or not prior_raw.strip():
+            raise channel.ChannelError(
+                f"refused: --prior wants CURRENT=PRIOR, two paths joined by '=', got {raw!r}"
+            )
+        current = _project_relative(project, current_raw.strip(), "the current version")
+        prior = _project_relative(project, prior_raw.strip(), "the prior version")
+        if not (project / prior).is_file():
+            raise channel.ChannelError(f"refused: the prior version {prior} does not exist")
+        if not (project / current).is_file():
+            raise channel.ChannelError(f"refused: the current version {current} does not exist")
+        if current not in known:
+            raise channel.ChannelError(
+                f"refused: {current} is not one of this case's docket_files, so the seats never "
+                "see it; add it to the config's docket_files first"
+            )
+        # Two pairs for one artifact would put two different "prior versions"
+        # in the same docket and one diff in the true change set: the seat
+        # could not tell which version the round is measured against.
+        if any(current == seen for seen, _prior in pairs):
+            raise channel.ChannelError(
+                f"refused: --prior names {current} twice; one artifact has one prior version"
+            )
+        if current == prior:
+            raise channel.ChannelError(
+                f"refused: --prior gives {current} as its own prior version, so the diff would be "
+                "empty; name the file holding the version the last round reviewed"
+            )
+        pairs.append((current, prior))
+
+    entries = {
+        f"MSG-{entry.seq}": entry
+        for entry in channel.thread_entries(channel_root, args.thread, channel_name)
+    }
+    verdicts: list[tuple[str, str]] = []
+    for raw_id in args.prior_verdicts:
+        entry_id = str(raw_id).strip()
+        entry = entries.get(entry_id)
+        if entry is None:
+            raise channel.ChannelError(
+                f"refused: {entry_id} is not an entry of thread {args.thread!r} on this channel"
+            )
+        if entry.entry_type != "verdict":
+            raise channel.ChannelError(
+                f"refused: {entry_id} is a {entry.entry_type!r} entry, not a verdict; "
+                "--prior-verdict cites the verdicts this round's folds answer"
+            )
+        verdicts.append((entry_id, entry.body))
+
+    if args.docket_out is not None:
+        relative = _project_relative(project, str(args.docket_out), "the docket to write")
+        if (project / relative).exists():
+            raise channel.ChannelError(
+                f"refused: {relative} already exists; a written round docket is evidence, so name "
+                "a free path rather than overwriting it"
+            )
+    else:
+        number = 1
+        while (project / f"var/debate/{channel_name}/delta-docket-{args.thread}-{number}.md").exists():
+            number += 1
+        relative = f"var/debate/{channel_name}/delta-docket-{args.thread}-{number}.md"
+
+    diffs: dict[str, str] = {}
+    for current, prior in pairs:
+        try:
+            prior_text = (project / prior).read_text(encoding="utf-8")
+            current_text = (project / current).read_text(encoding="utf-8")
+        except (OSError, ValueError) as error:
+            raise channel.ChannelError(
+                f"refused: cannot read {prior} and {current} as text: {error}"
+            ) from error
+        diffs[current] = delta.unified_diff(
+            prior_text, current_text, prior_path=prior, current_path=current
+        )
+    text = delta.compose_docket(
+        delta.DeltaRound(
+            goal=args.goal,
+            fold_list=fold_list,
+            priors=tuple(pairs),
+            prior_verdicts=tuple(verdicts),
+        ),
+        diffs=diffs,
+    )
+
+    additions: list[str] = []
+    for path in [prior for _current, prior in pairs] + [relative]:
+        if path not in known and path not in additions:
+            additions.append(path)
+
+    destination = project / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(text, encoding="utf-8")
+    _add_docket_files(Path(args.config), additions)
+    return destination, tuple(additions)
+
+
+def _add_docket_files(config_path: Path, additions: list[str]) -> None:
+    """Append the round's new files to the config, keeping the author's order.
+
+    The file was already parsed once by `_watcher_config`, so this rereads a
+    known-good JSON object and rewrites it with the same key order: an operator
+    editing this file by hand should find it where they left it.
+    """
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    listed = [str(item) for item in raw.get("docket_files", [])]
+    for item in additions:
+        if item not in listed:
+            listed.append(item)
+    raw["docket_files"] = listed
+    config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -684,6 +845,42 @@ def main(argv: list[str] | None = None) -> int:
     revise_body = p_broker_revise.add_mutually_exclusive_group(required=True)
     revise_body.add_argument("--body")
     revise_body.add_argument("--body-file", type=Path)
+    p_broker_revise.add_argument(
+        "--delta-round",
+        action="store_true",
+        help="write this round's instruction sheet from the prior version, the prior verdicts "
+        "and the true diff, and put the prior version in front of the seats",
+    )
+    p_broker_revise.add_argument(
+        "--goal", help="one sentence saying what this round verifies; needs --delta-round"
+    )
+    p_broker_revise.add_argument(
+        "--fold-list-file",
+        type=Path,
+        help="file holding your own list of the folds you made; needs --delta-round",
+    )
+    p_broker_revise.add_argument(
+        "--prior",
+        action="append",
+        default=[],
+        metavar="CURRENT=PRIOR",
+        help="the artifact and the version the last round reviewed, two paths joined by '='; "
+        "repeat for each artifact; needs --delta-round",
+    )
+    p_broker_revise.add_argument(
+        "--prior-verdict",
+        action="append",
+        default=[],
+        dest="prior_verdicts",
+        metavar="MSG-n",
+        help="a verdict of the last round, by its entry id; repeat; needs --delta-round",
+    )
+    p_broker_revise.add_argument(
+        "--docket-out",
+        type=Path,
+        help="where to write this round's instruction sheet (default "
+        "var/debate/<channel>/delta-docket-<thread>-<n>.md); needs --delta-round",
+    )
 
     # Hidden on purpose: nobody types this. The channel-opening flow writes it
     # into a seat's adapter command so an ordinary prompt-taking CLI can answer
@@ -1303,7 +1500,34 @@ def main(argv: list[str] | None = None) -> int:
                     "refused: broker-revise needs a named, fully managed channel"
                 )
             text = args.body if args.body is not None else args.body_file.read_text(encoding="utf-8")
-            entry_id = BrokerController(config.broker).revise_case(
+            delta_flags = (
+                args.goal,
+                args.fold_list_file,
+                args.docket_out,
+                args.prior or None,
+                args.prior_verdicts or None,
+            )
+            if not args.delta_round and any(flag is not None for flag in delta_flags):
+                raise channel.ChannelError(
+                    "refused: --goal, --fold-list-file, --prior, --prior-verdict and --docket-out "
+                    "belong to --delta-round; add --delta-round or drop them"
+                )
+            broker = config.broker
+            if args.delta_round:
+                docket_path, added = _delta_round_docket(args, broker, args.root, name)
+                print(f"wrote this round's instruction sheet to {docket_path}")
+                if added:
+                    print("added to the files this case puts in front of the seats: " + ", ".join(added))
+                # The config just changed on disk; the revision has to record
+                # the file list the seats will actually receive, not the one
+                # loaded a moment ago.
+                reloaded = _watcher_config(args.root, args.config, name)
+                if reloaded.broker is None:
+                    raise channel.ChannelError(
+                        "refused: broker-revise needs a named, fully managed channel"
+                    )
+                broker = reloaded.broker
+            entry_id = BrokerController(broker).revise_case(
                 channel_root=args.root,
                 channel_name=name,
                 thread=args.thread,
