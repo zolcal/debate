@@ -87,7 +87,7 @@ def _no_ask(prompt: str) -> str:
 def test_pick_pair_requested_pair_validated(tmp_path: Path) -> None:
     reg = _two_seat_registry(tmp_path)
     pair = opening.pick_pair(
-        reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
+        reg, require_admissible=False, project=str(tmp_path), requested=("alpha/one", "beta/two"),
         assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
     assert pair == ("alpha/one", "beta/two")
@@ -98,7 +98,7 @@ def test_pick_pair_absent_seat_refused(tmp_path: Path) -> None:
     reg.seats["alpha/one"].present = False
     with pytest.raises(channel.ChannelError, match="alpha/one"):
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
+            reg, require_admissible=False, project=str(tmp_path), requested=("alpha/one", "beta/two"),
             assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
 
@@ -107,7 +107,7 @@ def test_pick_pair_unknown_seat_refused(tmp_path: Path) -> None:
     reg = _two_seat_registry(tmp_path)
     with pytest.raises(channel.ChannelError, match="gamma/three"):
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=("gamma/three", "beta/two"),
+            reg, require_admissible=False, project=str(tmp_path), requested=("gamma/three", "beta/two"),
             assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
 
@@ -117,7 +117,7 @@ def test_pick_pair_unsmoked_needs_confirmation_yes_covers(tmp_path: Path) -> Non
     reg.seats["alpha/one"].smoke = None
     # --yes covers the unsmoked warning...
     pair = opening.pick_pair(
-        reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
+        reg, require_admissible=False, project=str(tmp_path), requested=("alpha/one", "beta/two"),
         assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
     assert pair == ("alpha/one", "beta/two")
@@ -125,7 +125,7 @@ def test_pick_pair_unsmoked_needs_confirmation_yes_covers(tmp_path: Path) -> Non
     answers = iter(["n"])
     with pytest.raises(channel.ChannelError, match="unsmoked"):
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
+            reg, require_admissible=False, project=str(tmp_path), requested=("alpha/one", "beta/two"),
             assume_yes=False, ask=lambda prompt: next(answers), now="2026-08-17T00:00:00+00:00",
     )
 
@@ -140,19 +140,19 @@ def test_pick_pair_identity_guard(tmp_path: Path) -> None:
     # same seat id twice: refused without the flag, even with --yes
     with pytest.raises(channel.ChannelError, match="same"):
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=("alpha/one", "alpha/one"),
+            reg, require_admissible=False, project=str(tmp_path), requested=("alpha/one", "alpha/one"),
             assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
     # same vendor/submodel at two DIFFERENT efforts: the warning fires all the
     # same -- effort ignored, same weights
     with pytest.raises(channel.ChannelError, match="weights|identical|monologue"):
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=("alpha/one", "alpha/one@low"),
+            reg, require_admissible=False, project=str(tmp_path), requested=("alpha/one", "alpha/one@low"),
             assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
     # --allow-identical-seats covers vendor/submodel identity...
     pair = opening.pick_pair(
-        reg, project=str(tmp_path), requested=("alpha/one", "alpha/one@low"),
+        reg, require_admissible=False, project=str(tmp_path), requested=("alpha/one", "alpha/one@low"),
         assume_yes=True, ask=_no_ask, allow_identical=True, now="2026-08-17T00:00:00+00:00",
     )
     assert pair == ("alpha/one", "alpha/one@low")
@@ -160,23 +160,17 @@ def test_pick_pair_identity_guard(tmp_path: Path) -> None:
     reg.seats["alpha/clone"] = _seat("alpha/clone", [str(tool), "{prompt}"], smoke=_smoked())
     with pytest.raises(channel.ChannelError, match="argv"):
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=("alpha/one", "alpha/clone"),
+            reg, require_admissible=False, project=str(tmp_path), requested=("alpha/one", "alpha/clone"),
             assume_yes=True, ask=_no_ask, allow_identical=True, now="2026-08-17T00:00:00+00:00",
     )
 
 
 def test_pick_pair_default_from_last_pair(tmp_path: Path) -> None:
     reg = _two_seat_registry(tmp_path)
-    # A remembered pair is only offered while both its seats could still be
-    # seated under Debate's control (A2 fix round 1), so the fixture's seats
-    # carry the settings that admit them.
-    for seat in reg.seats.values():
-        seat.isolation_argv = ["--no-config"]
-        seat.no_persistence_argv = ["--no-history"]
     reg.last_pair[str(tmp_path)] = ["alpha/one", "beta/two"]
     # Enter accepts the project default
     pair = opening.pick_pair(
-        reg, project=str(tmp_path), requested=None,
+        reg, require_admissible=False, project=str(tmp_path), requested=None,
         assume_yes=False, ask=lambda prompt: "", now="2026-08-17T00:00:00+00:00",
     )
     assert pair == ("alpha/one", "beta/two")
@@ -185,7 +179,7 @@ def test_pick_pair_default_from_last_pair(tmp_path: Path) -> None:
     reg.seats["alpha/one"].present = False
     with pytest.raises(channel.ChannelError, match="default"):
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=None,
+            reg, require_admissible=False, project=str(tmp_path), requested=None,
             assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
 
@@ -384,12 +378,12 @@ def test_pick_pair_profile_restricts(tmp_path: Path, monkeypatch: pytest.MonkeyP
     # --pair outside the allowlist: refused naming the profile file
     with pytest.raises(channel.ChannelError, match=seats.PROFILE_NAME):
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=("gamma/three", "beta/two"),
+            reg, require_admissible=False, project=str(tmp_path), requested=("gamma/three", "beta/two"),
             assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
     # allowlisted pair passes
     pair = opening.pick_pair(
-        reg, project=str(tmp_path), requested=("alpha/one", "beta/two"),
+        reg, require_admissible=False, project=str(tmp_path), requested=("alpha/one", "beta/two"),
         assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
     assert pair == ("alpha/one", "beta/two")
@@ -397,7 +391,8 @@ def test_pick_pair_profile_restricts(tmp_path: Path, monkeypatch: pytest.MonkeyP
     reg.last_pair[str(tmp_path)] = ["gamma/three", "beta/two"]
     with pytest.raises(channel.ChannelError, match="default"):
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=None, assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
+            reg, require_admissible=False, project=str(tmp_path), requested=None,
+            assume_yes=True, ask=_no_ask, now="2026-08-17T00:00:00+00:00",
     )
     # the interactive listing shows only allowlisted seats
     prompts: list[str] = []
@@ -406,7 +401,9 @@ def test_pick_pair_profile_restricts(tmp_path: Path, monkeypatch: pytest.MonkeyP
         prompts.append(prompt)
         return "alpha/one,beta/two"
 
-    opening.pick_pair(reg, project=str(tmp_path), requested=None, assume_yes=False, ask=capture, now="2026-08-17T00:00:00+00:00",
+    opening.pick_pair(
+        reg, require_admissible=False, project=str(tmp_path), requested=None,
+        assume_yes=False, ask=capture, now="2026-08-17T00:00:00+00:00",
     )
     assert "gamma/three" not in prompts[0]
 
@@ -1011,18 +1008,16 @@ def test_yes_alone_refuses_an_uneven_remembered_pair(tmp_path: Path) -> None:
         seat_id="big/one", vendor="big", submodel="one", effort=None,
         commands=[[str(first), "{prompt}"]], source="catalog", present=True,
         smoke=_smoked(), capability_class="frontier",
-        isolation_argv=["--no-config"], no_persistence_argv=["--no-history"],
     )
     reg.seats["small/two"] = seats.Seat(
         seat_id="small/two", vendor="small", submodel="two", effort=None,
         commands=[[str(second), "{prompt}"]], source="catalog", present=True,
         smoke=_smoked(), capability_class="light",
-        isolation_argv=["--offline"], no_persistence_argv=["--forget"],
     )
     reg.last_pair[str(tmp_path)] = ["big/one", "small/two"]
     with pytest.raises(channel.ChannelError) as caught:
         opening.pick_pair(
-            reg, project=str(tmp_path), requested=None, assume_yes=True,
+            reg, require_admissible=False, project=str(tmp_path), requested=None, assume_yes=True,
             ask=_no_ask, now="2026-08-20T00:00:00+00:00",
         )
     assert "--allow-mismatched-pair" in str(caught.value)

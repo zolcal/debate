@@ -222,6 +222,24 @@ def _wanted_class(docket_bytes: int, quick_review_max_bytes: int) -> str:
     return "light" if docket_bytes < quick_review_max_bytes else "frontier"
 
 
+# The two admission refusals, kept as named constants so the plain-words scan
+# reads them: a refusal a predicate RETURNS looks like any other assignment to
+# a scanner that only watches what is raised or printed (fix round 2).
+NO_QUESTION_MARKER_REFUSAL = (
+    "cannot take part in a fully managed debate: its command has nowhere to put the "
+    "question, and it does not take the two files a managed pass hands over either. "
+    "Record a command that takes the question text (debate seats add), or one that "
+    "reads a request file and writes an answer file"
+)
+
+NO_ISOLATION_SETTINGS_REFUSAL = (
+    "can't yet run in the isolated mode a managed debate needs: tell me how it turns "
+    "off its settings, plugins and session saving and I'll record that (debate seats "
+    "add ... --isolation-argv ... --no-persistence-argv ...), or use a custom seat "
+    "command"
+)
+
+
 def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
     """Why a fully managed debate could not seat this one, in the words it
     would refuse with -- or None when it can (plan 3.4).
@@ -238,22 +256,11 @@ def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
     if "{input_path}" in argv and "{result_path}" in argv:
         return None
     if "{prompt}" not in argv:
-        return (
-            f"refused: seat {seat.seat_id!r} cannot take part in a fully managed debate: "
-            "its command has nowhere to put the question, and it does not take the two "
-            "files a managed pass hands over either. Record a command that takes the "
-            "question text (debate seats add), or one that reads a request file and "
-            "writes an answer file"
-        )
+        return f"refused: seat {seat.seat_id!r} {NO_QUESTION_MARKER_REFUSAL}"
     # Admission, and the only admission: no verified isolation and no-history
     # settings, no managed run. There is no flag that waives this.
     if not seat.isolation_argv or not seat.no_persistence_argv:
-        return (
-            f"refused: {seat.seat_id} can't yet run in the isolated mode a managed "
-            "debate needs: tell me how it turns off its settings, plugins and session "
-            "saving and I'll record that (debate seats add ... --isolation-argv ... "
-            "--no-persistence-argv ...), or use a custom seat command"
-        )
+        return f"refused: {seat.seat_id} {NO_ISOLATION_SETTINGS_REFUSAL}"
     if seat.config_home:
         from .seats import validate_config_home
 
@@ -279,9 +286,17 @@ def _home(real_home: Path | None) -> Path:
 
 
 def _offerable_seats(
-    registry: Registry, allowlist: tuple[str, ...] | None, real_home: Path
+    registry: Registry,
+    allowlist: tuple[str, ...] | None,
+    real_home: Path,
+    require_admissible: bool,
 ) -> list[Seat]:
-    """Every seat this project may put in a suggestion, in seat-id order."""
+    """Every seat this project may put in a suggestion, in seat-id order.
+
+    The admission rule exists because Debate's own runner needs the seat's
+    settings; the older open never uses that runner, so it asks for presence
+    and approval only (`require_admissible=False`).
+    """
     from .seats import head_resolves
 
     return [
@@ -290,7 +305,7 @@ def _offerable_seats(
         if seat.present
         and (allowlist is None or seat_id in allowlist)
         and head_resolves(seat.commands[0][0])
-        and admission_problem(seat, real_home=real_home) is None
+        and (not require_admissible or admission_problem(seat, real_home=real_home) is None)
     ]
 
 
@@ -300,14 +315,15 @@ def remembered_pair(
     project: str,
     allowlist: tuple[str, ...] | None,
     real_home: Path | None = None,
+    require_admissible: bool = True,
 ) -> tuple[str, str] | None:
     """The pair this project used last time, if it can still be seated.
 
-    A remembered pair outside the project's approved list, one naming a seat
-    that has since vanished, or one naming a seat that can no longer run under
-    Debate's control is DROPPED rather than offered. Never having said how
-    strong its seats are does NOT drop it: it is the user's own last choice,
-    and it is offered as exactly that.
+    A remembered pair outside the project's approved list, or one naming a
+    seat that has since vanished, is DROPPED rather than offered. Where the
+    pair will run under Debate's control, one naming a seat that can no longer
+    do that is dropped too. Never having said how strong its seats are does
+    NOT drop it: it is the user's own last choice, offered as exactly that.
     """
     home = _home(real_home)
     for default in (registry.last_pair.get(project), registry.last_pair.get("")):
@@ -320,7 +336,9 @@ def remembered_pair(
             second = _seatable(registry, default[1])
         except channel.ChannelError:
             continue
-        if any(admission_problem(seat, real_home=home) is not None for seat in (first, second)):
+        if require_admissible and any(
+            admission_problem(seat, real_home=home) is not None for seat in (first, second)
+        ):
             continue
         return (default[0], default[1])
     return None
@@ -343,6 +361,7 @@ def suggest_pair_with_reason(
     quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES,
     last_pair: tuple[str, str] | None,
     real_home: Path | None = None,
+    require_admissible: bool = True,
 ) -> PairSuggestion | None:
     """The pair to put first, chosen by how much there is to review.
 
@@ -357,7 +376,10 @@ def suggest_pair_with_reason(
     wanted = _wanted_class(docket_bytes, quick_review_max_bytes)
     reason = QUICK_PAIR_REASON if wanted == "light" else FULL_PAIR_REASON
     matched = [
-        seat for seat in _offerable_seats(registry, allowlist, _home(real_home))
+        seat
+        for seat in _offerable_seats(
+            registry, allowlist, _home(real_home), require_admissible
+        )
         if seat.capability_class == wanted
     ]
     same_vendor: tuple[str, str] | None = None
@@ -382,12 +404,13 @@ def suggest_pair(
     quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES,
     last_pair: tuple[str, str] | None,
     real_home: Path | None = None,
+    require_admissible: bool = True,
 ) -> tuple[str, str] | None:
     """The suggested pair alone, for callers with no use for the reason."""
     found = suggest_pair_with_reason(
         registry, allowlist=allowlist, docket_bytes=docket_bytes,
         quick_review_max_bytes=quick_review_max_bytes, last_pair=last_pair,
-        real_home=real_home,
+        real_home=real_home, require_admissible=require_admissible,
     )
     return None if found is None else found.pair
 
@@ -400,6 +423,7 @@ def pair_choices(
     docket_bytes: int,
     quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES,
     real_home: Path | None = None,
+    require_admissible: bool = True,
 ) -> list[tuple[str, str]]:
     """The suggestion first, then every other pair this project could seat.
 
@@ -410,7 +434,9 @@ def pair_choices(
     if suggestion is None:
         return []
     wanted = _wanted_class(docket_bytes, quick_review_max_bytes)
-    offerable = _offerable_seats(registry, allowlist, _home(real_home))
+    offerable = _offerable_seats(
+        registry, allowlist, _home(real_home), require_admissible
+    )
     ranked: list[tuple[int, str, str]] = []
     for index, first in enumerate(offerable):
         for second in offerable[index + 1:]:
@@ -437,6 +463,7 @@ def pair_menu(
     docket_bytes: int,
     quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES,
     real_home: Path | None = None,
+    require_admissible: bool = True,
     limit: int = PAIR_MENU_LIMIT,
 ) -> list[str]:
     """The choices as a numbered list, the first one carrying its reason."""
@@ -444,7 +471,7 @@ def pair_menu(
         registry, allowlist=allowlist,
         suggestion=None if suggestion is None else suggestion.pair,
         docket_bytes=docket_bytes, quick_review_max_bytes=quick_review_max_bytes,
-        real_home=real_home,
+        real_home=real_home, require_admissible=require_admissible,
     )
     if not choices or suggestion is None:
         return []
@@ -467,6 +494,7 @@ def pick_pair(
     now: str,
     allow_identical: bool = False,
     allow_mismatched_pair: bool = False,
+    require_admissible: bool,
     docket_bytes: int = 0,
     quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES,
     real_home: Path | None = None,
@@ -490,8 +518,9 @@ def pick_pair(
             quick_review_max_bytes=quick_review_max_bytes,
             last_pair=remembered_pair(
                 registry, project=project, allowlist=allowlist, real_home=real_home,
+                require_admissible=require_admissible,
             ),
-            real_home=real_home,
+            real_home=real_home, require_admissible=require_admissible,
         )
         usable = None if suggestion is None else suggestion.pair
         if assume_yes:
@@ -507,12 +536,12 @@ def pick_pair(
             shown = pair_choices(
                 registry, allowlist=allowlist, suggestion=usable,
                 docket_bytes=docket_bytes, quick_review_max_bytes=quick_review_max_bytes,
-                real_home=real_home,
+                real_home=real_home, require_admissible=require_admissible,
             )[:PAIR_MENU_LIMIT]
             for line in pair_menu(
                 registry, allowlist=allowlist, suggestion=suggestion,
                 docket_bytes=docket_bytes, quick_review_max_bytes=quick_review_max_bytes,
-                real_home=real_home,
+                real_home=real_home, require_admissible=require_admissible,
             ):
                 print(line)
             listing = ", ".join(

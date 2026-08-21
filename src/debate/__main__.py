@@ -860,6 +860,9 @@ def main(argv: list[str] | None = None) -> int:
                 allow_identical=args.allow_identical_seats,
                 allow_mismatched_pair=args.allow_mismatched_pair,
                 now=now,
+                # This open runs the seat command itself; the settings a
+                # managed debate needs are not this path's business.
+                require_admissible=False,
                 docket_bytes=opening.docket_byte_size(project_root, args.docket_files),
                 quick_review_max_bytes=args.quick_review_max_bytes,
             )

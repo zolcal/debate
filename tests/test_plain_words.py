@@ -277,9 +277,19 @@ def _help_strings(node: ast.Call) -> list[str]:
 # open, `reasons` and `lines` are what `status_lines` renders.
 SPOKEN_LISTS = ("hints", "reasons", "lines")
 
+# Words the engine keeps in a named constant and speaks from somewhere else --
+# a refusal a predicate RETURNS rather than raises, or the reason a suggestion
+# carries. The NAME is the declaration: `..._REFUSAL` and `..._REASON` are read
+# as things a user will see (fix round 2).
+SPOKEN_CONSTANT = re.compile(r"_(REFUSAL|REASON)$")
+
 
 def _is_spoken_list(node: ast.AST) -> bool:
     return isinstance(node, ast.Name) and node.id in SPOKEN_LISTS
+
+
+def _is_spoken_constant(node: ast.AST) -> bool:
+    return isinstance(node, ast.Name) and SPOKEN_CONSTANT.search(node.id) is not None
 
 
 def _spoken_in(node: ast.AST) -> list[tuple[int, str]]:
@@ -289,6 +299,10 @@ def _spoken_in(node: ast.AST) -> list[tuple[int, str]]:
             targets = child.targets if isinstance(child, ast.Assign) else [child.target]
             if child.value is not None and isinstance(child.value, ast.List) and any(
                 _is_spoken_list(target) for target in targets
+            ):
+                spoken.extend((child.lineno, text) for text in _strings(child.value))
+            if child.value is not None and any(
+                _is_spoken_constant(target) for target in targets
             ):
                 spoken.extend((child.lineno, text) for text in _strings(child.value))
             continue
@@ -383,3 +397,16 @@ def test_a_word_glued_to_a_full_stop_is_not_a_file_name() -> None:
     glued = "one sentence.brokered is what a missing space looks like"
     assert _violations(glued, "fixture.md")
     assert not _violations("see watcher.brokered.example.json for the shape", "fixture.md")
+
+
+def test_a_refusal_kept_in_a_constant_is_scanned_like_a_refusal() -> None:
+    """The blind spot fix round 2 closed: a refusal that a predicate RETURNS
+    reads to the scanner as an ordinary assignment, not as a refusal. Naming
+    the constant `..._REFUSAL` (or `..._REASON`) puts it back in the scan.
+    """
+    from debate import opening
+
+    live = {text for _path, _line, text in engine_strings()}
+    assert opening.NO_ISOLATION_SETTINGS_REFUSAL in live
+    assert opening.NO_QUESTION_MARKER_REFUSAL in live
+    assert opening.QUICK_PAIR_REASON in live

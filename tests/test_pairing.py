@@ -74,7 +74,7 @@ def _pick(
     allow_mismatched_pair: bool = False,
 ) -> tuple[str, str]:
     return opening.pick_pair(
-        registry, project=str(tmp_path), requested=("big/one", "small/two"),
+        registry, require_admissible=True, project=str(tmp_path), requested=("big/one", "small/two"),
         assume_yes=assume_yes, ask=ask, now=NOW,
         allow_mismatched_pair=allow_mismatched_pair,
     )
@@ -180,7 +180,7 @@ def test_identity_guard_fires_before_the_uneven_pair_gate(tmp_path: Path) -> Non
     registry = _pair_registry(tmp_path, "frontier", "light")
     with pytest.raises(channel.ChannelError, match="same seat twice"):
         opening.pick_pair(
-            registry, project=str(tmp_path), requested=("big/one", "big/one"),
+            registry, require_admissible=True, project=str(tmp_path), requested=("big/one", "big/one"),
             assume_yes=True, ask=_no_ask, now=NOW,
         )
 
@@ -569,7 +569,7 @@ def test_the_pick_shows_the_numbered_list_and_takes_a_number(
 ) -> None:
     registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
     pair = opening.pick_pair(
-        registry, project=str(tmp_path), requested=None, assume_yes=False,
+        registry, require_admissible=True, project=str(tmp_path), requested=None, assume_yes=False,
         ask=lambda prompt: "", now=NOW, docket_bytes=10,
     )
     printed = capsys.readouterr().out
@@ -581,7 +581,7 @@ def test_the_pick_shows_the_numbered_list_and_takes_a_number(
 def test_yes_accepts_the_first_item(tmp_path: Path) -> None:
     registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
     assert opening.pick_pair(
-        registry, project=str(tmp_path), requested=None, assume_yes=True,
+        registry, require_admissible=True, project=str(tmp_path), requested=None, assume_yes=True,
         ask=_no_ask, now=NOW, docket_bytes=opening.QUICK_REVIEW_MAX_BYTES,
     ) == ("claude/opus", "deepseek/pro")
 
@@ -594,7 +594,7 @@ def test_an_uneven_remembered_pair_is_never_the_first_item(
     registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
     registry.last_pair[str(tmp_path)] = ["claude/opus", "deepseek/flash"]
     assert opening.pick_pair(
-        registry, project=str(tmp_path), requested=None, assume_yes=True,
+        registry, require_admissible=True, project=str(tmp_path), requested=None, assume_yes=True,
         ask=_no_ask, now=NOW, docket_bytes=10,
     ) == ("claude/haiku", "deepseek/flash")
 
@@ -608,7 +608,7 @@ def test_a_typed_number_picks_that_line(tmp_path: Path) -> None:
         return "2"
 
     pair = opening.pick_pair(
-        registry, project=str(tmp_path), requested=None, assume_yes=False,
+        registry, require_admissible=True, project=str(tmp_path), requested=None, assume_yes=False,
         ask=answer, now=NOW, docket_bytes=10, allow_mismatched_pair=True,
     )
     assert pair != ("claude/haiku", "deepseek/flash")
@@ -666,7 +666,7 @@ def test_a_remembered_pair_that_lost_its_flags_is_not_suggested(tmp_path: Path) 
     ) is None
     with pytest.raises(channel.ChannelError, match="usable default pair"):
         opening.pick_pair(
-            registry, project=str(tmp_path), requested=None, assume_yes=True,
+            registry, require_admissible=True, project=str(tmp_path), requested=None, assume_yes=True,
             ask=_no_ask, now=NOW, docket_bytes=10, real_home=tmp_path,
         )
 
@@ -678,7 +678,7 @@ def test_a_stale_remembered_pair_gives_way_to_one_that_still_works(
     registry.seats["claude/haiku"].no_persistence_argv = []
     registry.last_pair[str(tmp_path)] = ["claude/haiku", "deepseek/flash"]
     assert opening.pick_pair(
-        registry, project=str(tmp_path), requested=None, assume_yes=True,
+        registry, require_admissible=True, project=str(tmp_path), requested=None, assume_yes=True,
         ask=_no_ask, now=NOW, docket_bytes=opening.QUICK_REVIEW_MAX_BYTES,
         real_home=tmp_path,
     ) == ("claude/opus", "deepseek/pro")
@@ -711,7 +711,7 @@ def test_a_remembered_pair_that_never_said_how_strong_it_is_still_leads(
         f"1  claude/haiku + deepseek/flash  --  {opening.REMEMBERED_PAIR_REASON}"
     )
     assert opening.pick_pair(
-        registry, project=str(tmp_path), requested=None, assume_yes=True,
+        registry, require_admissible=True, project=str(tmp_path), requested=None, assume_yes=True,
         ask=_no_ask, now=NOW, docket_bytes=10, real_home=tmp_path,
     ) == ("claude/haiku", "deepseek/flash")
     assert "no declared capability class" in capsys.readouterr().out
@@ -731,3 +731,54 @@ def test_the_reason_follows_where_the_pair_came_from(tmp_path: Path) -> None:
     assert suggestion is not None
     assert suggestion.pair == ("claude/haiku", "deepseek/flash")
     assert suggestion.reason == opening.REMEMBERED_PAIR_REASON
+
+
+# --- who the admission rule applies to (A2 fix round 2) ---------------------
+
+
+def _flagless(tmp_path: Path) -> seats.Registry:
+    """Two evenly matched seats that never said how they turn their settings
+    off: fine for the older open, not for a debate Debate runs itself."""
+    registry = _suggestion_registry(
+        tmp_path, claude__haiku="light", deepseek__flash="light",
+    )
+    for seat in registry.seats.values():
+        seat.isolation_argv = []
+        seat.no_persistence_argv = []
+    return registry
+
+
+def test_the_older_open_suggests_seats_the_managed_path_could_not(
+    tmp_path: Path
+) -> None:
+    registry = _flagless(tmp_path)
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10, last_pair=None,
+        require_admissible=False,
+    ) == ("claude/haiku", "deepseek/flash")
+    assert opening.pick_pair(
+        registry, project=str(tmp_path), requested=None, assume_yes=True,
+        ask=_no_ask, now=NOW, docket_bytes=10, require_admissible=False,
+    ) == ("claude/haiku", "deepseek/flash")
+
+
+def test_the_managed_path_never_suggests_them(tmp_path: Path) -> None:
+    registry = _flagless(tmp_path)
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10, last_pair=None,
+        require_admissible=True,
+    ) is None
+    registry.last_pair[str(tmp_path)] = ["claude/haiku", "deepseek/flash"]
+    assert opening.remembered_pair(
+        registry, project=str(tmp_path), allowlist=None, real_home=tmp_path,
+        require_admissible=True,
+    ) is None
+    assert opening.remembered_pair(
+        registry, project=str(tmp_path), allowlist=None, real_home=tmp_path,
+        require_admissible=False,
+    ) == ("claude/haiku", "deepseek/flash")
+    with pytest.raises(channel.ChannelError, match="usable default pair"):
+        opening.pick_pair(
+            registry, project=str(tmp_path), requested=None, assume_yes=True,
+            ask=_no_ask, now=NOW, docket_bytes=10, require_admissible=True,
+        )
