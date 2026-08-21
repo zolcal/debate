@@ -747,6 +747,29 @@ def test_parse_result_defaults_accepts_and_refuses_runtime_model_basis_configura
         _parse_result(result_path, "seat", profile)
 
 
+def test_parse_result_accepts_deliberation_input_only_on_a_later_pass(tmp_path: Path) -> None:
+    profile = make_profile("seat", "author-independent")
+    result_path = tmp_path / "result.json"
+
+    _write_result(result_path, {})
+    assert _parse_result(result_path, "seat", profile).deliberation_input is None
+    assert _parse_result(result_path, "seat", profile, phase="deliberation").deliberation_input is None
+
+    for value in ("verdicts-only", "full-docket"):
+        _write_result(result_path, {"deliberation_input": value})
+        for phase in ("deliberation", "open"):
+            carried = _parse_result(result_path, "seat", profile, phase=phase)
+            assert carried.deliberation_input == value
+        with pytest.raises(AdapterError, match="deliberation_input on a sealed result"):
+            _parse_result(result_path, "seat", profile)
+        with pytest.raises(AdapterError, match="deliberation_input on a sealed result"):
+            _parse_result(result_path, "seat", profile, phase="sealed")
+
+    _write_result(result_path, {"deliberation_input": "bogus"})
+    with pytest.raises(AdapterError, match="deliberation_input must be"):
+        _parse_result(result_path, "seat", profile, phase="deliberation")
+
+
 def test_published_body_shows_default_and_extended_provenance_lines(tmp_path: Path) -> None:
     repo, sha = make_repository(tmp_path)
     broker = make_broker(repo, sha)
@@ -780,6 +803,62 @@ def test_published_body_shows_default_and_extended_provenance_lines(tmp_path: Pa
     assert "- runtime-model-basis: declared" in extended_body
     assert "- configuration-home: operator (CLAUDE_CONFIG_DIR)" in extended_body
     assert "- isolation-flags: catalogued" in extended_body
+
+
+def test_published_body_names_what_a_later_pass_read_and_stays_silent_on_a_sealed_one(
+    tmp_path: Path,
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    controller = BrokerController(make_broker(repo, sha))
+    evidence: dict[str, str | Path] = {
+        "source_manifest_sha256": "source-sha",
+        "docket_revision_sha256": "docket-sha",
+        "input_sha256": "input-sha",
+    }
+
+    sealed_result = AdapterResult("verdict", "body text", "", "", "bob-runtime-1", "PASS")
+    sealed_body = controller._published_body(
+        party="bob", result=sealed_result, evidence=evidence, phase="sealed"
+    )
+    assert "- deliberation-input:" not in sealed_body
+
+    later_result = AdapterResult(
+        "verdict",
+        "body text",
+        "",
+        "",
+        "bob-runtime-1",
+        "PASS",
+        runtime_model_basis="declared",
+        configuration_home="sandbox",
+        isolation_flags="catalogued",
+        deliberation_input="verdicts-only",
+    )
+    later_body = controller._published_body(
+        party="bob", result=later_result, evidence=evidence, phase="deliberation"
+    )
+    assert "- deliberation-input: verdicts-only" in later_body
+    assert later_body.index("- configuration-home:") < later_body.index("- deliberation-input:")
+    assert later_body.index("- isolation-flags:") < later_body.index("- deliberation-input:")
+
+
+def test_a_recorded_result_round_trips_what_the_pass_read_and_defaults_to_nothing() -> None:
+    evidence: dict[str, str | Path] = {
+        "source_manifest_sha256": "source-sha",
+        "docket_revision_sha256": "docket-sha",
+        "input_sha256": "input-sha",
+    }
+    result = AdapterResult(
+        "verdict", "body text", "", "", "bob-runtime-1", "PASS", deliberation_input="full-docket"
+    )
+    record = BrokerController._result_record(result, evidence, "2026-08-20T12:00:00+00:00")
+    recorded = record["result"]
+    assert isinstance(recorded, dict)
+    assert recorded["deliberation_input"] == "full-docket"
+    assert BrokerController._recorded_result(record)[0].deliberation_input == "full-docket"
+
+    recorded.pop("deliberation_input")
+    assert BrokerController._recorded_result(record)[0].deliberation_input is None
 
 
 def test_sealed_capture_round_trip_publishes_extended_provenance_lines_after_reveal(tmp_path: Path) -> None:

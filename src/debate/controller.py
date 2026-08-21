@@ -33,6 +33,10 @@ RESULT_SCHEMA_VERSION = 1
 AUTHOR_RELATIONSHIPS = ("author-affiliated", "author-independent")
 SEAT_DECISIONS = ("PASS", "NO_PASS")
 SEALED_CONCURRENCY_MODES = ("concurrent", "sequential")
+# What a seat may report having read in a discussion round, and the passes on
+# which reporting it makes sense at all.
+RECORDED_DELIBERATION_INPUTS = ("verdicts-only", "full-docket")
+LATER_PHASES = ("open", "deliberation")
 COST_MODES = ("subscription", "api", "local", "unknown")
 ISOLATION_MODES = ("advisory", "os-enforced")
 _PINNED_REF = re.compile(r"^[0-9a-f]{40}$")
@@ -447,6 +451,10 @@ class AdapterResult:
     # were declared by the operator; absent for hand-authored adapters that
     # never went through the bridge.
     isolation_flags: str | None = None
+    # What this seat was given to read in a discussion round: the two published
+    # verdicts alone ("verdicts-only") or the whole review material again
+    # ("full-docket"). Absent on a sealed result, which always reads everything.
+    deliberation_input: str | None = None
 
 
 @dataclass(frozen=True)
@@ -729,7 +737,16 @@ def _adapter_environment(config: BrokerConfig, profile: AdapterProfile, runtime:
     return environment
 
 
-def _parse_result(path: Path, party: str, profile: AdapterProfile) -> AdapterResult:
+def _parse_result(
+    path: Path, party: str, profile: AdapterProfile, *, phase: str = "sealed"
+) -> AdapterResult:
+    """Read one adapter's result file.
+
+    ``phase`` is the pass this result answers -- the caller invoked the adapter
+    and is the only one who knows. It defaults to the sealed pass, which is the
+    strictest reading: a field only a discussion round may carry is refused
+    unless the caller says the invocation was one.
+    """
     try:
         data = path.read_bytes()
     except OSError as error:
@@ -799,6 +816,17 @@ def _parse_result(path: Path, party: str, profile: AdapterProfile) -> AdapterRes
         raise AdapterError(
             f"refused: adapter {party!r} isolation_flags must be 'catalogued' or 'declared'"
         )
+    deliberation_input = raw.get("deliberation_input")
+    if deliberation_input is not None:
+        if phase not in LATER_PHASES:
+            raise AdapterError(
+                f"refused: adapter {party!r} supplied deliberation_input on a sealed result"
+            )
+        if deliberation_input not in RECORDED_DELIBERATION_INPUTS:
+            raise AdapterError(
+                f"refused: adapter {party!r} deliberation_input must be "
+                f"one of {RECORDED_DELIBERATION_INPUTS}"
+            )
     return AdapterResult(
         entry_type,
         body.strip(),
@@ -809,6 +837,7 @@ def _parse_result(path: Path, party: str, profile: AdapterProfile) -> AdapterRes
         str(runtime_model_basis),
         str(configuration_home),
         str(isolation_flags) if isolation_flags is not None else None,
+        str(deliberation_input) if deliberation_input is not None else None,
     )
 
 
@@ -1230,7 +1259,7 @@ class BrokerController:
             raise AdapterError(f"refused: adapter {party!r} exited {proc.returncode}; see {stderr_path}")
         if _tree_files(source.root) != source.files:
             raise AdapterError(f"refused: adapter {party!r} modified its immutable source export")
-        result = _parse_result(result_path, party, profile)
+        result = _parse_result(result_path, party, profile, phase=phase)
         return result, {
             "input_sha256": _bytes_hash(input_bytes),
             "source_manifest_sha256": source.manifest_sha256,
@@ -1278,6 +1307,8 @@ class BrokerController:
         )
         if result.isolation_flags is not None:
             provenance += f"\n- isolation-flags: {result.isolation_flags}"
+        if result.deliberation_input is not None:
+            provenance += f"\n- deliberation-input: {result.deliberation_input}"
         return result.body + appendix + typed + reveal + provenance
 
     @staticmethod
@@ -1295,6 +1326,7 @@ class BrokerController:
                 "runtime_model_basis": result.runtime_model_basis,
                 "configuration_home": result.configuration_home,
                 "isolation_flags": result.isolation_flags,
+                "deliberation_input": result.deliberation_input,
             },
             "evidence": {key: str(value) for key, value in evidence.items()},
             "captured_at": captured_at,
@@ -1309,6 +1341,7 @@ class BrokerController:
                     "runtime_model_basis": result.runtime_model_basis,
                     "configuration_home": result.configuration_home,
                     "isolation_flags": result.isolation_flags,
+                    "deliberation_input": result.deliberation_input,
                     "evidence": {key: str(value) for key, value in evidence.items()},
                     "captured_at": captured_at,
                 }
@@ -1323,6 +1356,7 @@ class BrokerController:
             raise channel.ChannelError("refused: malformed private sealed submission")
         try:
             isolation_flags_raw = raw_result.get("isolation_flags")
+            deliberation_input_raw = raw_result.get("deliberation_input")
             result = AdapterResult(
                 entry_type=str(raw_result["entry_type"]),
                 body=str(raw_result["body"]),
@@ -1333,6 +1367,9 @@ class BrokerController:
                 runtime_model_basis=str(raw_result.get("runtime_model_basis", "verified")),
                 configuration_home=str(raw_result.get("configuration_home", "sandbox")),
                 isolation_flags=str(isolation_flags_raw) if isolation_flags_raw is not None else None,
+                deliberation_input=(
+                    str(deliberation_input_raw) if deliberation_input_raw is not None else None
+                ),
             )
         except KeyError as error:
             raise channel.ChannelError("refused: incomplete private sealed submission") from error

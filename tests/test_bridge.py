@@ -268,6 +268,99 @@ def test_full_mode_keeps_the_review_files_in_deliberation(tmp_path: Path, seat: 
     assert DEFAULT_DOCKET["criteria.md"] in seat.prompt()
 
 
+def test_the_verdicts_prompt_carries_both_published_verdicts_and_the_instruction(
+    tmp_path: Path, seat: FakeSeat
+) -> None:
+    case = _make_case(tmp_path, phase="deliberation")
+    assert main(_argv(case, seat, extra=["--deliberation-input", "verdicts"])) == 0
+    prompt = seat.prompt()
+    for entry in DEFAULT_TRANSCRIPT:
+        assert entry["body"] in prompt
+    assert "re-verify what is claimed above against fresh evidence" in prompt
+    assert bridge.SOURCE_HEADER in prompt
+    assert bridge.DOCKET_HEADER not in prompt
+
+
+def test_the_sealed_prompt_is_the_same_in_both_modes(tmp_path: Path, seat: FakeSeat) -> None:
+    """The first pass has nothing to lean on, so the mode may not touch it."""
+    case = _make_case(tmp_path, phase="sealed")
+    prompts: dict[str, str] = {}
+    for mode in ("verdicts", "full"):
+        if seat.log.exists():
+            seat.log.unlink()
+        assert main(_argv(case, seat, extra=["--deliberation-input", mode])) == 0
+        prompts[mode] = seat.prompt()
+    assert prompts["verdicts"] == prompts["full"]
+
+
+@pytest.mark.parametrize("mode", ["verdicts", "full"])
+def test_the_no_persistence_flags_are_on_every_pass_in_both_modes(
+    tmp_path: Path, seat: FakeSeat, mode: str
+) -> None:
+    for phase in ("sealed", "deliberation"):
+        case = _make_case(tmp_path / f"{mode}-{phase}", phase=phase)
+        if seat.log.exists():
+            seat.log.unlink()
+        assert main(_argv(case, seat, extra=["--deliberation-input", mode])) == 0
+        assert seat.calls()[0]["argv"][-2:] == ["--safe-mode", "--no-session-persistence"]
+
+
+@pytest.mark.parametrize("mode,recorded", [("verdicts", "verdicts-only"), ("full", "full-docket")])
+def test_a_deliberation_result_records_what_the_seat_read(
+    tmp_path: Path, seat: FakeSeat, mode: str, recorded: str
+) -> None:
+    case = _make_case(tmp_path, phase="deliberation")
+    assert main(_argv(case, seat, extra=["--deliberation-input", mode])) == 0
+    assert case.result()["deliberation_input"] == recorded
+
+
+@pytest.mark.parametrize("mode", ["verdicts", "full"])
+def test_a_sealed_result_never_records_what_a_later_pass_would_read(
+    tmp_path: Path, seat: FakeSeat, mode: str
+) -> None:
+    case = _make_case(tmp_path, phase="sealed")
+    assert main(_argv(case, seat, extra=["--deliberation-input", mode])) == 0
+    assert "deliberation_input" not in case.result()
+
+
+def test_a_later_pass_with_nothing_published_refuses_before_calling_the_seat(
+    tmp_path: Path, seat: FakeSeat, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Should never happen -- the controller always hands the debate over --
+    so if it does, the seat is not asked to review out of thin air."""
+    case = _make_case(tmp_path, phase="deliberation", transcript=[])
+    assert main(_argv(case, seat, extra=["--deliberation-input", "verdicts"])) == 2
+    assert seat.calls() == []
+    assert not case.result_path.exists()
+    errors = capsys.readouterr().err.strip().splitlines()
+    assert len(errors) == 1
+    assert errors[0].startswith("refused:")
+
+
+def _listing(root: Path) -> list[str]:
+    return sorted(str(path.relative_to(root)) for path in root.rglob("*"))
+
+
+@pytest.mark.parametrize("phase", ["sealed", "deliberation"])
+def test_nothing_is_written_outside_the_invocation_folder(
+    tmp_path: Path, seat: FakeSeat, phase: str
+) -> None:
+    case = _make_case(tmp_path / phase, phase=phase)
+    docket_before = _listing(case.docket_root)
+    source_before = _listing(case.source_root)
+
+    assert main(_argv(case, seat, extra=["--deliberation-input", "verdicts"])) == 0
+
+    assert _listing(case.result_path.parent) == [
+        "input.json",
+        "result.json",
+        "seat-stderr.txt",
+        "seat-stdout.txt",
+    ]
+    assert _listing(case.docket_root) == docket_before
+    assert _listing(case.source_root) == source_before
+
+
 def test_oversized_review_material_refuses_before_calling_the_seat(
     tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

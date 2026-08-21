@@ -81,6 +81,9 @@ class BrokeredOpenSpec:
     # Where the line between a small review and a full one falls for THIS
     # debate, in bytes; recorded for the tools that suggest a pair later.
     quick_review_max_bytes: int = QUICK_REVIEW_MAX_BYTES
+    # What a seat re-reads in the discussion round: just the two published
+    # verdicts (the default) or the whole review material again.
+    deliberation_input: str = "verdicts"
 
 
 def slugify_seat_id(seat_id: str) -> str:
@@ -758,7 +761,12 @@ _INHERITED_ENVIRONMENT = [
 
 
 def _brokered_adapter(
-    seat: Seat, *, tool_version: str, author_vendor: str, real_home: Path
+    seat: Seat,
+    *,
+    tool_version: str,
+    author_vendor: str,
+    real_home: Path,
+    deliberation_input: str = "verdicts",
 ) -> dict[str, object]:
     """Registry seat -> adapter profile mapping (v0.8 minimum). Only honest
     fields: cost mode is the seat's DECLARED value (unknown when undeclared,
@@ -813,6 +821,7 @@ def _brokered_adapter(
         "--argv-json", json.dumps(seat.commands[0]),
         "--isolation-argv-json", json.dumps(seat.isolation_argv),
         "--no-persistence-argv-json", json.dumps(seat.no_persistence_argv),
+        "--deliberation-input", deliberation_input,
         "--isolation-flags-basis",
         "catalogued" if seat.source in ("catalog", "derived") else "declared",
         *(["--config-home", seat.config_home] if seat.config_home else []),
@@ -960,12 +969,27 @@ def open_debate_brokered(
     # in the v1 ~/.local/state location.
     state_path = runtime_root / f"{name}.state.json"
 
+    from .bridge import DELIBERATION_INPUTS
+
+    if spec.deliberation_input not in DELIBERATION_INPUTS:
+        raise channel.ChannelError(
+            f"refused: {spec.deliberation_input!r} is not something a seat can re-read in "
+            f"the discussion round; choose one of: {', '.join(DELIBERATION_INPUTS)}"
+        )
     adapters = {
         parties[0]: _brokered_adapter(
-            first, tool_version=tool_version, author_vendor=author_vendor, real_home=home
+            first,
+            tool_version=tool_version,
+            author_vendor=author_vendor,
+            real_home=home,
+            deliberation_input=spec.deliberation_input,
         ),
         parties[1]: _brokered_adapter(
-            second, tool_version=tool_version, author_vendor=author_vendor, real_home=home
+            second,
+            tool_version=tool_version,
+            author_vendor=author_vendor,
+            real_home=home,
+            deliberation_input=spec.deliberation_input,
         ),
     }
     # Last gate, after admission: nothing on this path can ask a question, so

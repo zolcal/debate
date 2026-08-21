@@ -66,6 +66,14 @@ default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
   (`runtime-model-basis: declared`), which configuration folder it read
   (`configuration-home`), and where its isolation arguments came from
   (`isolation-flags`). Gated on `plan-v080-part2-63227` (PASS, MSG-38).
+- **The discussion round re-sends only the two published verdicts** — after the sealed
+  pass a seat is handed the two verdicts already in the thread, its task, and the
+  pointer to the pinned code export, instead of the whole review material a second
+  time; `debate open --deliberation-input full` sends the material again for debates
+  that want it. Every entry from a discussion round says which it read
+  (`deliberation-input: verdicts-only` or `full-docket`); the sealed pass is untouched
+  and always reads everything. Nothing is resumed: each pass is a fresh process whose
+  only continuity is the public record. The field pass records the measured times.
 - **Detected launcher scripts** — `onboarding inspect` lists a launcher script found
   next to a tool Debate already knows as a candidate of its own, with its model
   unverified; `approve` refuses such a row outright and points at the declaration that

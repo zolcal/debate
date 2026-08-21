@@ -478,6 +478,14 @@ def main(argv: list[str] | None = None) -> int:
         "(default: 16384, and recorded with the debate)",
     )
     p_open.add_argument(
+        "--deliberation-input",
+        default="verdicts",
+        choices=("verdicts", "full"),
+        dest="deliberation_input",
+        help="what a seat re-reads in the discussion round: just the two verdicts "
+        "(default, faster) or the whole review material again",
+    )
+    p_open.add_argument(
         "--author-vendor",
         default=None,
         dest="author_vendor",
@@ -807,6 +815,7 @@ def main(argv: list[str] | None = None) -> int:
                     allow_mismatched_pair=args.allow_mismatched_pair,
                     docket_files=tuple(args.docket_files),
                     quick_review_max_bytes=args.quick_review_max_bytes,
+                    deliberation_input=args.deliberation_input,
                 ),
                 registry,
                 load_config_fn=_watcher_config,

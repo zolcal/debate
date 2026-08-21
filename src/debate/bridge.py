@@ -58,6 +58,14 @@ DECISIONS = ("PASS", "NO_PASS")
 DELIBERATION_INPUTS = ("verdicts", "full")
 ISOLATION_FLAG_BASES = ("catalogued", "declared")
 
+# The passes that come after the first, sealed one. Only these record what the
+# seat was given to read; the first pass always reads everything.
+LATER_PHASES = ("open", "deliberation")
+
+# What the result file says the seat actually read this pass, per mode. The
+# record is the reader's, not the flag's, so it names the thing read.
+RECORDED_DELIBERATION_INPUT = {"verdicts": "verdicts-only", "full": "full-docket"}
+
 # The only keys a seat's answer block may carry. Anything else -- a 'sender'
 # above all, which is the controller's to write -- means the seat answered a
 # different question than the one it was asked, so the run is refused.
@@ -371,6 +379,14 @@ def build_prompt(payload: dict[str, Any], *, deliberation_input: str) -> str:
     blocks.append(_source_block(payload))
     if phase != "sealed":
         transcript = _transcript_block(payload)
+        if not transcript and not _quotes_review_material(phase, deliberation_input):
+            # Fail closed. Leaning on the debate so far only works when there IS
+            # one; with neither the published verdicts nor the review material
+            # the seat would be asked to review out of thin air.
+            raise Refusal(
+                "refused: this pass was told to lean on the debate so far, and the debate "
+                "so far is empty"
+            )
         if transcript:
             blocks.append(transcript)
     return "\n\n".join(blocks)
@@ -567,12 +583,13 @@ def write_result(
     decision: str,
     body: str,
     isolation_flags_basis: str,
+    phase: str = "sealed",
 ) -> None:
     """Write the controller's result file. The controller owns the sender; we never write one."""
     configuration_home = "sandbox"
     if spec.config_home is not None:
         configuration_home = f"operator ({spec.config_home.partition('=')[0]})"
-    result = {
+    result: dict[str, Any] = {
         "schema_version": RESULT_SCHEMA_VERSION,
         "entry_type": "verdict",
         "decision": decision,
@@ -584,6 +601,10 @@ def write_result(
         "configuration_home": configuration_home,
         "isolation_flags": isolation_flags_basis,
     }
+    if phase in LATER_PHASES:
+        # Only the later passes have a choice to record. On the first pass there
+        # is nothing but the review material, so saying so would be noise.
+        result["deliberation_input"] = RECORDED_DELIBERATION_INPUT[spec.deliberation_input]
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -611,6 +632,7 @@ def _run(args: argparse.Namespace) -> int:
     result_path = Path(str(args.result_path))
     payload = _read_payload(Path(str(args.input_path)))
     environment = seat_environment(spec)
+    phase = str(payload.get("phase", ""))
     prompt = build_prompt(payload, deliberation_input=spec.deliberation_input)
     argv = seat_argv(spec, prompt)
     source = _mapping(payload, "source")
@@ -623,6 +645,7 @@ def _run(args: argparse.Namespace) -> int:
         decision=decision,
         body=body,
         isolation_flags_basis=spec.isolation_flags_basis,
+        phase=phase,
     )
     return 0
 
