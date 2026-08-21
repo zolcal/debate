@@ -512,7 +512,7 @@ def _numbered(lines: list[str]) -> list[str]:
 
 def test_the_menu_numbers_every_choice_and_reasons_the_first(tmp_path: Path) -> None:
     registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
-    suggestion = opening.suggest_pair(
+    suggestion = opening.suggest_pair_with_reason(
         registry, allowlist=None, docket_bytes=10,
         quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
     )
@@ -532,7 +532,7 @@ def test_the_menu_numbers_every_choice_and_reasons_the_first(tmp_path: Path) -> 
 def test_the_menu_reasons_a_full_review_by_its_size(tmp_path: Path) -> None:
     registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
     big = opening.QUICK_REVIEW_MAX_BYTES + 1
-    suggestion = opening.suggest_pair(
+    suggestion = opening.suggest_pair_with_reason(
         registry, allowlist=None, docket_bytes=big,
         quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
     )
@@ -549,7 +549,7 @@ def test_a_long_menu_is_capped_and_says_how_many_it_left_out(tmp_path: Path) -> 
         claude__haiku="light", deepseek__flash="light", zed__small="light",
         claude__opus="frontier", deepseek__pro="frontier", zed__big="frontier",
     )
-    suggestion = opening.suggest_pair(
+    suggestion = opening.suggest_pair_with_reason(
         registry, allowlist=None, docket_bytes=10,
         quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
     )
@@ -613,3 +613,121 @@ def test_a_typed_number_picks_that_line(tmp_path: Path) -> None:
     )
     assert pair != ("claude/haiku", "deepseek/flash")
     assert seen
+
+
+# --- one admission test, two callers (A2 fix round 1) -----------------------
+
+
+def test_a_bad_configuration_folder_refuses_and_is_never_suggested(tmp_path: Path) -> None:
+    """The registry can be hand-edited after a seat was recorded, so the folder
+    rule is re-checked at use. Seating says why; the suggestion just drops it,
+    and both read the same rule from the same place."""
+    registry = _suggestion_registry(tmp_path, claude__haiku="light")
+    stale = _admissible(
+        "deepseek/flash", _fake_tool(tmp_path, "deepseek-flash"), capability_class="light",
+    )
+    stale.config_home = "CLAUDE_CONFIG_DIR=../outside"
+    registry.seats["deepseek/flash"] = stale
+    elsewhere = tmp_path / "elsewhere"
+
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10, last_pair=None, real_home=elsewhere,
+    ) is None
+    with pytest.raises(channel.ChannelError) as caught:
+        opening._brokered_adapter(
+            stale, tool_version="test", author_vendor="claude", real_home=elsewhere,
+        )
+    assert opening.admission_problem(stale, real_home=elsewhere) == str(caught.value)
+    assert "'..'" in str(caught.value)
+
+
+def test_the_one_admission_test_answers_for_both_seat_shapes(tmp_path: Path) -> None:
+    tool = _fake_tool(tmp_path, "tool")
+    ready = _admissible("claude/haiku", tool, capability_class="light")
+    assert opening.admission_problem(ready, real_home=tmp_path) is None
+    handwritten = _seat("hand/written", tool)
+    handwritten.commands = [[str(tool), "{input_path}", "{result_path}"]]
+    assert opening.admission_problem(handwritten, real_home=tmp_path) is None
+    unflagged = _admissible("small/two", tool, capability_class="light", isolated=False)
+    problem = opening.admission_problem(unflagged, real_home=tmp_path)
+    assert problem is not None and "--isolation-argv" in problem
+
+
+def test_a_remembered_pair_that_lost_its_flags_is_not_suggested(tmp_path: Path) -> None:
+    """A seat can lose the settings that let it run under Debate's control
+    after it was last used; the pair from last time is then no pair at all."""
+    registry = _suggestion_registry(
+        tmp_path, claude__haiku="light", deepseek__flash="light",
+    )
+    registry.seats["claude/haiku"].isolation_argv = []
+    registry.last_pair[str(tmp_path)] = ["claude/haiku", "deepseek/flash"]
+    assert opening.remembered_pair(
+        registry, project=str(tmp_path), allowlist=None, real_home=tmp_path,
+    ) is None
+    with pytest.raises(channel.ChannelError, match="usable default pair"):
+        opening.pick_pair(
+            registry, project=str(tmp_path), requested=None, assume_yes=True,
+            ask=_no_ask, now=NOW, docket_bytes=10, real_home=tmp_path,
+        )
+
+
+def test_a_stale_remembered_pair_gives_way_to_one_that_still_works(
+    tmp_path: Path
+) -> None:
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    registry.seats["claude/haiku"].no_persistence_argv = []
+    registry.last_pair[str(tmp_path)] = ["claude/haiku", "deepseek/flash"]
+    assert opening.pick_pair(
+        registry, project=str(tmp_path), requested=None, assume_yes=True,
+        ask=_no_ask, now=NOW, docket_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        real_home=tmp_path,
+    ) == ("claude/opus", "deepseek/pro")
+
+
+def test_a_remembered_pair_that_never_said_how_strong_it_is_still_leads(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The user's own last choice is not disqualified by a missing class: it
+    leads as the pair from last time, and the note about it still prints."""
+    registry = _suggestion_registry(
+        tmp_path, claude__haiku=None, deepseek__flash=None,
+    )
+    registry.last_pair[str(tmp_path)] = ["claude/haiku", "deepseek/flash"]
+    suggestion = opening.suggest_pair_with_reason(
+        registry, allowlist=None, docket_bytes=10,
+        last_pair=opening.remembered_pair(
+            registry, project=str(tmp_path), allowlist=None, real_home=tmp_path,
+        ),
+        real_home=tmp_path,
+    )
+    assert suggestion is not None
+    assert suggestion.pair == ("claude/haiku", "deepseek/flash")
+    assert suggestion.reason == opening.REMEMBERED_PAIR_REASON
+    lines = opening.pair_menu(
+        registry, allowlist=None, suggestion=suggestion, docket_bytes=10,
+        real_home=tmp_path,
+    )
+    assert lines[0] == (
+        f"1  claude/haiku + deepseek/flash  --  {opening.REMEMBERED_PAIR_REASON}"
+    )
+    assert opening.pick_pair(
+        registry, project=str(tmp_path), requested=None, assume_yes=True,
+        ask=_no_ask, now=NOW, docket_bytes=10, real_home=tmp_path,
+    ) == ("claude/haiku", "deepseek/flash")
+    assert "no declared capability class" in capsys.readouterr().out
+
+
+def test_the_reason_follows_where_the_pair_came_from(tmp_path: Path) -> None:
+    """A remembered pair is labelled as remembered even when its seats happen
+    to be the strength this review calls for -- the reason travels with the
+    choice instead of being guessed back from it."""
+    registry = _suggestion_registry(
+        tmp_path, claude__haiku="light", deepseek__flash="light",
+    )
+    suggestion = opening.suggest_pair_with_reason(
+        registry, allowlist=("claude/haiku",), docket_bytes=10,
+        last_pair=("claude/haiku", "deepseek/flash"), real_home=tmp_path,
+    )
+    assert suggestion is not None
+    assert suggestion.pair == ("claude/haiku", "deepseek/flash")
+    assert suggestion.reason == opening.REMEMBERED_PAIR_REASON

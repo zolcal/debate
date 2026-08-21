@@ -747,7 +747,7 @@ def main(argv: list[str] | None = None) -> int:
                     "refused: a fully managed debate needs --pair (the product skill "
                     "passes the user's exact two-seat choice)"
                 ]
-                suggestion = opening.suggest_pair(
+                suggestion = opening.suggest_pair_with_reason(
                     registry,
                     allowlist=allowlist,
                     docket_bytes=review_bytes,

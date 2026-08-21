@@ -167,6 +167,12 @@ def test_pick_pair_identity_guard(tmp_path: Path) -> None:
 
 def test_pick_pair_default_from_last_pair(tmp_path: Path) -> None:
     reg = _two_seat_registry(tmp_path)
+    # A remembered pair is only offered while both its seats could still be
+    # seated under Debate's control (A2 fix round 1), so the fixture's seats
+    # carry the settings that admit them.
+    for seat in reg.seats.values():
+        seat.isolation_argv = ["--no-config"]
+        seat.no_persistence_argv = ["--no-history"]
     reg.last_pair[str(tmp_path)] = ["alpha/one", "beta/two"]
     # Enter accepts the project default
     pair = opening.pick_pair(
@@ -1005,11 +1011,13 @@ def test_yes_alone_refuses_an_uneven_remembered_pair(tmp_path: Path) -> None:
         seat_id="big/one", vendor="big", submodel="one", effort=None,
         commands=[[str(first), "{prompt}"]], source="catalog", present=True,
         smoke=_smoked(), capability_class="frontier",
+        isolation_argv=["--no-config"], no_persistence_argv=["--no-history"],
     )
     reg.seats["small/two"] = seats.Seat(
         seat_id="small/two", vendor="small", submodel="two", effort=None,
         commands=[[str(second), "{prompt}"]], source="catalog", present=True,
         smoke=_smoked(), capability_class="light",
+        isolation_argv=["--offline"], no_persistence_argv=["--forget"],
     )
     reg.last_pair[str(tmp_path)] = ["big/one", "small/two"]
     with pytest.raises(channel.ChannelError) as caught:
