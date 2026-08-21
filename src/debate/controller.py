@@ -1271,6 +1271,15 @@ class BrokerController:
                     retryable=(not deadline_limited and attempt <= profile.retry_limit),
                     close_reason="case-deadline-expired" if deadline_limited else "adapter-timeout",
                 ) from error
+            except BaseException:
+                # ANY other way out of the wait -- Ctrl-C above all. The
+                # adapter runs in a session of ITS own, which is exactly why
+                # the terminal's own interrupt never reaches it, and
+                # `Popen.__exit__` only waits. Without this an interrupted
+                # operator walks away from a live vendor CLI and its children
+                # (final wave follow-up). The exception itself is untouched.
+                _kill_adapter_tree(process)
+                raise
             returncode = process.returncode
         stdout_path = invocation_root / "stdout.txt"
         stderr_path = invocation_root / "stderr.txt"

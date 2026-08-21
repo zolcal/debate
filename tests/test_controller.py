@@ -9,7 +9,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import pytest
 
@@ -2462,4 +2462,107 @@ def test_the_concurrent_sealed_capture_refuses_when_the_case_is_not_prepared(
             sequence=1,
             attempt=1,
         )
+    assert len(channel.read_entries(root, name)) == 1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process groups are a POSIX facility")
+def test_an_interrupted_seat_call_leaves_no_child_process_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ctrl-C is not a timeout, and it does not reach the adapter either.
+
+    Running the adapter in a session of its own (so a timeout can kill its whole
+    tree) also puts it OUTSIDE the terminal's process group, so the interrupt
+    the operator typed never lands on it -- and `Popen.__exit__` only waits.
+    Every way out of the wait must therefore end the tree, not just the timeout
+    (re-review of the wave). The exception is re-raised untouched.
+    """
+    import time as time_module
+
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, alice_timeout=30)
+    pids_path = tmp_path / "pids.json"
+    hanging = AdapterProfile(
+        **{
+            **broker.profiles["alice"].__dict__,
+            "environment": {
+                **broker.profiles["alice"].environment,
+                "FAKE_MODE": "orphan",
+                "FAKE_PIDS_PATH": str(pids_path),
+            },
+            "environment_allowlist": ("PATH",),
+        }
+    )
+    profiles = {**broker.profiles, "alice": hanging}
+    hanging_broker = BrokerConfig(
+        repository_root=broker.repository_root,
+        runtime_root=broker.runtime_root,
+        source_ref=broker.source_ref,
+        profiles=profiles,
+        timing=TimingPolicy(
+            thread_cap=12,
+            scheduler_interval_seconds=60,
+            retry_seconds=120,
+            whole_case_timeout_seconds=900,
+            profiles=(profiles["alice"], profiles["bob"]),
+        ),
+        config_sha256=broker.config_sha256,
+        docket_files=broker.docket_files,
+        sealed_concurrency="sequential",
+    )
+    controller = BrokerController(hanging_broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="interrupted-case",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+
+    # Ctrl-C, delivered exactly where the operator's would land: inside the
+    # wait, once the adapter has started a child of its own. Only the adapter's
+    # own wait is interrupted -- git and every other subprocess is untouched.
+    real_communicate = subprocess.Popen.communicate
+
+    def interrupted(
+        self: "subprocess.Popen[Any]", input: Any = None, timeout: float | None = None
+    ) -> Any:
+        arguments = self.args if isinstance(self.args, (list, tuple)) else [self.args]
+        if not any("fake_adapter.py" in str(part) for part in arguments):
+            return real_communicate(self, input, timeout)
+        deadline = time_module.monotonic() + 10.0
+        while not pids_path.exists() and time_module.monotonic() < deadline:
+            time_module.sleep(0.02)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", interrupted)
+
+    with pytest.raises(KeyboardInterrupt):
+        controller.drive_case(
+            channel_root=root,
+            channel_name=name,
+            thread="interrupted-case",
+            sequence=1,
+            attempt=1,
+        )
+
+    pids = json.loads(pids_path.read_text(encoding="utf-8"))
+
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:  # pragma: no cover - a reused pid we do not own
+            return True
+        return True
+
+    deadline = time_module.monotonic() + 10.0
+    while time_module.monotonic() < deadline:
+        if not _alive(int(pids["adapter"])) and not _alive(int(pids["child"])):
+            break
+        time_module.sleep(0.05)
+    assert not _alive(int(pids["adapter"])), "the adapter itself outlived the interrupt"
+    assert not _alive(int(pids["child"])), "the adapter's own child outlived the interrupt"
     assert len(channel.read_entries(root, name)) == 1
