@@ -56,6 +56,13 @@ FORBIDDEN: tuple[tuple[str, re.Pattern[str]], ...] = (
 # emphasis, sentence punctuation) is not part of the token.
 _WRAPPING = "`*_\"'()[]{}.,;:!?"
 
+# Only a REAL extension makes a token a file name. "any dot plus a letter" also
+# swallowed a word glued to a sentence's full stop by a missing space, which is
+# prose with a typo, not a file (fix round 2).
+_FILE_EXTENSIONS = frozenset(
+    "json jsonl md py sh bash txt toml yml yaml cfg ini js ts html css log csv service".split()
+)
+
 
 def _is_literal_token(text: str, start: int, end: int) -> bool:
     left = start
@@ -65,7 +72,9 @@ def _is_literal_token(text: str, start: int, end: int) -> bool:
     while right < len(text) and not text[right].isspace():
         right += 1
     token = text[left:right].strip(_WRAPPING)
-    return token.startswith("-") or "/" in token or re.search(r"\.\w", token) is not None
+    if token.startswith("-") or "/" in token:
+        return True
+    return "." in token and token.rpartition(".")[2].lower() in _FILE_EXTENSIONS
 
 
 # The exact marker that opens an assistant-only parenthetical. Kept verbatim in
@@ -143,24 +152,49 @@ def user_facing_markdown(path: Path) -> str:
     return _strip_agent_only_parentheticals(_strip_agent_only_sections(text))
 
 
-_FENCE = re.compile(r"^\s*(```|~~~)", re.MULTILINE)
+_FENCE = re.compile(r"^[ \t]*(```|~~~)[ \t]*([A-Za-z0-9_+-]*)", re.MULTILINE)
 _INLINE_CODE = re.compile(r"(`+)(?:.|\n)*?\1")
+# Fences whose comment leader is `#`. An untagged fence is shell by convention
+# in this README; anything else (json, python, ...) is blanked whole.
+_HASH_COMMENT_FENCES = frozenset(("", "bash", "sh", "shell", "console", "zsh", "text"))
 # A markdown link's destination is a file name or a URL -- a reference the
 # reader clicks or opens, exactly as literal as a command example.
 _LINK_TARGET = re.compile(r"\]\([^)\s]+")
 
 
+def _is_prose_comment(line: str) -> bool:
+    """A `#` comment line inside a shell fence is prose, not syntax.
+
+    A shebang is not a comment -- it is the first line the kernel reads.
+    """
+    stripped = line.strip()
+    return stripped.startswith("#") and not stripped.startswith("#!")
+
+
 def _strip_code(text: str) -> str:
-    """Blank out fenced blocks and inline-code spans, keeping line numbers.
+    """Blank out code, keeping line numbers -- but NOT the prose inside it.
 
     A command example is syntax the reader types, so `{prompt}` inside one is
     the seat-command contract, not product prose (controller ruling, C6 fix
-    round 1). Everything around the code is prose and stays in the scan.
+    round 1). A `#` COMMENT inside a shell fence is the opposite: sentences
+    written to the reader, which is exactly where a stale jargon line hides
+    (fix round 2). So in a fence whose comment leader is `#`, command lines are
+    blanked and comment lines stay in the scan; every other fence, and every
+    inline-code span, is blanked whole.
     """
     fences = list(_FENCE.finditer(text))
     for opening_fence, closing_fence in zip(fences[::2], fences[1::2]):
         end = text.find("\n", closing_fence.end())
-        text = _blank(text, opening_fence.start(), len(text) if end < 0 else end)
+        end = len(text) if end < 0 else end
+        if opening_fence.group(2).lower() not in _HASH_COMMENT_FENCES:
+            text = _blank(text, opening_fence.start(), end)
+            continue
+        cursor = opening_fence.start()
+        for line in text[opening_fence.start():end].splitlines(keepends=True):
+            stop = cursor + len(line)
+            if not _is_prose_comment(line):
+                text = _blank(text, cursor, stop)
+            cursor = stop
     while True:
         span = _INLINE_CODE.search(text)
         if span is None:
@@ -300,3 +334,52 @@ def test_every_allowed_literal_is_still_in_the_engine() -> None:
     """An exception that no longer matches any string is a stale exception."""
     live = {text for _path, _line, text in engine_strings()}
     assert set(ALLOWED_LITERALS) <= live, sorted(set(ALLOWED_LITERALS) - live)
+
+
+# --- the scanner's own blind spots, kept closed ------------------------------
+
+_FENCE_WITH_JARGON_COMMENT = """Text above.
+
+```bash
+# The 0.8 product default: mint a BROKERED managed version 2 channel instead.
+debate open --root ./collab --label market-research
+```
+
+Text below.
+"""
+
+_FENCE_WITH_JARGON_COMMAND = """Text above.
+
+```bash
+# The 0.8 product default: start a fully managed debate instead.
+debate open --brokered --root ./collab --label market-research
+```
+
+Text below.
+"""
+
+
+def test_a_comment_inside_a_code_fence_is_prose_and_is_reported() -> None:
+    """The shape that slipped through round 1: stale jargon in a `#` comment."""
+    found = _violations(_strip_code(_FENCE_WITH_JARGON_COMMENT), "fixture.md")
+    assert [line.split(" -- ")[0] for line in found] == [
+        "fixture.md:4: says 'brokered'",
+        "fixture.md:4: says 'managed version'",
+    ], found
+
+
+def test_a_command_inside_a_code_fence_is_syntax_and_is_not_reported() -> None:
+    """The same block with the jargon only where the reader types it."""
+    assert not _violations(_strip_code(_FENCE_WITH_JARGON_COMMAND), "fixture.md")
+
+
+def test_a_shebang_is_not_a_comment() -> None:
+    assert not _is_prose_comment("#!/bin/sh")
+    assert _is_prose_comment("  # a sentence about brokered things")
+
+
+def test_a_word_glued_to_a_full_stop_is_not_a_file_name() -> None:
+    """The round-2 minor: 'sentence.Brokered' is a typo, not a file."""
+    glued = "one sentence.brokered is what a missing space looks like"
+    assert _violations(glued, "fixture.md")
+    assert not _violations("see watcher.brokered.example.json for the shape", "fixture.md")
