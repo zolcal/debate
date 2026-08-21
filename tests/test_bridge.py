@@ -357,6 +357,44 @@ def test_the_last_fenced_result_block_wins(tmp_path: Path, seat: FakeSeat) -> No
     assert result["body"] == "final verdict"
 
 
+FENCED_SNIPPET_BODY = "I ran the suite:\n\n```\n618 passed, 1 skipped\n```\n\nSo it is green."
+QUOTED_BLOCK_BODY = (
+    "The other seat's answer was malformed:\n\n"
+    '```json\n{"schema_version": 1, "entry_type": "verdict"}\n```\n\n'
+    "so I re-ran the checks myself."
+)
+
+
+@pytest.mark.parametrize("body", [FENCED_SNIPPET_BODY, QUOTED_BLOCK_BODY])
+def test_a_body_that_quotes_a_fenced_snippet_survives_intact(
+    tmp_path: Path, seat: FakeSeat, body: str
+) -> None:
+    case = _make_case(tmp_path)
+    seat.respond(stdout="Here is my verdict.\n\n" + _verdict_block("PASS", body))
+    assert main(_argv(case, seat)) == 0
+    result = case.result()
+    assert result["decision"] == "PASS"
+    assert result["body"] == body
+
+
+def test_the_last_block_still_wins_when_an_earlier_body_quotes_a_fence(
+    tmp_path: Path, seat: FakeSeat
+) -> None:
+    case = _make_case(tmp_path)
+    seat.respond(
+        stdout=(
+            "A first attempt:\n"
+            + _verdict_block("NO_PASS", FENCED_SNIPPET_BODY)
+            + "On reflection:\n"
+            + _verdict_block("PASS", "final verdict")
+        )
+    )
+    assert main(_argv(case, seat)) == 0
+    result = case.result()
+    assert result["decision"] == "PASS"
+    assert result["body"] == "final verdict"
+
+
 def test_an_unfenced_trailing_object_is_accepted(tmp_path: Path, seat: FakeSeat) -> None:
     case = _make_case(tmp_path)
     seat.respond(

@@ -467,25 +467,63 @@ def save_seat_output(result_path: Path, completed: subprocess.CompletedProcess[s
 # --- reading the seat's answer ----------------------------------------------
 
 
-_FENCED_JSON = re.compile(r"```[ \t]*json[ \t]*\r?\n(.*?)```", re.DOTALL | re.IGNORECASE)
+# Only the OPENING fence is matched here, never the closing one. A good verdict
+# body quotes what a command printed, and that quote carries fences of its own
+# ("```\n618 passed\n```"); a pattern that also matched the closing fence would
+# stop at the first fence inside the body and cut the object in half. So the
+# fence says where the answer STARTS and the JSON decoder -- which knows a
+# string from a delimiter -- finds where it ends.
+_OPEN_FENCE = re.compile(r"```[ \t]*json[ \t]*\r?\n", re.IGNORECASE)
+
+
+def _last_object_after_a_fence(output: str) -> tuple[str, Any, ValueError | None]:
+    """Read fenced answer blocks left to right and keep the last one that decodes.
+
+    Each decoded block tells us where it ended, so a fence quoted INSIDE it is
+    skipped rather than mistaken for the next block -- that is what keeps "the
+    last block wins" true for a body that quotes a fenced snippet.
+    """
+    decoder = json.JSONDecoder()
+    fenced = False
+    decoded = False
+    value: Any = None
+    failure: ValueError | None = None
+    end_of_last = 0
+    for match in _OPEN_FENCE.finditer(output):
+        if match.start() < end_of_last:
+            continue
+        fenced = True
+        start = match.end()
+        while start < len(output) and output[start].isspace():
+            start += 1
+        try:
+            candidate, length = decoder.raw_decode(output[start:])
+        except ValueError as error:
+            failure = error
+            continue
+        decoded = True
+        value = candidate
+        end_of_last = start + length
+    if decoded:
+        return "decoded", value, None
+    return ("unreadable" if fenced else "no-fence"), None, failure
 
 
 def _answer_object(output: str) -> Any:
-    blocks = _FENCED_JSON.findall(output)
-    if blocks:
-        try:
-            return json.loads(blocks[-1])
-        except ValueError as error:
-            raise Refusal(f"refused: the seat's final answer block is not readable JSON: {error}") from error
+    outcome, value, failure = _last_object_after_a_fence(output)
+    if outcome == "decoded":
+        return value
+    if outcome == "unreadable":
+        raise Refusal(f"refused: the seat's final answer block is not readable JSON: {failure}")
     decoder = json.JSONDecoder()
     for start in range(len(output) - 1, -1, -1):
         if output[start] != "{":
             continue
         try:
-            value, _ = decoder.raw_decode(output[start:])
+            decoded, _ = decoder.raw_decode(output[start:])
         except ValueError:
             continue
-        return value
+        return decoded
     raise Refusal("refused: the seat did not end its reply with an answer block")
 
 
