@@ -23,6 +23,7 @@ import shutil
 import stat
 import subprocess
 import tarfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
@@ -31,6 +32,7 @@ from debate import channel
 RESULT_SCHEMA_VERSION = 1
 AUTHOR_RELATIONSHIPS = ("author-affiliated", "author-independent")
 SEAT_DECISIONS = ("PASS", "NO_PASS")
+SEALED_CONCURRENCY_MODES = ("concurrent", "sequential")
 COST_MODES = ("subscription", "api", "local", "unknown")
 ISOLATION_MODES = ("advisory", "os-enforced")
 _PINNED_REF = re.compile(r"^[0-9a-f]{40}$")
@@ -336,6 +338,10 @@ class BrokerConfig:
     config_sha256: str
     docket_files: tuple[str, ...] = ()
     contamination_canaries: dict[str, str] = field(default_factory=dict)
+    # "concurrent" captures both sealed positions at once; the two invocations
+    # share nothing but the read-only export and docket, and every write stays
+    # on the driving thread. "sequential" is the one-at-a-time original.
+    sealed_concurrency: str = "concurrent"
 
     def __post_init__(self) -> None:
         repo = self.repository_root.resolve()
@@ -384,6 +390,11 @@ class BrokerConfig:
             raise channel.ChannelError("refused: contamination canary values must be unique")
         if len(set(self.docket_files)) != len(self.docket_files):
             raise channel.ChannelError("refused: docket_files must not contain duplicate paths")
+        if self.sealed_concurrency not in SEALED_CONCURRENCY_MODES:
+            raise channel.ChannelError(
+                f"refused: sealed_concurrency must be one of {SEALED_CONCURRENCY_MODES}, "
+                f"got {self.sealed_concurrency!r}"
+            )
 
     @property
     def topology(self) -> str:
@@ -1359,6 +1370,33 @@ class BrokerController:
             attempt=attempt,
             transcript=None,
         )
+        return self._record_sealed(
+            channel_root=channel_root,
+            channel_name=channel_name,
+            party=party,
+            thread=thread,
+            result=result,
+            evidence=evidence,
+        )
+
+    def _record_sealed(
+        self,
+        *,
+        channel_root: Path,
+        channel_name: str,
+        party: str,
+        thread: str,
+        result: AdapterResult,
+        evidence: dict[str, str | Path],
+    ) -> AdapterResult:
+        """Record one captured sealed position; publish nothing.
+
+        The single recording path for both sealed modes, and the reason the
+        concurrent mode is safe: it is only ever called from the thread driving
+        the case, one party at a time, so the case file's read-modify-write
+        never interleaves and the doorbell is written exactly once -- after the
+        first recorded submission, while the second party is still missing.
+        """
         if result.entry_type != "verdict" or result.decision not in SEAT_DECISIONS:
             raise AdapterError(f"refused: sealed adapter {party!r} must return a typed verdict")
         state = self._load_case(thread)
@@ -1649,6 +1687,117 @@ class BrokerController:
             )
         return DriveOutcome("deliberation", f"revealed {entry_ids[0]} and {entry_ids[1]}; votes disagree")
 
+    def _missing_sealed(self, thread: str, order: tuple[str, str]) -> list[str]:
+        """The parties in `order` with no sealed submission recorded yet."""
+        state = self._load_case(thread)
+        submissions = state.get("sealed_submissions", {})
+        if not isinstance(submissions, dict):
+            raise channel.ChannelError("refused: malformed sealed submissions state")
+        return [party for party in order if party not in submissions]
+
+    def _capture_sealed_positions(
+        self,
+        *,
+        channel_root: Path,
+        channel_name: str,
+        thread: str,
+        order: tuple[str, str],
+        sequence: int,
+        attempt: int,
+    ) -> None:
+        """Capture every sealed position this case is still missing.
+
+        Both seats read the same immutable export and docket and answer without
+        seeing each other, so nothing forces the two invocations to queue --
+        only the recording does. When both are missing and the configuration
+        allows it, they run at once; otherwise one after the other, as before.
+        """
+        if self.config.sealed_concurrency == "concurrent" and len(self._missing_sealed(thread, order)) == 2:
+            self._capture_sealed_pair(
+                channel_root=channel_root,
+                channel_name=channel_name,
+                thread=thread,
+                order=order,
+                sequence=sequence,
+                attempt=attempt,
+            )
+            return
+        for party in order:
+            if party in self._missing_sealed(thread, order):
+                self.capture_sealed(
+                    channel_root=channel_root,
+                    channel_name=channel_name,
+                    party=party,
+                    thread=thread,
+                    sequence=sequence,
+                    attempt=attempt,
+                )
+
+    def _capture_sealed_pair(
+        self,
+        *,
+        channel_root: Path,
+        channel_name: str,
+        thread: str,
+        order: tuple[str, str],
+        sequence: int,
+        attempt: int,
+    ) -> None:
+        """Invoke both seats at once, then record what came back on this thread.
+
+        A worker calls `_invoke` and nothing else: it writes only under its own
+        invocation directory and never touches the case file or the channel. The
+        recording afterwards runs here, in `order` rather than in the order the
+        seats happened to finish, so the case state and the doorbell come out
+        exactly as the one-at-a-time mode leaves them.
+
+        A seat that fails does not discard the other's answer: every success is
+        recorded first, then the first failure in `order` is raised, which is the
+        failure the one-at-a-time mode would have raised. The retry then invokes
+        only the seat still missing.
+        """
+        captured: dict[str, tuple[AdapterResult, dict[str, str | Path]]] = {}
+        failures: dict[str, BaseException] = {}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            running = {
+                pool.submit(
+                    self._invoke,
+                    party=party,
+                    phase="sealed",
+                    thread=thread,
+                    sequence=sequence,
+                    attempt=attempt,
+                    transcript=None,
+                ): party
+                for party in order
+            }
+            for future in as_completed(running):
+                party = running[future]
+                try:
+                    captured[party] = future.result()
+                # Held, not handled: re-raised below in party order, after
+                # every successful position has been recorded.
+                except Exception as error:
+                    failures[party] = error
+        for party in order:
+            if party not in captured:
+                continue
+            result, evidence = captured[party]
+            try:
+                self._record_sealed(
+                    channel_root=channel_root,
+                    channel_name=channel_name,
+                    party=party,
+                    thread=thread,
+                    result=result,
+                    evidence=evidence,
+                )
+            except Exception as error:  # held; re-raised below in party order
+                failures.setdefault(party, error)
+        for party in order:
+            if party in failures:
+                raise failures[party]
+
     def drive_case(
         self,
         *,
@@ -1706,28 +1855,24 @@ class BrokerController:
         if phase in ("sealed", "reveal"):
             other = next(party for party in self.config.profiles if party != first_party)
             order = (first_party, other)
-            for party in order:
-                current = self._load_case(thread)
-                submissions = current.get("sealed_submissions", {})
-                if not isinstance(submissions, dict) or party not in submissions:
-                    try:
-                        self.capture_sealed(
-                            channel_root=channel_root,
-                            channel_name=channel_name,
-                            party=party,
-                            thread=thread,
-                            sequence=sequence,
-                            attempt=attempt,
-                        )
-                    except AdapterError as error:
-                        if error.close_reason == "case-deadline-expired":
-                            return self.close_error(
-                                channel_root=channel_root,
-                                channel_name=channel_name,
-                                thread=thread,
-                                close_reason=error.close_reason,
-                            )
-                        raise
+            try:
+                self._capture_sealed_positions(
+                    channel_root=channel_root,
+                    channel_name=channel_name,
+                    thread=thread,
+                    order=order,
+                    sequence=sequence,
+                    attempt=attempt,
+                )
+            except AdapterError as error:
+                if error.close_reason == "case-deadline-expired":
+                    return self.close_error(
+                        channel_root=channel_root,
+                        channel_name=channel_name,
+                        thread=thread,
+                        close_reason=error.close_reason,
+                    )
+                raise
             return self.reveal_pair(channel_root=channel_root, channel_name=channel_name, thread=thread)
         if phase != "deliberation":
             raise channel.ChannelError(f"refused: unknown managed case phase {phase!r}")
@@ -1899,5 +2044,6 @@ def doctor_lines(config: BrokerConfig) -> list[str]:
     lines.append(f"unconstrained schedule: {timing['unconstrained_schedule_seconds']}s")
     lines.append(f"whole-case deadline: {timing['whole_case_timeout_seconds']}s")
     lines.append(f"enforced terminal bound: {timing['enforced_terminal_bound_seconds']}s")
+    lines.append(f"sealed invocations: {config.sealed_concurrency}")
     lines.append("doctor: configuration valid; no adapter invoked and no charge incurred")
     return lines

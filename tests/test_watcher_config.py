@@ -326,3 +326,96 @@ def test_cli_refuses_a_missing_config_without_a_traceback(tmp_path: Path) -> Non
     )
     assert "Traceback" not in proc.stderr, proc.stderr
     assert proc.returncode != 0
+
+
+# --- sealed_concurrency (Slice A1) -------------------------------------------
+
+
+def seat_payload(party: str, relationship: str) -> dict[str, object]:
+    return {
+        "command": ["/bin/echo", "{input_path}", "{result_path}"],
+        "provider": f"provider-{party}",
+        "requested_model": f"{party}-requested",
+        "expected_runtime_model": f"{party}-runtime-1",
+        "author_relationship": relationship,
+        "reasoning_effort": "high",
+        "cli_version": "fixture-1",
+        "cost_mode": "local",
+        "authentication_mode": "local-process",
+        "permission_policy": "read-only-source; result-file-only",
+        "settings_sources": [],
+        "environment_allowlist": ["PATH"],
+        "environment": {},
+        "timeout_seconds": 30,
+        "retry_limit": 1,
+        "session_persistence": False,
+        "isolation_mode": "advisory",
+    }
+
+
+def make_full_channel(tmp_path: Path) -> tuple[Path, str]:
+    """A named, project-bound channel that a fully managed config may address."""
+    root = tmp_path / "proj" / "collab"
+    name = "pair-22222"
+    channel.init_channel(
+        root,
+        parties=("alice", "bob"),
+        supervisor="owner",
+        name=name,
+        managed_version=channel.BROKERED_MANAGED_VERSION,
+    )
+    return root, name
+
+
+def full_config(tmp_path: Path) -> dict[str, object]:
+    raw = valid_config(tmp_path)
+    raw["commands"] = {}
+    raw["prompts"] = {}
+    raw["debounce_seconds"] = {}
+    runtime_root = tmp_path / "proj" / "var" / "debate" / "case-one"
+    raw["state_path"] = str(runtime_root / "watcher-state.json")
+    raw["runtime_root"] = str(runtime_root)
+    raw["source_ref"] = "a" * 40
+    raw["whole_case_timeout_seconds"] = 900
+    raw["adapters"] = {
+        "alice": seat_payload("alice", "author-affiliated"),
+        "bob": seat_payload("bob", "author-independent"),
+    }
+    return raw
+
+
+def test_an_absent_sealed_concurrency_runs_both_seats_at_once(tmp_path: Path) -> None:
+    root, name = make_full_channel(tmp_path)
+    path = write_config(tmp_path, full_config(tmp_path))
+
+    config = _watcher_config(root, path, name)
+
+    assert config.broker is not None
+    assert config.broker.sealed_concurrency == "concurrent"
+
+
+def test_sealed_concurrency_can_ask_for_one_seat_at_a_time(tmp_path: Path) -> None:
+    root, name = make_full_channel(tmp_path)
+    raw = full_config(tmp_path)
+    raw["sealed_concurrency"] = "sequential"
+    path = write_config(tmp_path, raw)
+
+    config = _watcher_config(root, path, name)
+
+    assert config.broker is not None
+    assert config.broker.sealed_concurrency == "sequential"
+
+
+@pytest.mark.parametrize("value", ["maybe", "", "Concurrent", 2, True, None])
+def test_an_unknown_sealed_concurrency_refuses_with_a_plain_message(tmp_path: Path, value: object) -> None:
+    root, name = make_full_channel(tmp_path)
+    raw = full_config(tmp_path)
+    raw["sealed_concurrency"] = value
+    path = write_config(tmp_path, raw)
+
+    with pytest.raises(channel.ChannelError) as caught:
+        _watcher_config(root, path, name)
+
+    message = str(caught.value)
+    assert "sealed_concurrency" in message
+    assert "concurrent" in message and "sequential" in message

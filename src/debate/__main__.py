@@ -18,7 +18,14 @@ from pathlib import Path
 from typing import Any
 
 from debate import bridge, channel, onboarding, opening, seats
-from debate.controller import AdapterProfile, BrokerConfig, BrokerController, TimingPolicy, doctor_lines
+from debate.controller import (
+    SEALED_CONCURRENCY_MODES,
+    AdapterProfile,
+    BrokerConfig,
+    BrokerController,
+    TimingPolicy,
+    doctor_lines,
+)
 from debate.watcher import WatcherConfig, read_status, run_once, watch
 
 
@@ -164,6 +171,12 @@ def _watcher_config(
             raise channel.ChannelError(
                 f"refused: {config_path}: 'contamination_canaries' must map labels to strings"
             )
+        sealed_concurrency = raw.get("sealed_concurrency", "concurrent")
+        if sealed_concurrency not in SEALED_CONCURRENCY_MODES:
+            raise channel.ChannelError(
+                f"refused: {config_path}: 'sealed_concurrency' must be \"concurrent\" (ask both seats "
+                f"at the same time) or \"sequential\" (one seat at a time), got {sealed_concurrency!r}"
+            )
         ordered_profiles = (profiles[channel_config.parties[0]], profiles[channel_config.parties[1]])
         timing = TimingPolicy(
             thread_cap=channel_config.thread_cap,
@@ -181,6 +194,7 @@ def _watcher_config(
             config_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
             docket_files=tuple(docket_files_raw),
             contamination_canaries={str(key): str(value) for key, value in canaries_raw.items()},
+            sealed_concurrency=str(sealed_concurrency),
         )
     return WatcherConfig(
         channel_root=root,

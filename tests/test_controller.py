@@ -5,8 +5,11 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -17,6 +20,7 @@ from debate.controller import (
     AdapterResult,
     BrokerConfig,
     BrokerController,
+    DriveOutcome,
     TimingPolicy,
     _baseline_environment,
     _parse_result,
@@ -33,14 +37,17 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 
+started = time.time()
 input_path = Path(sys.argv[1])
 result_path = Path(sys.argv[2])
 payload = json.loads(input_path.read_text(encoding="utf-8"))
 mode = os.environ.get("FAKE_MODE", "good")
 if mode == "timeout":
-    import time
     time.sleep(2)
+if mode == "slow":
+    time.sleep(float(os.environ.get("FAKE_SLEEP", "1.5")))
 if mode == "malformed":
     result_path.write_text("{ broken", encoding="utf-8")
     raise SystemExit(0)
@@ -67,6 +74,11 @@ if os.environ.get("FAKE_EXTRA_PROVENANCE") == "1":
     result["configuration_home"] = os.environ.get("FAKE_CONFIGURATION_HOME", "operator (CLAUDE_CONFIG_DIR)")
     result["isolation_flags"] = os.environ.get("FAKE_ISOLATION_FLAGS", "catalogued")
 result_path.write_text(json.dumps(result), encoding="utf-8")
+log_path = os.environ.get("FAKE_LOG_PATH")
+if log_path:
+    entry = {"party": payload["seat"]["party"], "start": started, "end": time.time()}
+    with open(log_path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry) + "\n")
 """
 
 
@@ -148,7 +160,9 @@ def make_broker(
     *,
     alice_relationship: str = "author-affiliated",
     bob_relationship: str = "author-independent",
+    alice_mode: str = "good",
     bob_mode: str = "good",
+    alice_additions: dict[str, str] | None = None,
     bob_additions: dict[str, str] | None = None,
     alice_timeout: int = 30,
     bob_timeout: int = 30,
@@ -160,11 +174,14 @@ def make_broker(
     config_sha256: str = "a" * 64,
     thread_cap: int = 12,
     whole_case_timeout_seconds: int = 900,
+    sealed_concurrency: str = "concurrent",
 ) -> BrokerConfig:
     profiles = {
         "alice": make_profile(
             "alice",
             alice_relationship,
+            mode=alice_mode,
+            additions=alice_additions,
             timeout=alice_timeout,
             sealed_decision=alice_sealed_decision,
             deliberation_decision=alice_deliberation_decision,
@@ -195,6 +212,7 @@ def make_broker(
         config_sha256=config_sha256,
         docket_files=("docs/plans/superseded.md", "watcher.json"),
         contamination_canaries=canaries or {},
+        sealed_concurrency=sealed_concurrency,
     )
 
 
@@ -1081,14 +1099,17 @@ def test_sealed_pair_completes_in_either_order_without_cross_anchoring(
         first_party=first_party,
         body="Neutral docket.",
     )
+    # Hooked at the recording step, not the capture, so the assertion holds
+    # whichever sealed mode is configured: the two seats may be ASKED at once,
+    # but they are recorded one at a time, first_party first.
     order: list[str] = []
-    original = controller.capture_sealed
+    original = controller._record_sealed
 
     def record_order(**kwargs: object) -> AdapterResult:
         order.append(str(kwargs["party"]))
         return original(**kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(controller, "capture_sealed", record_order)
+    monkeypatch.setattr(controller, "_record_sealed", record_order)
     outcome = controller.drive_case(
         channel_root=root,
         channel_name=name,
@@ -1851,3 +1872,401 @@ def test_watch_status_reports_managed_terminal_surface_and_error_attention(tmp_p
     assert "status-error" in result.detail
     assert any("phase terminal" in line and "result ERROR" in line for line in lines)
     assert "ERROR" in _NEEDS_ATTENTION
+
+
+# --- concurrent sealed capture (Slice A1) ------------------------------------
+
+GOLDEN_SEALED_INSTRUCTIONS = (
+    "Inspect the complete pinned source and docket. Write only the structured result file. "
+    "Do not edit the source, do not access a Debate channel, and do not include private reasoning."
+)
+
+
+class AdapterCall(NamedTuple):
+    party: str
+    start: float
+    end: float
+
+
+class SealedRun(NamedTuple):
+    elapsed: float
+    outcome: DriveOutcome
+    submissions: list[str]
+    log: list[AdapterCall]
+    signal: dict[str, object]
+    parties: list[str]
+
+
+def read_adapter_log(path: Path) -> list[AdapterCall]:
+    """Every fake-adapter invocation, in completion order: party, start, end."""
+    if not path.exists():
+        return []
+    calls: list[AdapterCall] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        raw = json.loads(line)
+        calls.append(AdapterCall(str(raw["party"]), float(raw["start"]), float(raw["end"])))
+    return calls
+
+
+def sealed_submissions(broker: BrokerConfig, thread: str) -> dict[str, object]:
+    """The case file's private submissions, round-tripped through JSON."""
+    case = json.loads((broker.runtime_root / "cases" / thread / "case.json").read_text(encoding="utf-8"))
+    submissions = case["sealed_submissions"]
+    assert isinstance(submissions, dict)
+    return {str(party): record for party, record in submissions.items()}
+
+
+def stable_signal(signal: dict[str, object]) -> dict[str, object]:
+    """The doorbell without the fields that differ between two wall-clock runs."""
+    return {
+        key: value
+        for key, value in signal.items()
+        if key != "deadline" and not key.endswith("_at") and not key.endswith("_ts")
+    }
+
+
+def drive_one_sealed_pair(base: Path, mode: str) -> SealedRun:
+    """Open and drive one case to its terminal state; report what both modes share."""
+    repo, sha = make_repository(base)
+    root, name = make_channel(repo)
+    log = base / "adapter-log.jsonl"
+    broker = make_broker(
+        repo,
+        sha,
+        alice_mode="slow",
+        bob_mode="slow",
+        alice_additions={"FAKE_LOG_PATH": str(log), "FAKE_SLEEP": "1.5"},
+        bob_additions={"FAKE_LOG_PATH": str(log), "FAKE_SLEEP": "1.5"},
+        sealed_concurrency=mode,
+    )
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="paired-seal",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    started = time.monotonic()
+    outcome = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="paired-seal",
+        sequence=1,
+        attempt=1,
+    )
+    elapsed = time.monotonic() - started
+    return SealedRun(
+        elapsed=elapsed,
+        outcome=outcome,
+        submissions=sorted(sealed_submissions(broker, "paired-seal")),
+        log=read_adapter_log(log),
+        signal=stable_signal(channel.read_signal(root, name)),
+        parties=sorted(
+            entry.sender for entry in channel.read_entries(root, name) if entry.sender in broker.profiles
+        ),
+    )
+
+
+def test_concurrent_sealed_capture_overlaps_and_records_what_the_sequential_run_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = channel.update_managed_phase
+    signal_writes: list[tuple[str, str, str]] = []
+
+    def counting(root: Path, **kwargs: object) -> None:
+        signal_writes.append((str(kwargs["thread"]), str(kwargs["phase"]), str(kwargs["turn"])))
+        original(root, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(channel, "update_managed_phase", counting)
+
+    sequential = drive_one_sealed_pair(tmp_path / "sequential", "sequential")
+    sequential_writes = list(signal_writes)
+    signal_writes.clear()
+    concurrent_run = drive_one_sealed_pair(tmp_path / "concurrent", "concurrent")
+    concurrent_writes = list(signal_writes)
+
+    sequential_log = {call.party: call for call in sequential.log}
+    concurrent_log = {call.party: call for call in concurrent_run.log}
+    assert sorted(sequential_log) == sorted(concurrent_log) == ["alice", "bob"]
+    assert len(sequential.log) == len(concurrent_run.log) == 2
+
+    assert concurrent_log["alice"].start < concurrent_log["bob"].end
+    assert concurrent_log["bob"].start < concurrent_log["alice"].end
+    assert concurrent_run.elapsed < 2.5
+
+    assert min(call.end for call in sequential_log.values()) <= max(
+        call.start for call in sequential_log.values()
+    )
+    assert sequential.elapsed >= 3.0
+
+    assert concurrent_run.submissions == sequential.submissions == ["alice", "bob"]
+    assert concurrent_run.parties == sequential.parties == ["alice", "bob"]
+    assert concurrent_run.signal == sequential.signal
+    assert concurrent_writes == sequential_writes
+    assert concurrent_run.outcome.terminal_result == "PASS"
+
+
+def test_concurrent_sealed_capture_keeps_the_survivor_and_retries_only_the_failing_seat(
+    tmp_path: Path,
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    log = tmp_path / "adapter-log.jsonl"
+    broker = make_broker(
+        repo,
+        sha,
+        alice_mode="timeout",
+        alice_timeout=1,
+        alice_additions={"FAKE_LOG_PATH": str(log)},
+        bob_additions={"FAKE_LOG_PATH": str(log)},
+    )
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="half-seal",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+
+    with pytest.raises(AdapterError, match="timed out after 1s") as caught:
+        controller.drive_case(
+            channel_root=root, channel_name=name, thread="half-seal", sequence=1, attempt=1
+        )
+
+    assert caught.value.retryable is True
+    assert sorted(sealed_submissions(broker, "half-seal")) == ["bob"]
+    assert [call.party for call in read_adapter_log(log)] == ["bob"]
+    assert not any(entry.sender in broker.profiles for entry in channel.read_entries(root, name))
+    assert channel.read_signal(root, name)["turn"] == "alice"
+
+    with pytest.raises(AdapterError, match="timed out after 1s"):
+        controller.drive_case(
+            channel_root=root, channel_name=name, thread="half-seal", sequence=1, attempt=2
+        )
+
+    assert [call.party for call in read_adapter_log(log)] == ["bob"]
+    assert sorted(path.name for path in broker.runtime_root.glob("cases/half-seal/invocations/*")) == [
+        "1-alice-1",
+        "1-alice-2",
+        "1-bob-1",
+    ]
+
+
+def test_deadline_expiry_during_concurrent_capture_closes_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, whole_case_timeout_seconds=5)
+    opened_at = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+    controller = BrokerController(broker, now=opened_at)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="expires-concurrently",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    invoked: list[str] = []
+
+    def finish_after_deadline(**kwargs: object) -> tuple[AdapterResult, dict[str, str | Path]]:
+        invoked.append(str(kwargs["party"]))
+        controller._fixed_now = opened_at + timedelta(seconds=6)
+        return (
+            AdapterResult("verdict", "late", "", "", "fixture", "PASS"),
+            {
+                "input_sha256": "1" * 64,
+                "source_manifest_sha256": "2" * 64,
+                "docket_revision_sha256": "3" * 64,
+                "diagnostics_root": broker.runtime_root,
+            },
+        )
+
+    monkeypatch.setattr(controller, "_invoke", finish_after_deadline)
+    outcome = controller.drive_case(
+        channel_root=root, channel_name=name, thread="expires-concurrently", sequence=1, attempt=1
+    )
+
+    assert sorted(invoked) == ["alice", "bob"]
+    assert outcome.terminal_result == "ERROR"
+    assert outcome.close_reason == "case-deadline-expired"
+    assert channel.read_signal(root, name)["close_reason"] == "case-deadline-expired"
+    assert sealed_submissions(broker, "expires-concurrently") == {}
+    assert not any(entry.sender in broker.profiles for entry in channel.read_entries(root, name))
+
+
+def test_concurrent_mode_does_not_reinvoke_an_already_sealed_seat(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    log = tmp_path / "adapter-log.jsonl"
+    broker = make_broker(
+        repo,
+        sha,
+        alice_additions={"FAKE_LOG_PATH": str(log)},
+        bob_additions={"FAKE_LOG_PATH": str(log)},
+    )
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="one-left",
+        first_party="bob",
+        body="Neutral docket.",
+    )
+    controller.capture_sealed(
+        channel_root=root, channel_name=name, party="bob", thread="one-left", sequence=1, attempt=1
+    )
+
+    outcome = controller.drive_case(
+        channel_root=root, channel_name=name, thread="one-left", sequence=1, attempt=1
+    )
+
+    assert outcome.terminal_result == "PASS"
+    assert sorted(call.party for call in read_adapter_log(log)) == ["alice", "bob"]
+    assert sorted(path.name for path in broker.runtime_root.glob("cases/one-left/invocations/*")) == [
+        "1-alice-1",
+        "1-bob-1",
+    ]
+
+
+def test_sealed_worker_threads_never_write_case_state_or_the_doorbell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, alice_mode="slow", bob_mode="slow")
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="main-thread-only",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    original_write = BrokerController._write_case
+    original_phase = channel.update_managed_phase
+    off_thread: list[str] = []
+
+    def guarded_write(self: BrokerController, thread: str, state: dict[str, object]) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            off_thread.append(f"_write_case from {threading.current_thread().name}")
+        original_write(self, thread, state)
+
+    def guarded_phase(signal_root: Path, **kwargs: object) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            off_thread.append(f"update_managed_phase from {threading.current_thread().name}")
+        original_phase(signal_root, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(BrokerController, "_write_case", guarded_write)
+    monkeypatch.setattr(channel, "update_managed_phase", guarded_phase)
+
+    outcome = controller.drive_case(
+        channel_root=root, channel_name=name, thread="main-thread-only", sequence=1, attempt=1
+    )
+
+    assert off_thread == []
+    assert outcome.terminal_result == "PASS"
+
+
+def test_sealed_adapter_input_matches_its_golden_payload(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    exports, docket, _ = controller._prepare_case("golden-case")
+    result_path = broker.runtime_root / "cases" / "golden-case" / "invocations" / "1-bob-1" / "result.json"
+
+    payload = controller.render_input(
+        party="bob",
+        phase="sealed",
+        thread="golden-case",
+        result_path=result_path,
+        source=exports["bob"],
+        docket=docket,
+        transcript=None,
+    )
+
+    encoded = json.dumps(payload, indent=2, sort_keys=True)
+    for actual, token in (
+        (str(broker.runtime_root), "<runtime>"),
+        (sha, "<ref>"),
+        (docket.revision_sha256, "<docket>"),
+        (exports["bob"].manifest_sha256, "<manifest>"),
+    ):
+        encoded = encoded.replace(actual, token)
+
+    assert json.loads(encoded) == {
+        "schema_version": 1,
+        "phase": "sealed",
+        "thread": "golden-case",
+        "seat": {
+            "party": "bob",
+            "author_relationship": "author-independent",
+            "topology": "minimum-two-agent",
+        },
+        "source": {
+            "root": "<runtime>/exports/<ref>/bob",
+            "ref": "<ref>",
+            "manifest_sha256": "<manifest>",
+        },
+        "docket": {
+            "root": "<runtime>/dockets/<docket>/files",
+            "revision_sha256": "<docket>",
+            "files": [
+                {
+                    "path": "docs/plans/superseded.md",
+                    "sha256": "502eeaef8517a63609f685ffc40690a6cc9aa980ad8fb673523ffbab2c0b81cf",
+                    "tracked_at_source_ref": False,
+                },
+                {
+                    "path": "watcher.json",
+                    "sha256": "9eb2269e11d0a83c051255203611b6d9a9bb3ead51c72e0429fb8f44df528846",
+                    "tracked_at_source_ref": False,
+                },
+            ],
+        },
+        "result": {
+            "path": "<runtime>/cases/golden-case/invocations/1-bob-1/result.json",
+            "schema_version": 1,
+            "controller_owned_fields": ["sender"],
+            "required_fields": [
+                "schema_version",
+                "entry_type",
+                "body",
+                "runtime_model",
+                "decision (PASS or NO_PASS for verdicts)",
+            ],
+        },
+        "instructions": GOLDEN_SEALED_INSTRUCTIONS,
+    }
+    assert set(payload) == {
+        "schema_version",
+        "phase",
+        "thread",
+        "seat",
+        "source",
+        "docket",
+        "result",
+        "instructions",
+    }
+    assert payload["instructions"] == GOLDEN_SEALED_INSTRUCTIONS
+    assert "current_thread" not in payload
+
+
+def test_doctor_reports_the_sealed_invocation_mode(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+
+    assert "sealed invocations: concurrent" in doctor_lines(make_broker(repo, sha))
+    assert "sealed invocations: sequential" in doctor_lines(
+        make_broker(repo, sha, sealed_concurrency="sequential")
+    )
+
+
+def test_a_sealed_concurrency_value_outside_the_two_modes_is_refused(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+
+    with pytest.raises(channel.ChannelError, match="sealed_concurrency"):
+        make_broker(repo, sha, sealed_concurrency="maybe")
