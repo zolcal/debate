@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from typing import Mapping
 
 import pytest
 
@@ -611,3 +613,408 @@ def test_open_provenance_carries_smoke_result(
     record = json.loads((root / f"{result.channel_name}.debate.json").read_text(encoding="utf-8"))
     assert record["seats"]["alpha"]["smoke_result"] == "pass"
     assert record["seats"]["alpha"]["smoke_at"] is not None
+
+
+# --- Slice C5: prompt-style seats join a fully managed debate ---------------
+
+MANAGED_NOW = "2026-08-20T12:00:00+00:00"
+
+NINE_INHERITED_NAMES = [
+    "PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR",
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+]
+
+
+def _fake_tool(tmp_path: Path, name: str) -> Path:
+    tool = tmp_path / name
+    tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    tool.chmod(0o755)
+    return tool
+
+
+def _raw_seat(
+    command: list[str],
+    *,
+    vendor: str,
+    submodel: str,
+    source: str = "manual",
+    capability_class: str | None = None,
+    isolation_argv: list[str] | None = None,
+    no_persistence_argv: list[str] | None = None,
+    config_home: str | None = None,
+) -> dict[str, object]:
+    return {
+        "vendor": vendor,
+        "submodel": submodel,
+        "effort": None,
+        "commands": [command],
+        "source": source,
+        "present": True,
+        "smoke": None,
+        "cost_mode": "local",
+        "capability_class": capability_class,
+        "isolation_argv": list(isolation_argv or []),
+        "no_persistence_argv": list(no_persistence_argv or []),
+        "config_home": config_home,
+    }
+
+
+def _write_raw_registry(path: Path, rows: Mapping[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "registry_version": 1,
+            "tool_version": "test",
+            "discovered_at": MANAGED_NOW,
+            "seats": dict(rows),
+            "last_pair": {},
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _git_project(project: Path) -> str:
+    import subprocess
+
+    project.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", str(project)], check=True)
+    (project / "README").write_text("stub\n", encoding="utf-8")
+    git = ["git", "-C", str(project), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "add", "README"], check=True)
+    subprocess.run([*git, "commit", "-qm", "stub"], check=True)
+    return subprocess.run(
+        ["git", "-C", str(project), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+
+def managed_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    rows: Mapping[str, object],
+    allow: list[str],
+) -> tuple[Path, str]:
+    """A git project with an approved seat list and a registry on disk.
+
+    The profile is written directly rather than through `onboarding.approve`:
+    approve re-scans the machine, and these fixtures own every seat row byte
+    for byte.
+    """
+    registry_path = tmp_path / "config" / "seats.json"
+    monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(registry_path))
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    project = tmp_path / "project"
+    head = _git_project(project)
+    _write_raw_registry(registry_path, rows)
+    (project / seats.PROFILE_NAME).write_text(
+        json.dumps({"profile_version": 1, "allowlist": list(allow)}) + "\n",
+        encoding="utf-8",
+    )
+    return project, head
+
+
+def _package_root() -> str:
+    import debate
+
+    return str(Path(debate.__file__).resolve().parent.parent)
+
+
+def test_prompt_style_seat_is_wrapped_with_its_verified_flags(tmp_path: Path) -> None:
+    """A seat that only takes a question text still joins a fully managed
+    debate: the recorded command runs it under Debate's own runner, carrying
+    the seat's argv, its verified flags and its configuration folder."""
+    from debate import bridge
+
+    tool = _fake_tool(tmp_path, "clauded")
+    seat = seats.Seat(
+        seat_id="claude/sonnet", vendor="claude", submodel="sonnet", effort=None,
+        commands=[[str(tool), "-p", "{prompt}"]], source="catalog", present=True,
+        smoke=None, cost_mode="subscription", capability_class="frontier",
+        isolation_argv=["--strict-mcp-config", "--settings", "{}"],
+        no_persistence_argv=["--no-session-persistence"],
+        config_home="CLAUDE_CONFIG_DIR=.claude",
+    )
+    profile = opening._brokered_adapter(
+        seat, tool_version="test", author_vendor="codex", real_home=tmp_path,
+    )
+    command = profile["command"]
+    assert isinstance(command, list)
+    assert command[:4] == [sys.executable, "-m", "debate", "bridge"]
+    assert command[-2:] == ["{input_path}", "{result_path}"]
+    spec = bridge.parse_bridge_command(command)
+    assert spec is not None
+    assert spec.seat_id == "claude/sonnet"
+    assert spec.vendor == "claude"
+    assert spec.submodel == "sonnet"
+    assert spec.argv == (str(tool), "-p", "{prompt}")
+    assert spec.isolation_argv == ("--strict-mcp-config", "--settings", "{}")
+    assert spec.no_persistence_argv == ("--no-session-persistence",)
+    assert spec.config_home == "CLAUDE_CONFIG_DIR=.claude"
+    assert spec.isolation_flags_basis == "catalogued"
+    assert profile["environment"] == {
+        "PYTHONPATH": _package_root(),
+        "DEBATE_BRIDGE_REAL_HOME": str(tmp_path),
+    }
+    assert profile["environment_allowlist"] == NINE_INHERITED_NAMES
+    assert profile["requested_model"] == "sonnet"
+    assert profile["author_relationship"] == "author-independent"
+    assert "expected_runtime_model" not in profile
+    assert profile["timeout_seconds"] == 1200
+    assert profile["session_persistence"] is False
+
+
+def test_operator_declared_flags_are_recorded_as_declared(tmp_path: Path) -> None:
+    tool = _fake_tool(tmp_path, "own-agent")
+    seat = seats.Seat(
+        seat_id="own/agent", vendor="own", submodel="agent", effort=None,
+        commands=[[str(tool), "{prompt}"]], source="manual", present=True,
+        smoke=None, isolation_argv=["--offline"], no_persistence_argv=["--forget"],
+    )
+    from debate import bridge
+
+    profile = opening._brokered_adapter(
+        seat, tool_version="test", author_vendor="codex", real_home=tmp_path,
+    )
+    command = profile["command"]
+    assert isinstance(command, list)
+    spec = bridge.parse_bridge_command(command)
+    assert spec is not None
+    assert spec.isolation_flags_basis == "declared"
+    assert spec.config_home is None
+    assert "--config-home" not in command
+
+
+def test_hand_authored_adapter_seat_is_left_alone(tmp_path: Path) -> None:
+    tool = _fake_tool(tmp_path, "adapter")
+    seat = seats.Seat(
+        seat_id="own/adapter", vendor="own", submodel="adapter", effort=None,
+        commands=[[str(tool), "{input_path}", "{result_path}"]], source="manual",
+        present=True, smoke=None,
+    )
+    profile = opening._brokered_adapter(
+        seat, tool_version="test", author_vendor="codex", real_home=tmp_path,
+    )
+    assert profile["command"] == [str(tool), "{input_path}", "{result_path}"]
+    assert profile["environment_allowlist"] == ["PATH", "LANG", "LC_ALL"]
+    assert "environment" not in profile
+
+
+def test_prompt_style_seat_without_verified_flags_is_refused(tmp_path: Path) -> None:
+    """Admission is the flags rule alone, and there is no way around it."""
+    tool = _fake_tool(tmp_path, "kimi")
+    for isolation, persistence in (([], []), (["--offline"], []), ([], ["--forget"])):
+        seat = seats.Seat(
+            seat_id="kimi/k3", vendor="kimi", submodel="k3", effort=None,
+            commands=[[str(tool), "{prompt}"]], source="catalog", present=True,
+            smoke=None, isolation_argv=list(isolation),
+            no_persistence_argv=list(persistence),
+        )
+        with pytest.raises(channel.ChannelError) as caught:
+            opening._brokered_adapter(
+                seat, tool_version="test", author_vendor="codex", real_home=tmp_path,
+            )
+        message = str(caught.value)
+        assert "kimi/k3" in message
+        assert "--isolation-argv" in message and "--no-persistence-argv" in message
+
+
+def test_seat_with_flags_and_no_configuration_folder_is_admitted(tmp_path: Path) -> None:
+    tool = _fake_tool(tmp_path, "glm")
+    seat = seats.Seat(
+        seat_id="glm/glm-5.3", vendor="glm", submodel="glm-5.3", effort=None,
+        commands=[[str(tool), "{prompt}"]], source="manual", present=True, smoke=None,
+        isolation_argv=["--offline"], no_persistence_argv=["--forget"],
+    )
+    profile = opening._brokered_adapter(
+        seat, tool_version="test", author_vendor="codex", real_home=tmp_path,
+    )
+    command = profile["command"]
+    assert isinstance(command, list)
+    assert "--config-home" not in command
+
+
+def test_seat_command_of_neither_shape_is_refused(tmp_path: Path) -> None:
+    tool = _fake_tool(tmp_path, "mute")
+    seat = seats.Seat(
+        seat_id="mute/one", vendor="mute", submodel="one", effort=None,
+        commands=[[str(tool), "--go"]], source="manual", present=True, smoke=None,
+        isolation_argv=["--offline"], no_persistence_argv=["--forget"],
+    )
+    with pytest.raises(channel.ChannelError) as caught:
+        opening._brokered_adapter(
+            seat, tool_version="test", author_vendor="codex", real_home=tmp_path,
+        )
+    assert "mute/one" in str(caught.value)
+
+
+def test_hand_edited_configuration_folder_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A registry edited by hand to point a seat at the whole home directory
+    is refused BEFORE a debate can be opened. The registry loader is the first
+    gate that sees it, so that is where the refusal lands; the open re-checks
+    the same rule against the operator's real home directory."""
+    registry_path = tmp_path / "config" / "seats.json"
+    monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(registry_path))
+    tool = _fake_tool(tmp_path, "hand-edited")
+    _write_raw_registry(registry_path, {
+        "hand/edited": _raw_seat(
+            [str(tool), "{prompt}"], vendor="hand", submodel="edited",
+            isolation_argv=["--offline"], no_persistence_argv=["--forget"],
+            config_home="HOME=.config",
+        ),
+    })
+    with pytest.raises(channel.ChannelError, match="config-home"):
+        seats.load_registry()
+
+
+def test_managed_open_wraps_both_seats_end_to_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from debate.controller import doctor_lines
+
+    first = _fake_tool(tmp_path, "agent-one")
+    second = _fake_tool(tmp_path, "agent-two")
+    project, head = managed_project(
+        tmp_path, monkeypatch,
+        {
+            "claude/sonnet": _raw_seat(
+                [str(first), "-p", "{prompt}"], vendor="claude", submodel="sonnet",
+                source="catalog", capability_class="frontier",
+                isolation_argv=["--strict-mcp-config"],
+                no_persistence_argv=["--no-session-persistence"],
+                config_home="CLAUDE_CONFIG_DIR=.claude",
+            ),
+            "codex/gpt-5.6-sol": _raw_seat(
+                [str(second), "exec", "{prompt}"], vendor="codex", submodel="gpt-5.6-sol",
+                source="manual", capability_class="frontier",
+                isolation_argv=["--ignore-user-config"],
+                no_persistence_argv=["--ephemeral"],
+            ),
+        },
+        ["claude/sonnet", "codex/gpt-5.6-sol"],
+    )
+    root = project / "collab"
+    result = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=root, label="stub", pair=("claude/sonnet", "codex/gpt-5.6-sol"),
+            source_ref=head, author_vendor="claude",
+        ),
+        seats.load_registry(), load_config_fn=_watcher_config,
+        now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
+    )
+    loaded = _watcher_config(root, result.config_path, result.channel_name)
+    assert loaded.managed_problem() is None
+    assert loaded.broker is not None
+    lines = doctor_lines(loaded.broker)
+    assert any(
+        "configuration home OPERATOR (CLAUDE_CONFIG_DIR)" in line
+        and "isolation flags catalogued" in line
+        for line in lines
+    )
+    assert any(
+        "configuration home SANDBOX" in line and "isolation flags declared" in line
+        for line in lines
+    )
+    record = json.loads((root / f"{result.channel_name}.debate.json").read_text(encoding="utf-8"))
+    assert record["seats"]["claude"]["isolation_flags"] == "catalogued"
+    assert record["seats"]["claude"]["configuration_home"] == "operator (CLAUDE_CONFIG_DIR)"
+    assert record["seats"]["codex"]["isolation_flags"] == "declared"
+    assert record["seats"]["codex"]["configuration_home"] == "sandbox"
+
+
+def test_hand_authored_adapter_pair_records_adapter_owned_isolation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _fake_tool(tmp_path, "adapter-one")
+    second = _fake_tool(tmp_path, "adapter-two")
+    project, head = managed_project(
+        tmp_path, monkeypatch,
+        {
+            "alpha/fake": _raw_seat(
+                [str(first), "{input_path}", "{result_path}"],
+                vendor="alpha", submodel="fake",
+            ),
+            "beta/fake": _raw_seat(
+                [str(second), "{input_path}", "{result_path}"],
+                vendor="beta", submodel="fake",
+            ),
+        },
+        ["alpha/fake", "beta/fake"],
+    )
+    root = project / "collab"
+    result = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=root, label="stub", pair=("alpha/fake", "beta/fake"),
+            source_ref=head, author_vendor="claude",
+        ),
+        seats.load_registry(), load_config_fn=_watcher_config,
+        now=MANAGED_NOW, tool_version="test",
+    )
+    record = json.loads((root / f"{result.channel_name}.debate.json").read_text(encoding="utf-8"))
+    for party in ("alpha", "beta"):
+        assert record["seats"][party]["isolation_flags"] == "adapter-owned"
+        assert record["seats"][party]["configuration_home"] == "sandbox"
+
+
+def test_same_vendor_pair_with_different_models_is_admitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The identity guard is unchanged: one vendor, two models is a debate.
+    Their classes differ, so the uneven-pair choice is made explicitly."""
+    tool = _fake_tool(tmp_path, "claude-tool")
+    project, head = managed_project(
+        tmp_path, monkeypatch,
+        {
+            "claude/sonnet": _raw_seat(
+                [str(tool), "-p", "sonnet", "{prompt}"], vendor="claude", submodel="sonnet",
+                source="catalog", capability_class="frontier",
+                isolation_argv=["--strict-mcp-config"],
+                no_persistence_argv=["--no-session-persistence"],
+            ),
+            "claude/haiku": _raw_seat(
+                [str(tool), "-p", "haiku", "{prompt}"], vendor="claude", submodel="haiku",
+                source="catalog", capability_class="light",
+                isolation_argv=["--strict-mcp-config"],
+                no_persistence_argv=["--no-session-persistence"],
+            ),
+        },
+        ["claude/sonnet", "claude/haiku"],
+    )
+    result = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=project / "collab", label="stub",
+            pair=("claude/sonnet", "claude/haiku"),
+            source_ref=head, author_vendor="codex", allow_mismatched_pair=True,
+        ),
+        seats.load_registry(), load_config_fn=_watcher_config,
+        now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
+    )
+    record = json.loads(
+        (project / "collab" / f"{result.channel_name}.debate.json").read_text(encoding="utf-8")
+    )
+    assert sorted(record["parties"]) == ["claude-haiku", "claude-sonnet"]
+
+
+def test_yes_alone_refuses_an_uneven_remembered_pair(tmp_path: Path) -> None:
+    """--yes accepts the remembered pair; it never answers a later question."""
+    reg = seats.Registry()
+    first = _fake_tool(tmp_path, "big")
+    second = _fake_tool(tmp_path, "small")
+    reg.seats["big/one"] = seats.Seat(
+        seat_id="big/one", vendor="big", submodel="one", effort=None,
+        commands=[[str(first), "{prompt}"]], source="catalog", present=True,
+        smoke=_smoked(), capability_class="frontier",
+    )
+    reg.seats["small/two"] = seats.Seat(
+        seat_id="small/two", vendor="small", submodel="two", effort=None,
+        commands=[[str(second), "{prompt}"]], source="catalog", present=True,
+        smoke=_smoked(), capability_class="light",
+    )
+    reg.last_pair[str(tmp_path)] = ["big/one", "small/two"]
+    with pytest.raises(channel.ChannelError) as caught:
+        opening.pick_pair(
+            reg, project=str(tmp_path), requested=None, assume_yes=True,
+            ask=_no_ask, now="2026-08-20T00:00:00+00:00",
+        )
+    assert "--allow-mismatched-pair" in str(caught.value)

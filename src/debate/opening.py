@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,7 @@ class OpenSpec:
     thread_cap: int = 12
     allow_identical_seats: bool = False
     assume_yes: bool = False
+    allow_mismatched_pair: bool = False
 
 
 @dataclass
@@ -69,6 +71,7 @@ class BrokeredOpenSpec:
     supervisor: str = "owner"
     thread_cap: int = 12
     allow_identical_seats: bool = False
+    allow_mismatched_pair: bool = False
     docket_files: tuple[str, ...] = ()  # project-relative review inputs for the seats
 
 
@@ -124,6 +127,61 @@ def _identity_guard(a: Seat, b: Seat, *, allow_identical: bool) -> None:
         )
 
 
+# What an uneven pair costs, in the words of what was actually observed.
+UNEVEN_PAIR_REASON = (
+    "a lightweight fast model against a frontier reasoning model often "
+    "produces a one-sided verdict and costs an extra deliberation round"
+)
+
+
+def classify_pair(a: Seat, b: Seat) -> str:
+    """How evenly matched two seats are: "symmetric", "mismatched" or
+    "undeclared" (one of them never declared a capability class)."""
+    if a.capability_class is None or b.capability_class is None:
+        return "undeclared"
+    return "symmetric" if a.capability_class == b.capability_class else "mismatched"
+
+
+def _uneven_pair_sentence(a: Seat, b: Seat) -> str:
+    return (
+        f"{a.seat_id} is declared {a.capability_class} and {b.seat_id} is "
+        f"declared {b.capability_class}: {UNEVEN_PAIR_REASON}"
+    )
+
+
+def _pair_gate(
+    a: Seat,
+    b: Seat,
+    *,
+    allow_mismatched_pair: bool,
+    ask: Callable[[str], str] | None,
+) -> None:
+    """The last gate before a pair is seated (after selection, the identity
+    guard and admission). An uneven pair is legal but never silent: where
+    somebody can answer, it is a numbered choice; where nobody can (--yes, or
+    the fully managed path, which asks nothing), it refuses and names the flag
+    that seats it deliberately."""
+    kind = classify_pair(a, b)
+    if kind == "symmetric":
+        return
+    if kind == "undeclared":
+        print(
+            "note: one of these seats has no declared capability class; "
+            "pairing may be uneven"
+        )
+        return
+    if allow_mismatched_pair:
+        return
+    if ask is None:
+        raise channel.ChannelError(
+            f"refused: {_uneven_pair_sentence(a, b)}. "
+            "Pass --allow-mismatched-pair to seat this pair anyway"
+        )
+    print(f"warning: {_uneven_pair_sentence(a, b)}.")
+    if ask("1 keep this pair  2 pick again: ").strip() != "1":
+        raise channel.ChannelError("refused: pair not confirmed")
+
+
 def pick_pair(
     registry: Registry,
     *,
@@ -133,6 +191,7 @@ def pick_pair(
     ask: Callable[[str], str],
     now: str,
     allow_identical: bool = False,
+    allow_mismatched_pair: bool = False,
 ) -> tuple[str, str]:
     """The owner picks; the previous pick is the one-Enter default. When the
     project carries a `debate-profile.json`, the picker is RESTRICTED to its
@@ -221,6 +280,12 @@ def pick_pair(
                 f"refused: {seat.seat_id!r} is {state} and was not confirmed"
             )
     _identity_guard(first, second, allow_identical=allow_identical)
+    # --yes accepts the remembered pair; it never answers this question.
+    _pair_gate(
+        first, second,
+        allow_mismatched_pair=allow_mismatched_pair,
+        ask=None if assume_yes else ask,
+    )
     return requested
 
 
@@ -362,49 +427,147 @@ def open_debate(
     return OpenResult(channel_name=name, config_path=config_path, hints=hints)
 
 
+# What a wrapped seat may inherit from the operator's own environment: where
+# to find programs, how to format text, which certificates to trust, and which
+# proxy to go through. Nothing here carries the operator's tool configuration.
+_INHERITED_ENVIRONMENT = [
+    "PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR",
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+]
+
+
 def _brokered_adapter(
-    seat: Seat, *, tool_version: str, author_vendor: str
+    seat: Seat, *, tool_version: str, author_vendor: str, real_home: Path
 ) -> dict[str, object]:
     """Registry seat -> adapter profile mapping (v0.8 minimum). Only honest
     fields: cost mode is the seat's DECLARED value (unknown when undeclared,
     never guessed), the author relationship is DERIVED from the declared
     author vendor (a seat sharing the interactive author's vendor is
     author-affiliated), and the authentication/permission strings describe
-    the controller's invocation contract, not per-seat claims."""
+    the controller's invocation contract, not per-seat claims.
+
+    Two seat shapes reach this point. A hand-authored adapter, which already
+    speaks the controller's file protocol, is recorded verbatim. An ordinary
+    seat that only takes a question text is wrapped in Debate's own runner --
+    but ONLY when its verified isolation and no-history settings are both on
+    record, because that wrapper is the one thing standing between a review
+    pass and the operator's live settings, plugins and session history.
+    """
     argv = " ".join(seat.commands[0])
-    if "{input_path}" not in argv or "{result_path}" not in argv:
-        raise channel.ChannelError(
-            f"refused: seat {seat.seat_id!r} is not brokered-capable: its command "
-            "carries no {input_path}/{result_path} placeholders. Brokered seats "
-            "run controller-bound bridges; author one as a manual seat "
-            "(debate seats add) whose argv accepts both placeholders."
-        )
     relationship = (
         "author-affiliated"
         if seat.vendor.strip().lower() == author_vendor
         else "author-independent"
     )
+    if "{input_path}" in argv and "{result_path}" in argv:
+        return {
+            "command": list(seat.commands[0]),
+            "provider": seat.vendor,
+            "requested_model": seat.submodel,
+            "author_relationship": relationship,
+            "reasoning_effort": seat.effort or "default",
+            "cli_version": f"registry seat (debate {tool_version}); bridge-reported at runtime",
+            "cost_mode": seat.cost_mode,
+            "authentication_mode": (
+                "seat bridge is self-authenticating; the controller handles no credentials"
+            ),
+            "permission_policy": (
+                "controller-bound invocation from a pinned read-only source export"
+            ),
+            "settings_sources": [],
+            "environment_allowlist": ["PATH", "LANG", "LC_ALL"],
+            "timeout_seconds": 1200,
+            "retry_limit": 1,
+            "session_persistence": False,
+            "isolation_mode": "advisory",
+        }
+    if "{prompt}" not in argv:
+        raise channel.ChannelError(
+            f"refused: seat {seat.seat_id!r} cannot take part in a fully managed debate: "
+            "its command has nowhere to put the question, and it does not take the two "
+            "files a managed pass hands over either. Record a command that takes the "
+            "question text (debate seats add), or one that reads a request file and "
+            "writes an answer file"
+        )
+    # Admission, and the only admission: no verified isolation and no-history
+    # settings, no managed run. There is no flag that waives this.
+    if not seat.isolation_argv or not seat.no_persistence_argv:
+        raise channel.ChannelError(
+            f"refused: {seat.seat_id} can't yet run in the isolated mode a managed "
+            "debate needs: tell me how it turns off its settings, plugins and session "
+            "saving and I'll record that (debate seats add ... --isolation-argv ... "
+            "--no-persistence-argv ...), or use a custom seat command"
+        )
+    if seat.config_home:
+        # The registry may have been hand-edited since it was written; the same
+        # rule that admitted the folder has to still hold now.
+        from .seats import validate_config_home
+
+        validate_config_home(seat.config_home, home=real_home)
+    command = [
+        sys.executable, "-m", "debate", "bridge",
+        "--seat-id", seat.seat_id,
+        "--vendor", seat.vendor,
+        "--submodel", seat.submodel,
+        "--argv-json", json.dumps(seat.commands[0]),
+        "--isolation-argv-json", json.dumps(seat.isolation_argv),
+        "--no-persistence-argv-json", json.dumps(seat.no_persistence_argv),
+        "--isolation-flags-basis",
+        "catalogued" if seat.source in ("catalog", "derived") else "declared",
+        *(["--config-home", seat.config_home] if seat.config_home else []),
+        "{input_path}", "{result_path}",
+    ]
     return {
-        "command": list(seat.commands[0]),
+        "command": command,
         "provider": seat.vendor,
         "requested_model": seat.submodel,
         "author_relationship": relationship,
         "reasoning_effort": seat.effort or "default",
-        "cli_version": f"registry seat (debate {tool_version}); bridge-reported at runtime",
+        "cli_version": (
+            f"registry seat (debate {tool_version}); model identity declared by the registry"
+        ),
         "cost_mode": seat.cost_mode,
         "authentication_mode": (
-            "seat bridge is self-authenticating; the controller handles no credentials"
+            "the tool authenticates itself through its own configuration folder; "
+            "Debate handles no credentials"
         ),
         "permission_policy": (
-            "controller-bound invocation from a pinned read-only source export"
+            "controller-bound invocation from a pinned read-only source export; the "
+            "tool's own settings, plugins and session saving are turned off"
         ),
         "settings_sources": [],
-        "environment_allowlist": ["PATH", "LANG", "LC_ALL"],
+        # The sandbox drops every name it was not handed, so the two pointers
+        # the wrapper needs -- where Debate itself is installed, and where the
+        # operator's home directory is -- travel with the profile.
+        "environment": {
+            "PYTHONPATH": str(Path(__file__).resolve().parent.parent),
+            "DEBATE_BRIDGE_REAL_HOME": str(real_home),
+        },
+        "environment_allowlist": list(_INHERITED_ENVIRONMENT),
         "timeout_seconds": 1200,
         "retry_limit": 1,
         "session_persistence": False,
         "isolation_mode": "advisory",
     }
+
+
+def _recorded_isolation(profile: dict[str, object]) -> tuple[str, str]:
+    """What the debate record says about one seat's run, read back off the
+    command that was actually recorded: where its isolation settings came
+    from, and whose tool configuration folder it opens."""
+    from . import bridge
+
+    command = profile.get("command")
+    spec = (
+        bridge.parse_bridge_command([str(part) for part in command])
+        if isinstance(command, list)
+        else None
+    )
+    if spec is None:
+        return "adapter-owned", "sandbox"
+    if spec.config_home is None:
+        return spec.isolation_flags_basis, "sandbox"
+    return spec.isolation_flags_basis, f"operator ({spec.config_home.partition('=')[0]})"
 
 
 def open_debate_brokered(
@@ -414,6 +577,7 @@ def open_debate_brokered(
     load_config_fn: LoadConfigFn,
     now: str,
     tool_version: str,
+    real_home: Path | None = None,
 ) -> OpenResult:
     """The v0.8 product open: managed version 2, never 1. Validates the pair,
     the adapter mapping, and the full brokered watcher-config contract
@@ -423,6 +587,7 @@ def open_debate_brokered(
     from .controller import doctor_lines
     from .seats import PROFILE_NAME, load_profile, screen_credentials
 
+    home = Path.home() if real_home is None else real_home
     screen_credentials(registry)
     project = project_key(spec.root)
     profile = load_profile(project, registry)
@@ -459,11 +624,13 @@ def open_debate_brokered(
             "name; the human supervisor never holds a seat"
         )
     if not spec.source_ref.strip():
-        raise channel.ChannelError("refused: a brokered open needs a source_ref")
+        raise channel.ChannelError(
+            "refused: a fully managed debate needs the commit its seats will review"
+        )
     author_vendor = spec.author_vendor.strip().lower()
     if not author_vendor:
         raise channel.ChannelError(
-            "refused: a brokered open needs --author-vendor (the interactive "
+            "refused: a fully managed debate needs --author-vendor (the interactive "
             "author's vendor), so the recorded author relationship is declared, "
             "never guessed"
         )
@@ -494,12 +661,21 @@ def open_debate_brokered(
 
     adapters = {
         parties[0]: _brokered_adapter(
-            first, tool_version=tool_version, author_vendor=author_vendor
+            first, tool_version=tool_version, author_vendor=author_vendor, real_home=home
         ),
         parties[1]: _brokered_adapter(
-            second, tool_version=tool_version, author_vendor=author_vendor
+            second, tool_version=tool_version, author_vendor=author_vendor, real_home=home
         ),
     }
+    # Last gate, after admission: nothing on this path can ask a question, so
+    # an uneven pair refuses unless the caller already answered for it.
+    _pair_gate(
+        first, second,
+        allow_mismatched_pair=spec.allow_mismatched_pair,
+        ask=None,
+    )
+    first_isolation, first_home = _recorded_isolation(adapters[parties[0]])
+    second_isolation, second_home = _recorded_isolation(adapters[parties[1]])
     config: dict[str, object] = {
         "state_path": str(state_path),
         "runtime_root": str(runtime_root),
@@ -583,6 +759,8 @@ def open_debate_brokered(
             "cost_mode": str(adapters[parties[0]]["cost_mode"]),
             "authentication_mode": str(adapters[parties[0]]["authentication_mode"]),
             "permission_policy": str(adapters[parties[0]]["permission_policy"]),
+            "isolation_flags": first_isolation,
+            "configuration_home": first_home,
         },
         parties[1]: {
             "seat": second.seat_id,
@@ -596,6 +774,8 @@ def open_debate_brokered(
             "cost_mode": str(adapters[parties[1]]["cost_mode"]),
             "authentication_mode": str(adapters[parties[1]]["authentication_mode"]),
             "permission_policy": str(adapters[parties[1]]["permission_policy"]),
+            "isolation_flags": second_isolation,
+            "configuration_home": second_home,
         },
     }
     record_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
@@ -605,7 +785,7 @@ def open_debate_brokered(
 
     hints = [
         f"opened {name} at {spec.root} (parties {parties[0]!r}/{parties[1]!r}, "
-        f"supervisor {spec.supervisor!r}) -- managed version 2 (brokered)",
+        f"supervisor {spec.supervisor!r}) -- a fully managed debate",
         f"open the docket: debate broker-open --root {spec.root} --channel {name} "
         f"--config {config_path} --thread <case> --first-seat {parties[0]} "
         f"--refs <branch@sha> --body-file <docket-request>",

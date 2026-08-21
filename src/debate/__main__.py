@@ -410,10 +410,16 @@ def main(argv: list[str] | None = None) -> int:
         "always an explicit choice)",
     )
     p_open.add_argument(
+        "--allow-mismatched-pair",
+        action="store_true",
+        help="seat a lightweight model against a frontier model anyway -- Debate warns "
+        "because such pairs often produce one-sided verdicts",
+    )
+    p_open.add_argument(
         "--brokered",
         action="store_true",
-        help="mint a managed-version-2 channel (the v0.8 product path): controller-bound "
-        "adapters, human supervisor outside both seats; requires --pair and project approval",
+        help="open a fully managed debate: the two seats run under Debate's control with "
+        "you as supervisor; requires --pair and project approval",
     )
     p_open.add_argument(
         "--source-ref",
@@ -681,8 +687,8 @@ def main(argv: list[str] | None = None) -> int:
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
             if args.pair is None:
                 raise channel.ChannelError(
-                    "refused: --brokered needs --pair (the product skill passes the "
-                    "user's exact two-seat choice)"
+                    "refused: a fully managed debate needs --pair (the product skill "
+                    "passes the user's exact two-seat choice)"
                 )
             parts = tuple(part.strip() for part in args.pair.split(","))
             if len(parts) != 2 or not all(parts):
@@ -706,8 +712,8 @@ def main(argv: list[str] | None = None) -> int:
                 source_ref = probe.stdout.strip()
             if args.author_vendor is None:
                 raise channel.ChannelError(
-                    "refused: --brokered needs --author-vendor (the interactive "
-                    "author's vendor, e.g. 'claude' or 'codex')"
+                    "refused: a fully managed debate needs --author-vendor (the "
+                    "interactive author's vendor, e.g. 'claude' or 'codex')"
                 )
             from debate import __version__
 
@@ -721,6 +727,7 @@ def main(argv: list[str] | None = None) -> int:
                     supervisor=args.supervisor,
                     thread_cap=args.thread_cap,
                     allow_identical_seats=args.allow_identical_seats,
+                    allow_mismatched_pair=args.allow_mismatched_pair,
                     docket_files=tuple(args.docket_files),
                 ),
                 registry,
@@ -772,6 +779,7 @@ def main(argv: list[str] | None = None) -> int:
                 assume_yes=args.assume_yes,
                 ask=input,
                 allow_identical=args.allow_identical_seats,
+                allow_mismatched_pair=args.allow_mismatched_pair,
                 now=now,
             )
             from debate import __version__
@@ -785,6 +793,7 @@ def main(argv: list[str] | None = None) -> int:
                     thread_cap=args.thread_cap,
                     allow_identical_seats=args.allow_identical_seats,
                     assume_yes=args.assume_yes,
+                    allow_mismatched_pair=args.allow_mismatched_pair,
                 ),
                 registry,
                 load_config_fn=_watcher_config,

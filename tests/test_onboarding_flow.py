@@ -307,6 +307,10 @@ def test_brokered_open_identity_guard(isolated: tuple[Path, Path], tmp_path: Pat
 
 
 def test_brokered_open_refuses_prompt_style_seats(isolated: tuple[Path, Path], tmp_path: Path) -> None:
+    """Slice C5 moved this refusal: a seat that only takes a question text is
+    now wrapped and admitted, but ONLY with its verified isolation and
+    no-history settings on record. This one has neither, so it is refused --
+    at the admission rule, before anything else looks at the pair."""
     registry, project = isolated
     _write_registry(
         registry,
@@ -328,7 +332,7 @@ def test_brokered_open_refuses_prompt_style_seats(isolated: tuple[Path, Path], t
     spec = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="claude",
     )
-    with pytest.raises(channel.ChannelError, match="not brokered-capable"):
+    with pytest.raises(channel.ChannelError, match="isolated mode a managed debate needs"):
         opening.open_debate_brokered(
             spec, seats.load_registry(), load_config_fn=_watcher_config,
             now=NOW, tool_version="test",
