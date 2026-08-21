@@ -409,4 +409,6 @@ def test_a_refusal_kept_in_a_constant_is_scanned_like_a_refusal() -> None:
     live = {text for _path, _line, text in engine_strings()}
     assert opening.NO_ISOLATION_SETTINGS_REFUSAL in live
     assert opening.NO_QUESTION_MARKER_REFUSAL in live
+    assert opening.STALE_CATALOGUED_SEAT_REFUSAL in live
+    assert opening.NO_CATALOGUED_ISOLATION_REFUSAL in live
     assert opening.QUICK_PAIR_REASON in live

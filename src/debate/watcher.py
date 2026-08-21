@@ -256,7 +256,8 @@ def decide(
         if deadline is None:
             return Decision(
                 None,
-                f"invalid managed channel: open brokered thread {thread!r} has no absolute deadline",
+                f"invalid managed channel: the open fully managed thread {thread!r} has no "
+                f"absolute deadline",
                 "invalid managed deadline",
             )
         if now >= deadline:
@@ -368,12 +369,12 @@ def status(
         if deadline is None:
             return WatchStatus(
                 "INVALID",
-                f"brokered thread {thread!r} has no readable absolute deadline{holder}",
+                f"the fully managed thread {thread!r} has no readable absolute deadline{holder}",
             )
         if now >= deadline:
             return WatchStatus(
                 "STALE",
-                f"brokered thread {thread!r} passed its whole-case deadline; "
+                f"the fully managed thread {thread!r} passed its whole-case deadline; "
                 f"the next recurring tick must close ERROR{holder}",
             )
 
@@ -401,7 +402,8 @@ def status(
             return None
         return WatchStatus(
             "DRIVING",
-            f"brokered seat invocation in flight: {measured_from} {age_seconds}s ago, "
+            f"a seat call of this fully managed debate is in flight: {measured_from} "
+            f"{age_seconds}s ago, "
             f"within the {budget}s seat budget; tick lock held by pid {lock.pid}",
         )
 

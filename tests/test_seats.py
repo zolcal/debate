@@ -903,8 +903,8 @@ def test_a_refreshed_derived_seat_is_admissible(
 def test_a_flagless_catalogued_seat_is_told_to_refresh_not_to_declare(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seat_id: str
 ) -> None:
-    """A seat Debate itself catalogued cannot be missing flags the operator
-    must supply -- the registry is simply out of date, and the refusal says so."""
+    """(a) The catalog KNOWS this tool's isolation settings, so a flag-less
+    entry is simply an out-of-date registry, and the refusal says so."""
     from debate import opening
 
     path = _registry_env(tmp_path, monkeypatch)
@@ -916,9 +916,55 @@ def test_a_flagless_catalogued_seat_is_told_to_refresh_not_to_declare(
     assert "--isolation-argv" not in problem
 
 
+def test_the_catalog_only_declares_isolation_for_the_tools_it_verified() -> None:
+    """The fact the three-way refusal turns on, pinned against the catalog."""
+    assert seats.catalog_declares_isolation("claude")
+    assert seats.catalog_declares_isolation("codex")
+    for vendor in ("kimi", "glm", "deepseek"):
+        assert not seats.catalog_declares_isolation(vendor), vendor
+    assert not seats.catalog_declares_isolation("nosuchvendor")
+
+
+@pytest.mark.parametrize("vendor,submodel", [
+    ("kimi", "kimi-code/k3"), ("glm", "glm-5.3"), ("deepseek", "deepseek-v4-flash"),
+])
+def test_a_catalogued_tool_with_nothing_verified_is_told_to_register_a_new_seat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, vendor: str, submodel: str
+) -> None:
+    """(b) Debate catalogues this tool but has verified NO isolation settings
+    for it, so a refresh would change nothing. `seats add` refuses a catalog
+    id, which makes a custom seat under a NEW id the only truthful path."""
+    from debate import opening
+
+    _registry_env(tmp_path, monkeypatch)
+    tool = tmp_path / "tool"
+    tool.write_text("#!/bin/sh\n", encoding="utf-8")
+    tool.chmod(0o755)
+    seat = seats.Seat(
+        seat_id=f"{vendor}/{submodel}", vendor=vendor, submodel=submodel, effort=None,
+        commands=[[str(tool), "{prompt}"]], source="catalog", present=True, smoke=None,
+    )
+    problem = opening.admission_problem(seat, real_home=tmp_path)
+    assert problem is not None
+    assert "no verified isolation settings" in problem
+    assert "new seat id" in problem
+    assert "debate seats discover" not in problem
+    # The advice has to be actionable: the registry really does refuse the
+    # catalog id, which is why the message says to pick a new one.
+    reg = seats.load_registry()
+    reg.seats[seat.seat_id] = seat
+    with pytest.raises(channel.ChannelError, match="catalog seat"):
+        seats.add_seat(
+            reg, seat.seat_id, f"{tool} {{prompt}}",
+            isolation_argv=["--iso"], no_persistence_argv=["--forget"],
+        )
+
+
 def test_a_flagless_manual_seat_is_told_to_declare_its_flags(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """(c) The operator authored this seat, so the two declaration paths are
+    the honest advice and the seat id it already has is fine."""
     from debate import opening
 
     path = _registry_env(tmp_path, monkeypatch)

@@ -254,3 +254,57 @@ def test_open_survives_post_creation_bookkeeping_failure(
     assert "bookkeeping failed" in captured.out
     channels = list((project / "collab").glob("*.debate.json"))
     assert len(channels) == 1  # created once, usable, no crash
+
+
+# --- final wave follow-up: what a fully managed channel says about itself ----
+
+
+def test_a_fully_managed_channel_reports_itself_in_plain_words(tmp_path: Path) -> None:
+    """`debate watch-status` prints exactly what `read_status` returns, and its
+    verdict comes from `status`; a tick's own reasons come from `decide`. None
+    of them may speak the engine's private words. The forbidden list is
+    IMPORTED from the plain-words law so the two can never drift.
+    """
+    from debate.watcher import decide, read_status
+    from test_plain_words import FORBIDDEN, _is_literal_token
+
+    config = _brokered_config(tmp_path)
+    config.channel_root.mkdir(parents=True, exist_ok=True)
+    signal_path = config.channel_root / f"{config.channel_name}.signal.json"
+
+    free = LockState(held=False, pid=None, stamp="", cwd=None)
+    held = LockState(
+        held=True, pid=4242, stamp="2026-08-20T11:57:00+00:00", cwd="/x", channel="/y"
+    )
+    no_deadline = {key: value for key, value in _signal("2026-08-20T11:59:00+00:00").items()
+                   if key != "deadline"}
+    expired = {**_signal("2026-08-20T11:00:00+00:00"), "deadline": "2026-08-20T11:30:00+00:00"}
+    in_flight = _signal("2026-08-20T11:56:00+00:00")
+
+    spoken: list[str] = []
+    verdicts: list[str] = []
+    for signal, lock in ((no_deadline, free), (expired, free), (in_flight, held)):
+        verdict = status(signal, {}, config, NOW, lock)
+        verdicts.append(verdict.verdict)
+        spoken.append(f"{verdict.verdict}: {verdict.detail}")
+        decision = decide(signal, {}, config, NOW)
+        spoken.extend(
+            str(part) for part in (decision.invoke, decision.escalate, decision.reason) if part
+        )
+        # And the same states through the command's own reader.
+        signal_path.write_text(json.dumps(signal), encoding="utf-8")
+        lines, reported = read_status(config, NOW)
+        spoken.extend(lines)
+        spoken.append(f"{reported.verdict}: {reported.detail}")
+
+    # Proof the three branches this covers were actually reached.
+    assert verdicts == ["INVALID", "STALE", "DRIVING"], verdicts
+
+    offences = [
+        f"{word!r} in {text!r}"
+        for text in spoken
+        for word, pattern in FORBIDDEN
+        for match in pattern.finditer(text)
+        if not _is_literal_token(text, match.start(), match.end())
+    ]
+    assert not offences, "\n".join(offences)

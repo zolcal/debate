@@ -657,9 +657,13 @@ def test_the_one_admission_test_answers_for_both_seat_shapes(tmp_path: Path) -> 
     unflagged.source = "manual"  # the seat the declaration advice is for
     problem = opening.admission_problem(unflagged, real_home=tmp_path)
     assert problem is not None and "--isolation-argv" in problem
-    unflagged.source = "catalog"  # a seat Debate catalogued: refresh, don't declare
+    # Debate's own entry for a tool it has verified NOTHING for (here: a vendor
+    # the catalog does not carry at all) is sent down the new-seat-id path, not
+    # told to refresh -- a refresh could not add settings the catalog lacks.
+    unflagged.source = "catalog"
     catalogued = opening.admission_problem(unflagged, real_home=tmp_path)
-    assert catalogued is not None and "debate seats discover" in catalogued
+    assert catalogued is not None and "no verified isolation settings" in catalogued
+    assert "debate seats discover" not in catalogued
 
 
 def test_a_remembered_pair_that_lost_its_flags_is_not_suggested(tmp_path: Path) -> None:

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable, Protocol, Sequence
 
 from . import channel
-from .seats import Registry, Seat
+from .seats import Registry, Seat, catalog_declares_isolation
 from .setup import SetupSpec, build_prompt, derive_paths, scaffold_protocol, validate
 
 _SLUG_KEEP = re.compile(r"[^a-z0-9-]+")
@@ -242,12 +242,25 @@ NO_ISOLATION_SETTINGS_REFUSAL = (
     "command"
 )
 
-# The same gap, for a seat Debate itself put in the registry. Asking the
-# operator to declare what the packaged catalog already knows is misleading
-# advice: the entry is simply older than the catalog, so the fix is a refresh.
+# The same gap, for a seat Debate itself put in the registry AND whose tool the
+# packaged catalog has verified settings for. Asking the operator to declare
+# what the catalog already knows is misleading advice: the entry is simply
+# older than the catalog, so the fix is a refresh.
 STALE_CATALOGUED_SEAT_REFUSAL = (
     "can't yet run in the isolated mode a managed debate needs: this seat comes from "
     "a tool Debate knows; run: debate seats discover to refresh it, then try again"
+)
+
+# And the third case: Debate catalogues this tool but has verified NO isolation
+# settings for it, so a refresh would change nothing. The registry refuses to
+# take a command for a catalog seat id, which makes a custom seat under a NEW
+# id the only path that actually works.
+NO_CATALOGUED_ISOLATION_REFUSAL = (
+    "can't yet run in the isolated mode a managed debate needs: Debate has no verified "
+    "isolation settings for this tool yet; register a custom seat with this command "
+    "under a new seat id and declare how it turns off its settings, plugins and session "
+    "saving (debate seats add <vendor>/<name> --command ... --isolation-argv ... "
+    "--no-persistence-argv ...), or use a custom seat command"
 )
 
 
@@ -272,7 +285,9 @@ def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
     # settings, no managed run. There is no flag that waives this.
     if not seat.isolation_argv or not seat.no_persistence_argv:
         if seat.source in ("catalog", "derived"):
-            return f"refused: {seat.seat_id} {STALE_CATALOGUED_SEAT_REFUSAL}"
+            if catalog_declares_isolation(seat.vendor):
+                return f"refused: {seat.seat_id} {STALE_CATALOGUED_SEAT_REFUSAL}"
+            return f"refused: {seat.seat_id} {NO_CATALOGUED_ISOLATION_REFUSAL}"
         return f"refused: {seat.seat_id} {NO_ISOLATION_SETTINGS_REFUSAL}"
     if seat.config_home:
         from .seats import validate_config_home

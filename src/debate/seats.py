@@ -387,6 +387,19 @@ def update_registry(
             pass
 
 
+def catalog_declares_isolation(vendor: str) -> bool:
+    """Whether the packaged catalog carries BOTH verified flag lists for this
+    vendor.
+
+    Only then can `debate seats discover` fill a flag-less catalog seat in. For
+    a vendor the catalog knows but has verified nothing for (kimi, glm and
+    deepseek today), a refresh would change nothing, so telling the operator to
+    run one would be false advice -- see `opening.admission_problem`.
+    """
+    entry = next((e for e in CATALOG if e.vendor == vendor), None)
+    return entry is not None and bool(entry.isolation_argv) and bool(entry.no_persistence_argv)
+
+
 def _assemble_argv(binary_path: str, invocation: tuple[str, ...], extra: list[str]) -> list[str]:
     argv = [binary_path if part == "{binary}" else part for part in invocation]
     return argv + extra
