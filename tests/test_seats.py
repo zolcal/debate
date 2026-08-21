@@ -538,16 +538,26 @@ def test_seat_from_raw_refuses_bad_capability_class(
         })
 
 
-def test_seat_from_raw_refuses_invalid_stored_config_home(
+def test_seat_from_raw_refuses_a_stored_config_home_of_the_wrong_shape(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Shape only at load: `VAR=dir`, both sides non-empty. The variable name
+    and folder rules need the operator's real home and run at declaration and
+    at admission instead (final review wave, I1)."""
     with pytest.raises(channel.ChannelError, match="refused"):
         seats._seat_from_raw("x/y", {
             "vendor": "x", "submodel": "y", "effort": None,
             "commands": [["/bin/tool", "{prompt}"]],
             "source": "manual", "present": True, "smoke": None,
-            "config_home": "1ABC=.m",
+            "config_home": "noequalssign",
         })
+    loaded = seats._seat_from_raw("x/y", {
+        "vendor": "x", "submodel": "y", "effort": None,
+        "commands": [["/bin/tool", "{prompt}"]],
+        "source": "manual", "present": True, "smoke": None,
+        "config_home": "1ABC=.m",
+    })
+    assert loaded.config_home == "1ABC=.m"
 
 
 def test_add_seat_refuses_colon_in_model_part(
@@ -783,3 +793,226 @@ def test_cli_seats_remove_help_names_every_removable_class(
     assert "derived" in help_text
     assert "absent" in help_text
     assert "present catalog" in help_text
+
+
+# --- final review wave C1: derived seats inherit the catalog's declarations --
+
+
+def _v07_shaped_registry(path: Path) -> None:
+    """A registry written by v0.7: a catalog seat and its `@effort` derivation,
+    neither carrying the fields v0.8 added, plus a manual seat of the same shape.
+    """
+    row = {
+        "vendor": "claude",
+        "submodel": "opus",
+        "source": "catalog",
+        "present": True,
+        "smoke": None,
+        "cost_mode": "unknown",
+    }
+    path.write_text(json.dumps({
+        "registry_version": 1,
+        "tool_version": "0.7.0",
+        "discovered_at": "t0",
+        "seats": {
+            "claude/opus": {
+                **row,
+                "effort": None,
+                "commands": [["/x/claude", "-p", "{prompt}", "--model", "opus"]],
+            },
+            "claude/opus@high": {
+                **row,
+                "source": "derived",
+                "effort": "high",
+                "commands": [[
+                    "/x/claude", "-p", "{prompt}", "--model", "opus", "--effort", "high",
+                ]],
+            },
+            "mine/own": {
+                "vendor": "mine",
+                "submodel": "own",
+                "effort": None,
+                "commands": [["/x/mine", "{prompt}"]],
+                "source": "manual",
+                "present": True,
+                "smoke": None,
+                "cost_mode": "unknown",
+            },
+        },
+        "last_pair": {},
+    }), encoding="utf-8")
+
+
+def test_discover_gives_a_derived_seat_its_base_seat_declarations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A v0.7 registry upgraded in place: the derived `@effort` seat must pick
+    up the catalog's isolation flags even though its base argv did not move."""
+    path = _registry_env(tmp_path, monkeypatch)
+    _v07_shaped_registry(path)
+    reg = seats.load_registry()
+    reg, _diff = seats.discover(reg, which=_which_from({"claude": "/x/claude"}), now="t1")
+
+    base = reg.seats["claude/opus"]
+    derived = reg.seats["claude/opus@high"]
+    assert base.isolation_argv == [
+        "--safe-mode", "--setting-sources", "", "--strict-mcp-config",
+        "--disable-slash-commands",
+    ]
+    assert derived.isolation_argv == base.isolation_argv
+    assert derived.no_persistence_argv == base.no_persistence_argv == ["--no-session-persistence"]
+    assert derived.config_home == base.config_home == "CLAUDE_CONFIG_DIR=.claude"
+    assert derived.capability_class == base.capability_class == "frontier"
+    # The base argv did not move, so the derived command is left exactly as it was.
+    assert derived.commands[0] == [
+        "/x/claude", "-p", "{prompt}", "--model", "opus", "--effort", "high",
+    ]
+
+
+def test_discover_never_touches_a_manual_seat_declaration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _registry_env(tmp_path, monkeypatch)
+    _v07_shaped_registry(path)
+    reg = seats.load_registry()
+    reg, _diff = seats.discover(reg, which=_which_from({"claude": "/x/claude"}), now="t1")
+    manual = reg.seats["mine/own"]
+    assert manual.isolation_argv == []
+    assert manual.no_persistence_argv == []
+    assert manual.config_home is None
+    assert manual.capability_class is None
+
+
+def test_a_refreshed_derived_seat_is_admissible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from debate import opening
+
+    path = _registry_env(tmp_path, monkeypatch)
+    _v07_shaped_registry(path)
+    reg = seats.load_registry()
+    before = opening.admission_problem(reg.seats["claude/opus@high"], real_home=tmp_path)
+    assert before is not None
+    reg, _diff = seats.discover(reg, which=_which_from({"claude": "/x/claude"}), now="t1")
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    assert opening.admission_problem(reg.seats["claude/opus@high"], real_home=home) is None
+
+
+@pytest.mark.parametrize("seat_id", ["claude/opus", "claude/opus@high"])
+def test_a_flagless_catalogued_seat_is_told_to_refresh_not_to_declare(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seat_id: str
+) -> None:
+    """A seat Debate itself catalogued cannot be missing flags the operator
+    must supply -- the registry is simply out of date, and the refusal says so."""
+    from debate import opening
+
+    path = _registry_env(tmp_path, monkeypatch)
+    _v07_shaped_registry(path)
+    reg = seats.load_registry()
+    problem = opening.admission_problem(reg.seats[seat_id], real_home=tmp_path)
+    assert problem is not None
+    assert "debate seats discover" in problem
+    assert "--isolation-argv" not in problem
+
+
+def test_a_flagless_manual_seat_is_told_to_declare_its_flags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from debate import opening
+
+    path = _registry_env(tmp_path, monkeypatch)
+    _v07_shaped_registry(path)
+    reg = seats.load_registry()
+    problem = opening.admission_problem(reg.seats["mine/own"], real_home=tmp_path)
+    assert problem is not None
+    assert "--isolation-argv" in problem
+    assert "debate seats discover" not in problem
+
+
+# --- final review wave I1: a stored config home is SHAPE-checked at load ----
+
+
+def _registry_with_stored_config_home(path: Path, value: str) -> None:
+    path.write_text(json.dumps({
+        "registry_version": 1,
+        "tool_version": "test",
+        "discovered_at": "t0",
+        "seats": {
+            "mine/own": {
+                "vendor": "mine",
+                "submodel": "own",
+                "effort": None,
+                "commands": [["/x/mine", "{prompt}"]],
+                "source": "manual",
+                "present": True,
+                "smoke": None,
+                "cost_mode": "unknown",
+                "isolation_argv": ["--offline"],
+                "no_persistence_argv": ["--forget"],
+                "config_home": value,
+            }
+        },
+        "last_pair": {},
+    }), encoding="utf-8")
+
+
+def test_a_registry_holding_an_unusable_config_home_still_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One bad row must not brick every command that reads the registry: the
+    full folder rule belongs at `seats add` and at admission, both of which
+    check it against the operator's real home (final review wave, I1)."""
+    path = _registry_env(tmp_path, monkeypatch)
+    _registry_with_stored_config_home(path, "HOME=.config")
+    reg = seats.load_registry()
+    assert reg.seats["mine/own"].config_home == "HOME=.config"
+
+
+def test_seats_list_still_works_with_an_unusable_config_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from debate.__main__ import main
+
+    path = _registry_env(tmp_path, monkeypatch)
+    _registry_with_stored_config_home(path, "HOME=.config")
+    monkeypatch.chdir(tmp_path)
+    assert main(["seats", "list"]) == 0
+    assert "mine/own" in capsys.readouterr().out
+
+
+def test_seats_remove_still_works_with_an_unusable_config_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from debate.__main__ import main
+
+    path = _registry_env(tmp_path, monkeypatch)
+    _registry_with_stored_config_home(path, "HOME=.config")
+    monkeypatch.chdir(tmp_path)
+    assert main(["seats", "remove", "mine/own"]) == 0
+    assert "mine/own" not in seats.load_registry().seats
+
+
+def test_admission_refuses_the_unusable_config_home_with_the_folder_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from debate import opening
+
+    path = _registry_env(tmp_path, monkeypatch)
+    _registry_with_stored_config_home(path, "HOME=.config")
+    reg = seats.load_registry()
+    problem = opening.admission_problem(reg.seats["mine/own"], real_home=tmp_path)
+    assert problem is not None
+    assert "config-home" in problem
+
+
+@pytest.mark.parametrize("value", ["noequalssign", "MYTOOL_HOME=", "=.mytool", "A=B=C"])
+def test_a_stored_config_home_of_the_wrong_shape_still_refuses_at_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """The SHAPE is all the loader can judge without the operator's real home,
+    and a row that is not `VAR=dir` at all is unusable everywhere."""
+    path = _registry_env(tmp_path, monkeypatch)
+    _registry_with_stored_config_home(path, value)
+    with pytest.raises(channel.ChannelError, match="refused"):
+        seats.load_registry()

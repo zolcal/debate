@@ -70,7 +70,8 @@ class Seat:
     # persistence, respectively -- see CatalogEntry's fields of the same name.
     isolation_argv: list[str] = field(default_factory=list)
     no_persistence_argv: list[str] = field(default_factory=list)
-    # "VAR=relative/dir", validated by validate_config_home. None = undeclared.
+    # "VAR=relative/dir": SHAPE-checked at load, fully validated by
+    # validate_config_home at declaration and at admission. None = undeclared.
     config_home: str | None = None
 
 
@@ -89,6 +90,32 @@ def registry_path() -> Path:
     return Path(os.environ.get("DEBATE_SEATS_REGISTRY", str(REGISTRY_PATH))).expanduser()
 
 
+def config_home_shape(value: str) -> None:
+    """The part of the config-home rule the LOADER can judge: ``VAR=dir``, both
+    sides non-empty.
+
+    The rest of the rule -- which variable names are allowed, and that the
+    folder resolves strictly inside the operator's home -- needs the real home
+    directory, which the loader does not have and must not guess. Running the
+    full rule at load time let ONE hand-edited row break every command that
+    reads the registry, `seats list` and `seats remove` included, so the
+    operator could not even see or delete the offending seat (final review
+    wave, I1). The full rule runs where it belongs: at `seats add`, and at
+    admission, which re-checks it against the real home every time.
+    """
+    if value.count("=") != 1:
+        raise channel.ChannelError(
+            f"refused: config-home {value!r} must look like VAR=dir (a "
+            "variable name, an equals sign, and a folder)"
+        )
+    var, _, dir_part = value.partition("=")
+    if not var or not dir_part:
+        raise channel.ChannelError(
+            f"refused: config-home {value!r} must look like VAR=dir, with "
+            "both the variable name and the folder non-empty"
+        )
+
+
 def validate_config_home(value: str, *, home: Path) -> tuple[str, Path]:
     """Validate a declared ``VAR=relative/dir`` config-home pointer.
 
@@ -102,17 +129,8 @@ def validate_config_home(value: str, *, home: Path) -> tuple[str, Path]:
     Returns ``(VAR, resolved_dir)`` on success -- callers that persist the
     declaration store the ORIGINAL ``VAR=dir`` string, never the resolved path.
     """
-    if value.count("=") != 1:
-        raise channel.ChannelError(
-            f"refused: config-home {value!r} must look like VAR=dir (a "
-            "variable name, an equals sign, and a folder)"
-        )
+    config_home_shape(value)
     var, _, dir_part = value.partition("=")
-    if not var or not dir_part:
-        raise channel.ChannelError(
-            f"refused: config-home {value!r} must look like VAR=dir, with "
-            "both the variable name and the folder non-empty"
-        )
     if var not in VENDOR_CONFIG_HOME_VARS:
         if not _CONFIG_HOME_VAR_PATTERN.match(var):
             raise channel.ChannelError(
@@ -205,7 +223,7 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
     config_home_raw = raw.get("config_home")
     config_home = str(config_home_raw) if config_home_raw is not None else None
     if config_home is not None:
-        validate_config_home(config_home, home=Path.home())
+        config_home_shape(config_home)
     return Seat(
         seat_id=seat_id,
         vendor=str(raw.get("vendor", "")),
@@ -392,6 +410,9 @@ def discover(
 
     diff: list[str] = []
     seen_ids: set[str] = set()
+    # Every catalog seat this scan refreshed, by id: the source a derived
+    # @effort seat inherits its declarations from below.
+    refreshed: dict[str, Seat] = {}
     for entry in CATALOG:
         binary_path = next(
             (resolved for name in entry.binaries if (resolved := which(name))), None
@@ -423,7 +444,9 @@ def discover(
                     config_home=entry.config_home,
                 )
                 diff.append(f"+ {seat_id} ({argv[0]})")
+                refreshed[seat_id] = registry.seats[seat_id]
             elif existing.source == "catalog":
+                refreshed[seat_id] = existing
                 if not existing.present:
                     diff.append(f"~ {seat_id} present again")
                 existing.present = True
@@ -455,6 +478,37 @@ def discover(
                             continue
                         derived.commands[0] = argv + fragment
                         diff.append(f"~ {derived.seat_id} re-derived from the new base argv")
+    # A derived @effort seat is the catalog's seat under another name, so it
+    # carries the catalog's declarations WHETHER OR NOT the base argv moved.
+    # Gating this on a changed argv left a registry written before the catalog
+    # grew these fields flag-less forever, and the operator was told to declare
+    # what the catalog already knew (final review wave, C1). Manual seats are
+    # never touched: those declarations are the operator's own.
+    for derived_seat in registry.seats.values():
+        if derived_seat.source != "derived":
+            continue
+        base_seat = refreshed.get(derived_seat.seat_id.split("@", 1)[0])
+        if base_seat is None:
+            continue
+        inherited = (
+            base_seat.capability_class,
+            list(base_seat.isolation_argv),
+            list(base_seat.no_persistence_argv),
+            base_seat.config_home,
+        )
+        if inherited != (
+            derived_seat.capability_class,
+            derived_seat.isolation_argv,
+            derived_seat.no_persistence_argv,
+            derived_seat.config_home,
+        ):
+            diff.append(
+                f"~ {derived_seat.seat_id} took over {base_seat.seat_id}'s recorded settings"
+            )
+        derived_seat.capability_class = base_seat.capability_class
+        derived_seat.isolation_argv = list(base_seat.isolation_argv)
+        derived_seat.no_persistence_argv = list(base_seat.no_persistence_argv)
+        derived_seat.config_home = base_seat.config_home
     for seat in registry.seats.values():
         if seat.source == "catalog" and seat.seat_id not in seen_ids and seat.present:
             base = seat.seat_id.split("@", 1)[0]

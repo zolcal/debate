@@ -920,7 +920,7 @@ def main(argv: list[str] | None = None) -> int:
     # enough -- argparse still prints the row, with "==SUPPRESS==" as its text --
     # so the parser is registered with no help at all, which keeps it out of the
     # listing entirely; the metavar above keeps it out of the usage line.
-    bridge.configure_parser(sub.add_parser("bridge"))
+    bridge.configure_parser(sub.add_parser(bridge.SUBCOMMAND))
 
     args = parser.parse_args(argv)
 
@@ -929,10 +929,12 @@ def main(argv: list[str] | None = None) -> int:
         # None means the legacy layout; init CREATES a channel and never
         # discovers one, and `seats` addresses the host registry, not a root.
         name: str | None = None
-        if args.command not in ("init", "migrate", "seats", "open", "onboarding", "bridge"):
+        if args.command not in (
+            "init", "migrate", "seats", "open", "onboarding", bridge.SUBCOMMAND,
+        ):
             name = channel.discover_channel(args.root, getattr(args, "channel", None))
 
-        if args.command == "bridge":
+        if args.command == bridge.SUBCOMMAND:
             return bridge.run_bridge_command(args)
 
         if args.command == "onboarding":

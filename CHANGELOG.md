@@ -54,7 +54,7 @@ default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
   validated against known vendors — a typo refuses instead of silently
   degrading), and a seat sharing the interactive author's vendor is recorded
   author-affiliated in the adapter config and channel provenance.
-- **Any tool can hold a seat in a debate Debate runs itself** — a seat whose command
+- **Any tool can hold a seat in a fully managed debate** — a seat whose command
   takes the question text is now run through Debate's own runner, carrying the
   arguments that turn that tool's settings, plugins and session saving off while it
   reviews. Claude and Codex seats carry those arguments from the packaged catalog and
@@ -95,6 +95,31 @@ default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
   and the round-specific part last, so a provider that caches a shared prefix can
   reuse it across a debate's calls. This is a cost saving only; no speed change is
   claimed or measured. Gated on `plan-v080-part2-63227` (PASS, MSG-38).
+- **Both sealed positions are captured at the same time** — the two seats answer the
+  first, sealed round without seeing each other, so nothing forced them to queue; they
+  now run at once, and a debate waits for the slower of the two rather than for their
+  sum. Recording is unchanged and still happens in party order, one at a time, so the
+  case state and the record come out exactly as they did one-at-a-time. A host that
+  cannot run two tools at once sets `sealed_concurrency: "sequential"` in the channel's
+  configuration and gets the old behaviour back. One thing to read correctly: each
+  entry's `captured-at` is the moment its answer was RECORDED, not the moment the seat
+  was called, so the first seat's stamp can fall after the slower seat returned. Gated
+  on `plan-v080-part2-63227` (PASS, MSG-38).
+- **The pair Debate suggests follows the size of the review** — opening a debate now
+  leads with a pair chosen for how much there is to read: two evenly matched
+  lightweight seats for a small review, two evenly matched frontier seats for a large
+  one, different vendors preferred over the same vendor twice. The choices come as a
+  numbered list you answer with one keystroke, the first line carrying the reason it
+  leads; any other pair is still pickable by name. Where the line between a small and a
+  full review falls is per debate: `--quick-review-max-bytes` (default 16 KiB). Gated
+  on `plan-v080-part2-63227` (PASS, MSG-38).
+- **`debate broker-revise --delta-round`** — composes the next review round's
+  instruction sheet from the round that just ended: the version the seats reviewed, the
+  verdicts they published, and the real difference between that version and the current
+  one. The seats therefore re-read what actually changed instead of the whole material
+  again. If recording the new round is refused, the instruction sheet and the channel's
+  configuration are rolled back to exactly what they were. Gated on
+  `plan-v080-part2-63227` (PASS, MSG-38).
 
 ### Changed
 

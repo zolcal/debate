@@ -20,6 +20,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import tarfile
@@ -710,6 +711,33 @@ def _baseline_environment() -> dict[str, str]:
     return {key: os.environ[key] for key in _WINDOWS_BASELINE_ENVIRONMENT if key in os.environ}
 
 
+# How long a killed adapter gets to be reaped before we stop waiting for it.
+_KILL_GRACE_SECONDS = 10.0
+
+
+def _kill_adapter_tree(process: subprocess.Popen[str]) -> None:
+    """End a timed-out adapter AND everything it started.
+
+    An adapter is usually a wrapper that runs a vendor CLI, which runs a
+    process of its own; killing only the process the controller launched left
+    that CLI running for as long as it liked, spending against a case whose
+    deadline had already passed (final review wave, I2). On POSIX the adapter
+    is launched in a session of its own, so the whole group ends at once. On
+    Windows there is no such call and only the direct child can be reached,
+    which is exactly what happened before.
+    """
+    if os.name == "nt":  # pragma: no cover - POSIX-only test environment
+        process.kill()
+        return
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except OSError:  # already gone, or never became a group leader
+        try:
+            process.kill()
+        except OSError:  # pragma: no cover - already reaped
+            pass
+
+
 def _adapter_environment(config: BrokerConfig, profile: AdapterProfile, runtime: Path) -> dict[str, str]:
     environment = _baseline_environment()
     environment.update({key: os.environ[key] for key in profile.environment_allowlist if key in os.environ})
@@ -1212,7 +1240,10 @@ class BrokerController:
         environment = _adapter_environment(self.config, profile, invocation_root)
         timeout = min(profile.timeout_seconds, remaining)
         try:
-            proc = subprocess.run(
+            # A session of its own, so a timeout can reach the adapter's own
+            # children too (see _kill_adapter_tree). Windows has no sessions,
+            # and its behaviour is deliberately left as it was.
+            process = subprocess.Popen(
                 argv,
                 cwd=source.root,
                 env=environment,
@@ -1220,22 +1251,32 @@ class BrokerController:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=timeout,
+                # False is the Windows default and a no-op there.
+                start_new_session=(os.name != "nt"),
             )
-        except subprocess.TimeoutExpired as error:
-            deadline_limited = timeout >= remaining
-            raise AdapterError(
-                f"adapter {party!r} timed out after {timeout:g}s within the whole-case budget",
-                retryable=(not deadline_limited and attempt <= profile.retry_limit),
-                close_reason="case-deadline-expired" if deadline_limited else "adapter-timeout",
-            ) from error
         except (OSError, ValueError) as error:
             raise AdapterError(f"refused: cannot launch adapter {party!r}: {error}") from error
+        with process:
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired as error:
+                _kill_adapter_tree(process)
+                try:
+                    process.communicate(timeout=_KILL_GRACE_SECONDS)
+                except subprocess.TimeoutExpired:  # pragma: no cover - SIGKILL is final
+                    pass
+                deadline_limited = timeout >= remaining
+                raise AdapterError(
+                    f"adapter {party!r} timed out after {timeout:g}s within the whole-case budget",
+                    retryable=(not deadline_limited and attempt <= profile.retry_limit),
+                    close_reason="case-deadline-expired" if deadline_limited else "adapter-timeout",
+                ) from error
+            returncode = process.returncode
         stdout_path = invocation_root / "stdout.txt"
         stderr_path = invocation_root / "stderr.txt"
-        stdout_path.write_text(proc.stdout, encoding="utf-8")
-        stderr_path.write_text(proc.stderr, encoding="utf-8")
-        combined = proc.stdout + "\n" + proc.stderr
+        stdout_path.write_text(stdout, encoding="utf-8")
+        stderr_path.write_text(stderr, encoding="utf-8")
+        combined = stdout + "\n" + stderr
         if result_path.exists():
             try:
                 combined += "\n" + result_path.read_text(encoding="utf-8")
@@ -1255,8 +1296,8 @@ class BrokerController:
                 raise AdapterError(
                     f"refused: adapter {party!r} exposed contamination canary {label!r}; profile rejected"
                 )
-        if proc.returncode != 0:
-            raise AdapterError(f"refused: adapter {party!r} exited {proc.returncode}; see {stderr_path}")
+        if returncode != 0:
+            raise AdapterError(f"refused: adapter {party!r} exited {returncode}; see {stderr_path}")
         if _tree_files(source.root) != source.files:
             raise AdapterError(f"refused: adapter {party!r} modified its immutable source export")
         result = _parse_result(result_path, party, profile, phase=phase)
@@ -1770,6 +1811,26 @@ class BrokerController:
                     attempt=attempt,
                 )
 
+    def _assert_case_prepared(self, thread: str) -> None:
+        """Refuse unless this case's pinned export and review material are
+        already on disk -- see `_capture_sealed_pair`'s precondition."""
+        state = self._load_case(thread)
+        revision = str(state.get("docket_revision_sha256", ""))
+        export_parent = self.config.runtime_root / "exports" / self.config.source_ref
+        expected: list[Path] = [
+            self.config.runtime_root / "dockets" / revision / "manifest.json",
+        ]
+        for party in sorted(self.config.profiles):
+            expected.append(export_parent / party)
+            expected.append(export_parent / f"{party}.manifest.json")
+        missing = [str(path) for path in expected if not path.exists()]
+        if missing:
+            raise channel.ChannelError(
+                "refused: the pinned source export and the review material must be "
+                "in place before both seats are called at once; missing: "
+                + ", ".join(sorted(missing))
+            )
+
     def _capture_sealed_pair(
         self,
         *,
@@ -1782,6 +1843,14 @@ class BrokerController:
     ) -> None:
         """Invoke both seats at once, then record what came back on this thread.
 
+        PRECONDITION, and the reason this is safe: the case is already PREPARED
+        before either worker starts -- `drive_case` runs `_prepare_case` on the
+        driving thread, which writes the pinned source exports and materializes
+        the docket revision. A worker's own `_prepare_case` therefore takes the
+        read-only branches only: it verifies what is on disk instead of creating
+        it. Without that, two workers would race to create the same export and
+        docket paths, so the guard below refuses rather than letting them.
+
         A worker calls `_invoke` and nothing else: it writes only under its own
         invocation directory and never touches the case file or the channel. The
         recording afterwards runs here, in `order` rather than in the order the
@@ -1793,6 +1862,7 @@ class BrokerController:
         failure the one-at-a-time mode would have raised. The retry then invokes
         only the seat still missing.
         """
+        self._assert_case_prepared(thread)
         captured: dict[str, tuple[AdapterResult, dict[str, str | Path]]] = {}
         failures: dict[str, BaseException] = {}
         with ThreadPoolExecutor(max_workers=2) as pool:

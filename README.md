@@ -209,7 +209,7 @@ debate open --brokered --root ./collab --label market-research \
     --docket-file README.md
 ```
 
-Which seats can take part in a debate Debate runs itself:
+Which seats can take part in a fully managed debate:
 
 - **Claude and Codex seats need no extra setup.** The packaged catalog already
   records, for each of them, the arguments that turn their own settings,

@@ -242,6 +242,14 @@ NO_ISOLATION_SETTINGS_REFUSAL = (
     "command"
 )
 
+# The same gap, for a seat Debate itself put in the registry. Asking the
+# operator to declare what the packaged catalog already knows is misleading
+# advice: the entry is simply older than the catalog, so the fix is a refresh.
+STALE_CATALOGUED_SEAT_REFUSAL = (
+    "can't yet run in the isolated mode a managed debate needs: this seat comes from "
+    "a tool Debate knows; run: debate seats discover to refresh it, then try again"
+)
+
 
 def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
     """Why a fully managed debate could not seat this one, in the words it
@@ -263,6 +271,8 @@ def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
     # Admission, and the only admission: no verified isolation and no-history
     # settings, no managed run. There is no flag that waives this.
     if not seat.isolation_argv or not seat.no_persistence_argv:
+        if seat.source in ("catalog", "derived"):
+            return f"refused: {seat.seat_id} {STALE_CATALOGUED_SEAT_REFUSAL}"
         return f"refused: {seat.seat_id} {NO_ISOLATION_SETTINGS_REFUSAL}"
     if seat.config_home:
         from .seats import validate_config_home
@@ -272,6 +282,16 @@ def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
         except channel.ChannelError as error:
             return str(error)
     return None
+
+
+def _is_typed_number(answer: str) -> bool:
+    """Whether an answer at the pair prompt is somebody typing a menu number.
+
+    A leading sign counts: "-1" is a number a person typed, and reading it as
+    half of a pair of seat ids would explain the wrong mistake.
+    """
+    body = answer[1:] if answer[:1] in ("+", "-") else answer
+    return bool(body) and body.isdigit()
 
 
 def _pairable(first: Seat, second: Seat) -> bool:
@@ -560,6 +580,14 @@ def pick_pair(
                 requested = usable
             elif answer.isdigit() and 1 <= int(answer) <= len(shown):
                 requested = shown[int(answer) - 1]
+            elif _is_typed_number(answer):
+                # A number outside the list is a mistyped MENU answer; telling
+                # the operator a pair is two seat ids answers a question they
+                # did not ask (final review wave, M2).
+                raise channel.ChannelError(
+                    f"refused: pick a number between 1 and {len(shown)}, or two "
+                    f"seat ids (a,b); got {answer!r}"
+                )
             else:
                 parts = tuple(part.strip() for part in answer.split(",") if part.strip())
                 if len(parts) != 2:
@@ -604,6 +632,14 @@ def pick_pair(
                 f"refused: {seat.seat_id!r} is {state} and was not confirmed"
             )
     _identity_guard(first, second, allow_identical=allow_identical)
+    # Plan 3.6's order: selection, identity, admission, then the uneven-pair
+    # gate. Admission is the one nothing waives, so a pair that is both
+    # inadmissible and uneven must hear about admission (final wave, M3).
+    if require_admissible:
+        for seat in (first, second):
+            problem = admission_problem(seat, real_home=_home(real_home))
+            if problem is not None:
+                raise channel.ChannelError(problem)
     # --yes accepts the remembered pair; it never answers this question.
     _pair_gate(
         first, second,
@@ -813,8 +849,10 @@ def _brokered_adapter(
     problem = admission_problem(seat, real_home=real_home)
     if problem is not None:
         raise channel.ChannelError(problem)
+    from .bridge import SUBCOMMAND
+
     command = [
-        sys.executable, "-m", "debate", "bridge",
+        sys.executable, "-m", "debate", SUBCOMMAND,
         "--seat-id", seat.seat_id,
         "--vendor", seat.vendor,
         "--submodel", seat.submodel,

@@ -49,6 +49,11 @@ def _seat(
         commands=[argv], source=source, present=True,
         smoke=seats.SmokeStatus(at=NOW, result="pass"),
         capability_class=capability_class,
+        # A seat a fully managed debate would admit. The pick now checks
+        # admission BEFORE the uneven-pair gate (final wave, M3), so a fixture
+        # that never declared these would be refused for the wrong reason.
+        isolation_argv=["--no-config"],
+        no_persistence_argv=["--no-history"],
     )
 
 
@@ -203,7 +208,7 @@ def test_admission_fires_before_the_uneven_pair_gate(
             ),
             "small/two": _raw_seat(
                 [str(second), "{prompt}"], vendor="small", submodel="two",
-                source="catalog", capability_class="light",
+                source="manual", capability_class="light",
             ),
         },
         ["big/one", "small/two"],
@@ -389,9 +394,9 @@ def _admissible(
     and its isolation and no-saving settings are both on record."""
     seat = _seat(seat_id, tool)
     seat.capability_class = capability_class
-    if isolated:
-        seat.isolation_argv = ["--no-config"]
-        seat.no_persistence_argv = ["--no-history"]
+    if not isolated:
+        seat.isolation_argv = []
+        seat.no_persistence_argv = []
     return seat
 
 
@@ -649,8 +654,12 @@ def test_the_one_admission_test_answers_for_both_seat_shapes(tmp_path: Path) -> 
     handwritten.commands = [[str(tool), "{input_path}", "{result_path}"]]
     assert opening.admission_problem(handwritten, real_home=tmp_path) is None
     unflagged = _admissible("small/two", tool, capability_class="light", isolated=False)
+    unflagged.source = "manual"  # the seat the declaration advice is for
     problem = opening.admission_problem(unflagged, real_home=tmp_path)
     assert problem is not None and "--isolation-argv" in problem
+    unflagged.source = "catalog"  # a seat Debate catalogued: refresh, don't declare
+    catalogued = opening.admission_problem(unflagged, real_home=tmp_path)
+    assert catalogued is not None and "debate seats discover" in catalogued
 
 
 def test_a_remembered_pair_that_lost_its_flags_is_not_suggested(tmp_path: Path) -> None:
@@ -782,3 +791,75 @@ def test_the_managed_path_never_suggests_them(tmp_path: Path) -> None:
             registry, project=str(tmp_path), requested=None, assume_yes=True,
             ask=_no_ask, now=NOW, docket_bytes=10, require_admissible=True,
         )
+
+
+# --- final review wave M2/M3: the typed answer, and the order of the gates ---
+
+
+@pytest.mark.parametrize("answer", ["0", "99", "-1"])
+def test_an_out_of_range_menu_number_says_which_numbers_exist(
+    tmp_path: Path, answer: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A number outside the list is a mistyped MENU answer, not an attempt at a
+    pair of seat ids, and the refusal has to say so (final wave, M2)."""
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    with pytest.raises(channel.ChannelError) as caught:
+        opening.pick_pair(
+            registry, require_admissible=True, project=str(tmp_path), requested=None,
+            assume_yes=False, ask=lambda prompt: answer, now=NOW, docket_bytes=10,
+            real_home=tmp_path,
+        )
+    message = str(caught.value)
+    assert "pick a number between 1 and" in message
+    assert "two seat ids" in message
+    assert "a pair is exactly two seat ids" not in message
+
+
+def test_a_typed_pair_of_seat_ids_still_reads_as_a_pair(tmp_path: Path) -> None:
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    assert opening.pick_pair(
+        registry, require_admissible=True, project=str(tmp_path), requested=None,
+        assume_yes=False, ask=lambda prompt: "claude/opus, deepseek/pro", now=NOW,
+        docket_bytes=10, real_home=tmp_path,
+    ) == ("claude/opus", "deepseek/pro")
+
+
+def test_something_that_is_neither_a_number_nor_a_pair_still_says_so(tmp_path: Path) -> None:
+    registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
+    with pytest.raises(channel.ChannelError, match="exactly two seat ids"):
+        opening.pick_pair(
+            registry, require_admissible=True, project=str(tmp_path), requested=None,
+            assume_yes=False, ask=lambda prompt: "claude/opus", now=NOW,
+            docket_bytes=10, real_home=tmp_path,
+        )
+
+
+def test_admission_fires_before_the_mismatch_gate_on_a_requested_pair(
+    tmp_path: Path
+) -> None:
+    """Plan 3.6's order -- selection, identity, admission, then the uneven-pair
+    gate. A pair that is BOTH inadmissible and uneven hears about admission,
+    because that is the one nothing waives (final wave, M3)."""
+    registry = _pair_registry(tmp_path, "frontier", "light")
+    registry.seats["small/two"].isolation_argv = []
+    with pytest.raises(channel.ChannelError) as caught:
+        opening.pick_pair(
+            registry, require_admissible=True, project=str(tmp_path),
+            requested=("big/one", "small/two"), assume_yes=True, ask=_no_ask,
+            now=NOW, real_home=tmp_path,
+        )
+    message = str(caught.value)
+    assert "small/two" in message
+    assert "--allow-mismatched-pair" not in message
+    assert "one-sided verdict" not in message
+
+
+def test_the_older_open_never_applies_the_admission_rule(tmp_path: Path) -> None:
+    """v1 open runs no seat itself, so it asks for presence and approval only."""
+    registry = _pair_registry(tmp_path, "frontier", "frontier")
+    registry.seats["small/two"].isolation_argv = []
+    assert opening.pick_pair(
+        registry, require_admissible=False, project=str(tmp_path),
+        requested=("big/one", "small/two"), assume_yes=True, ask=_no_ask, now=NOW,
+        real_home=tmp_path,
+    ) == ("big/one", "small/two")

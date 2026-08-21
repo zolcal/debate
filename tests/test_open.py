@@ -742,7 +742,7 @@ def test_prompt_style_seat_is_wrapped_with_its_verified_flags(tmp_path: Path) ->
     )
     command = profile["command"]
     assert isinstance(command, list)
-    assert command[:4] == [sys.executable, "-m", "debate", "bridge"]
+    assert command[:4] == [sys.executable, "-m", "debate", "run-seat"]
     assert command[-2:] == ["{input_path}", "{result_path}"]
     spec = bridge.parse_bridge_command(command)
     assert spec is not None
@@ -803,12 +803,16 @@ def test_hand_authored_adapter_seat_is_left_alone(tmp_path: Path) -> None:
 
 
 def test_prompt_style_seat_without_verified_flags_is_refused(tmp_path: Path) -> None:
-    """Admission is the flags rule alone, and there is no way around it."""
+    """Admission is the flags rule alone, and there is no way around it.
+
+    An operator-authored seat is the one the declaration advice is FOR; a seat
+    Debate catalogued itself is told to refresh instead (final wave, C1).
+    """
     tool = _fake_tool(tmp_path, "kimi")
     for isolation, persistence in (([], []), (["--offline"], []), ([], ["--forget"])):
         seat = seats.Seat(
             seat_id="kimi/k3", vendor="kimi", submodel="k3", effort=None,
-            commands=[[str(tool), "{prompt}"]], source="catalog", present=True,
+            commands=[[str(tool), "{prompt}"]], source="manual", present=True,
             smoke=None, isolation_argv=list(isolation),
             no_persistence_argv=list(persistence),
         )
@@ -854,9 +858,13 @@ def test_hand_edited_configuration_folder_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A registry edited by hand to point a seat at the whole home directory
-    is refused BEFORE a debate can be opened. The registry loader is the first
-    gate that sees it, so that is where the refusal lands; the open re-checks
-    the same rule against the operator's real home directory."""
+    is refused BEFORE a debate can be opened -- at ADMISSION, which is the
+    first gate that knows the operator's real home directory.
+
+    The loader deliberately does not refuse it: running the full rule there
+    made one bad row break every command that reads the registry, so the
+    operator could neither see nor delete the seat (final review wave, I1).
+    """
     registry_path = tmp_path / "config" / "seats.json"
     monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(registry_path))
     tool = _fake_tool(tmp_path, "hand-edited")
@@ -867,8 +875,14 @@ def test_hand_edited_configuration_folder_is_refused(
             config_home="HOME=.config",
         ),
     })
+    registry = seats.load_registry()
+    seat = registry.seats["hand/edited"]
+    problem = opening.admission_problem(seat, real_home=tmp_path)
+    assert problem is not None and "config-home" in problem
     with pytest.raises(channel.ChannelError, match="config-home"):
-        seats.load_registry()
+        opening._brokered_adapter(
+            seat, tool_version="test", author_vendor="hand", real_home=tmp_path,
+        )
 
 
 def test_managed_open_wraps_both_seats_end_to_end(

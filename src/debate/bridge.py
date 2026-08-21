@@ -22,6 +22,7 @@ having reviewed something it did not actually review.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import re
@@ -46,7 +47,20 @@ REAL_HOME_ENV = "DEBATE_BRIDGE_REAL_HOME"
 # refused rather than truncated: a seat that reviews half the material and does
 # not know it silently returns a worthless verdict.
 INLINE_LIMIT_ENV = "DEBATE_BRIDGE_INLINE_LIMIT_BYTES"
-DEFAULT_INLINE_LIMIT_BYTES = 512 * 1024
+# The whole prompt travels as ONE argument, and an operating system caps how
+# long a single argument may be -- 128 KiB on Linux (MAX_ARG_STRLEN). A limit
+# above that cap is unreachable: the launch fails with "argument list too long"
+# before the limit is ever tested, so the seat sees nothing and the operator
+# reads a launch error instead of the real problem. 96 KiB leaves room for the
+# rest of the prompt inside the cap (final review wave, C2).
+DEFAULT_INLINE_LIMIT_BYTES = 96 * 1024
+
+# One sentence for one problem: the material did not fit in a single argument.
+# Both the size check below and the operating system's own refusal of an
+# over-long argument list say exactly this.
+MATERIAL_TOO_LARGE_REFUSAL = (
+    "refused: the review material is too large to send inline; use a custom seat command"
+)
 
 # How much of the seat's own output is echoed and kept. The controller scans
 # what we print for contamination canaries, so it has to reach it -- but a
@@ -223,10 +237,16 @@ def spec_from_arguments(args: argparse.Namespace) -> BridgeSpec:
     )
 
 
+# The hidden subcommand's name on the command line. Kept plain because
+# argparse prints the full list of choices when a subcommand is misspelled,
+# which puts every registered name in front of a user (final review wave, M1).
+SUBCOMMAND = "run-seat"
+
+
 def _subcommand_index(argv: Sequence[str]) -> int | None:
     """Where the subcommand sits in a full adapter command, if this is one of ours."""
     for index, token in enumerate(argv):
-        if token != "bridge":
+        if token != SUBCOMMAND:
             continue
         head = list(argv[:index])
         if head[-2:] == ["-m", "debate"]:
@@ -245,7 +265,7 @@ def parse_bridge_command(argv: Sequence[str]) -> BridgeSpec | None:
     index = _subcommand_index(argv)
     if index is None:
         return None
-    parser = configure_parser(_SilentParser(prog="debate bridge", add_help=False))
+    parser = configure_parser(_SilentParser(prog=f"debate {SUBCOMMAND}", add_help=False))
     try:
         return spec_from_arguments(parser.parse_args(list(argv[index + 1:])))
     except (Refusal, SystemExit):
@@ -312,9 +332,7 @@ def _docket_block(payload: dict[str, Any]) -> str:
         paths.append((relative, str(record.get("sha256", "")), absolute))
     limit = _inline_limit()
     if total > limit:
-        raise Refusal(
-            "refused: the review material is too large to send inline; use a custom seat command"
-        )
+        raise Refusal(MATERIAL_TOO_LARGE_REFUSAL)
     sections = [
         DOCKET_HEADER,
         "Every file below is quoted in full. Together they are the criteria your verdict answers to.",
@@ -426,17 +444,28 @@ def seat_argv(spec: BridgeSpec, prompt: str) -> list[str]:
     return filled + list(spec.isolation_argv) + list(spec.no_persistence_argv)
 
 
+# What this process was handed to do its own job, and the seat has no use for:
+# where Debate itself is installed, and where the operator's home directory is.
+# Both are dropped before the seat runs (final review wave, M7).
+OUR_OWN_ENV = (REAL_HOME_ENV, "PYTHONPATH")
+
+
 def seat_environment(spec: BridgeSpec) -> dict[str, str]:
-    """This run's own environment -- the controller already sandboxed it -- plus one pointer.
+    """This run's own environment -- the controller already sandboxed it -- minus
+    what only this process needed, plus one pointer.
 
     A seat that is authorised to use the operator's own vendor configuration is
     told where it is. Nothing under the operator's home directory is read, listed
-    or copied here: only the seat itself ever opens it.
+    or copied here: only the seat itself ever opens it. The two names that got
+    this process going are dropped: the seat neither needs to know where Debate
+    is installed nor where the operator's home directory is.
     """
-    environment = dict(os.environ)
+    real_home = os.environ.get(REAL_HOME_ENV, "")
+    environment = {
+        name: value for name, value in os.environ.items() if name not in OUR_OWN_ENV
+    }
     if spec.config_home is None:
         return environment
-    real_home = os.environ.get(REAL_HOME_ENV, "")
     if not real_home:
         raise Refusal(
             "refused: this seat is set up to use a folder in your home directory, but this "
@@ -469,7 +498,14 @@ def run_seat(argv: list[str], *, cwd: str, environment: dict[str, str]) -> subpr
             timeout=None,
             check=False,
         )
-    except (OSError, ValueError) as error:
+    except OSError as error:
+        # The operating system refusing an over-long argument list is the size
+        # problem again, caught one step later; it must not read as a broken
+        # seat command (final review wave, C2).
+        if error.errno == errno.E2BIG:
+            raise Refusal(MATERIAL_TOO_LARGE_REFUSAL) from error
+        raise Refusal(f"refused: cannot start the seat command: {error}") from error
+    except ValueError as error:
         raise Refusal(f"refused: cannot start the seat command: {error}") from error
 
 

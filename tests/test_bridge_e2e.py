@@ -233,3 +233,144 @@ def test_two_ordinary_cli_seats_debate_to_a_typed_close(world: World) -> None:
     for call in othertool_calls:
         assert call.argv[-2:] == ["--ignore-user-config", "--ephemeral"]
         assert call.config_home is None
+
+
+# --- final review wave I5: a canary in the SEAT's own words ------------------
+
+# The same stand-in, with one difference: it repeats a token it had no business
+# seeing. argv[1] is the call log, argv[2] the token, and the rest the prompt.
+LEAKY_VENDOR_CLI = '''\
+import json
+import os
+import sys
+from pathlib import Path
+
+log = Path(sys.argv[1])
+log.mkdir(parents=True, exist_ok=True)
+record = {"argv": sys.argv[3:], "config_home": os.environ.get("MYTOOL_HOME")}
+(log / ("call-%d.json" % len(list(log.glob("call-*.json"))))).write_text(
+    json.dumps(record), encoding="utf-8"
+)
+print("While reviewing I also remembered " + sys.argv[2])
+print("```json")
+print(json.dumps({
+    "schema_version": 1,
+    "entry_type": "verdict",
+    "decision": "PASS",
+    "body": "I ran the check the review material asks for and it passed.",
+}))
+print("```")
+'''
+
+
+def test_a_canary_in_a_wrapped_seats_own_output_rejects_the_invocation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The canary scan has to reach through Debate's own runner.
+
+    The runner echoes everything the seat printed onto its standard error
+    precisely so the controller's scan sees the seat's words, not just the
+    runner's. This proves that end to end: a stand-in CLI repeats a token that
+    exists nowhere in what it was handed, and the invocation is rejected with
+    the reason on disk instead of the verdict being published (I5).
+    """
+    from debate.controller import BrokerController
+
+    registry_path = tmp_path / "config" / "seats.json"
+    monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(registry_path))
+    token = "PRIVATE-user-memory-9f42"
+    honest_tool = tmp_path / "fake_vendor_cli.py"
+    honest_tool.write_text(FAKE_VENDOR_CLI, encoding="utf-8")
+    leaky_tool = tmp_path / "leaky_vendor_cli.py"
+    leaky_tool.write_text(LEAKY_VENDOR_CLI, encoding="utf-8")
+    logs = {"mytool": tmp_path / "calls-mytool", "othertool": tmp_path / "calls-othertool"}
+    rows = {
+        "mytool/big": _seat_row(
+            [sys.executable, str(leaky_tool), str(logs["mytool"]), token, "{prompt}"],
+            vendor="mytool", submodel="big",
+            isolation_argv=["--no-config"], no_persistence_argv=["--no-history"],
+            config_home=None,
+        ),
+        "othertool/large": _seat_row(
+            [sys.executable, str(honest_tool), str(logs["othertool"]), "{prompt}"],
+            vendor="othertool", submodel="large",
+            isolation_argv=["--ignore-user-config"], no_persistence_argv=["--ephemeral"],
+            config_home=None,
+        ),
+    }
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        json.dumps({
+            "registry_version": 1,
+            "tool_version": "test",
+            "discovered_at": NOW,
+            "seats": rows,
+            "last_pair": {},
+        }) + "\n",
+        encoding="utf-8",
+    )
+    project, head = _project(tmp_path)
+    (project / seats.PROFILE_NAME).write_text(
+        json.dumps({"profile_version": 1, "allowlist": ["mytool/big", "othertool/large"]}) + "\n",
+        encoding="utf-8",
+    )
+    home = tmp_path / "home"
+    home.mkdir()
+    root = project / "collab"
+
+    opened = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=root,
+            label="canary",
+            pair=("mytool/big", "othertool/large"),
+            source_ref=head,
+            author_vendor="claude",
+            docket_files=("docket.md",),
+        ),
+        seats.load_registry(),
+        load_config_fn=_watcher_config,
+        now=NOW,
+        tool_version="test",
+        real_home=home,
+    )
+    # The token exists only here and inside the stand-in's own argv: nothing
+    # the controller hands the seat carries it.
+    config = json.loads(opened.config_path.read_text(encoding="utf-8"))
+    config["contamination_canaries"] = {"user-memory": token}
+    opened.config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    assert main([
+        "broker-open",
+        "--root", str(root),
+        "--channel", opened.channel_name,
+        "--config", str(opened.config_path),
+        "--thread", "does-it-answer-42",
+        "--first-seat", "mytool",
+        "--refs", f"main@{head[:12]}",
+        "--body", "Verify the criterion in the review material against the pinned source.",
+    ]) == 0
+
+    loaded = _watcher_config(root, opened.config_path, opened.channel_name)
+    broker = loaded.broker
+    assert broker is not None
+    with pytest.raises(channel.ChannelError, match="profile rejected"):
+        BrokerController(broker).capture_sealed(
+            channel_root=root,
+            channel_name=opened.channel_name,
+            party="mytool",
+            thread="does-it-answer-42",
+            sequence=1,
+            attempt=1,
+        )
+
+    rejection_path = next(
+        broker.runtime_root.glob("cases/does-it-answer-42/invocations/*/rejection.json")
+    )
+    rejection = json.loads(rejection_path.read_text(encoding="utf-8"))
+    assert rejection["reason"] == "contamination-canary-observed"
+    assert rejection["canary_label"] == "user-memory"
+    assert rejection["party"] == "mytool"
+    # Nothing was published: the docket request is still the only entry.
+    assert [entry.entry_type for entry in channel.read_entries(root, opened.channel_name)] == [
+        "review-request"
+    ]

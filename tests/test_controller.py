@@ -46,6 +46,13 @@ payload = json.loads(input_path.read_text(encoding="utf-8"))
 mode = os.environ.get("FAKE_MODE", "good")
 if mode == "timeout":
     time.sleep(2)
+if mode == "orphan":
+    import subprocess
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    Path(os.environ["FAKE_PIDS_PATH"]).write_text(
+        json.dumps({"adapter": os.getpid(), "child": child.pid}), encoding="utf-8"
+    )
+    time.sleep(120)
 if mode == "slow":
     time.sleep(float(os.environ.get("FAKE_SLEEP", "1.5")))
 if mode == "malformed":
@@ -935,7 +942,7 @@ def _bridge_seat_command(
     *, seat_id: str, config_home: str | None, isolation_flags_basis: str
 ) -> tuple[str, ...]:
     command = [
-        sys.executable, "-m", "debate", "bridge",
+        sys.executable, "-m", "debate", "run-seat",
         "--seat-id", seat_id,
         "--vendor", "anthropic",
         "--submodel", "claude-opus",
@@ -2349,3 +2356,110 @@ def test_a_sealed_concurrency_value_outside_the_two_modes_is_refused(tmp_path: P
 
     with pytest.raises(channel.ChannelError, match="sealed_concurrency"):
         make_broker(repo, sha, sealed_concurrency="maybe")
+
+
+# --- final review wave I2: a timed-out adapter takes its children with it ----
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process groups are a POSIX facility")
+def test_a_timed_out_adapter_leaves_no_child_process_behind(tmp_path: Path) -> None:
+    """A vendor CLI spawns children of its own; killing only the process the
+    controller launched left them running long past the case deadline, burning
+    tokens against a case nobody is waiting for (final review wave, I2)."""
+    import time as time_module
+
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, alice_timeout=1)
+    pids_path = tmp_path / "pids.json"
+    hanging = AdapterProfile(
+        **{
+            **broker.profiles["alice"].__dict__,
+            "environment": {
+                **broker.profiles["alice"].environment,
+                "FAKE_MODE": "orphan",
+                "FAKE_PIDS_PATH": str(pids_path),
+            },
+            "environment_allowlist": ("PATH",),
+        }
+    )
+    profiles = {**broker.profiles, "alice": hanging}
+    hanging_broker = BrokerConfig(
+        repository_root=broker.repository_root,
+        runtime_root=broker.runtime_root,
+        source_ref=broker.source_ref,
+        profiles=profiles,
+        timing=TimingPolicy(
+            thread_cap=12,
+            scheduler_interval_seconds=60,
+            retry_seconds=120,
+            whole_case_timeout_seconds=900,
+            profiles=(profiles["alice"], profiles["bob"]),
+        ),
+        config_sha256=broker.config_sha256,
+        docket_files=broker.docket_files,
+        sealed_concurrency="sequential",
+    )
+    controller = BrokerController(hanging_broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="orphan-case",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    with pytest.raises(AdapterError, match="timed out after 1s"):
+        controller.drive_case(
+            channel_root=root,
+            channel_name=name,
+            thread="orphan-case",
+            sequence=1,
+            attempt=1,
+        )
+
+    pids = json.loads(pids_path.read_text(encoding="utf-8"))
+
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:  # pragma: no cover - a reused pid we do not own
+            return True
+        return True
+
+    deadline = time_module.monotonic() + 10.0
+    while time_module.monotonic() < deadline:
+        if not _alive(int(pids["adapter"])) and not _alive(int(pids["child"])):
+            break
+        time_module.sleep(0.05)
+    assert not _alive(int(pids["adapter"])), "the adapter itself outlived its timeout"
+    assert not _alive(int(pids["child"])), "the adapter's own child outlived the timeout"
+
+
+# --- final review wave M6: the concurrent capture's precondition, checked ----
+
+
+def test_the_concurrent_sealed_capture_refuses_when_the_case_is_not_prepared(
+    tmp_path: Path,
+) -> None:
+    """Both workers only ever VERIFY the pinned export and review material;
+    creating them is the driving thread's job, done once before either worker
+    starts. If they are not there, two threads would race to write the same
+    paths, so this refuses instead (final review wave, M6)."""
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, sealed_concurrency="concurrent")
+    controller = BrokerController(broker)
+    open_brokered_thread(root, name, broker)
+    (broker.runtime_root / "exports").rename(broker.runtime_root / "exports-elsewhere")
+    with pytest.raises(channel.ChannelError, match="before both seats are called"):
+        controller._capture_sealed_pair(
+            channel_root=root,
+            channel_name=name,
+            thread="review-one",
+            order=("alice", "bob"),
+            sequence=1,
+            attempt=1,
+        )
+    assert len(channel.read_entries(root, name)) == 1

@@ -34,6 +34,8 @@ record = {
     "stdin": sys.stdin.read(),
     "config_dir": os.environ.get("CLAUDE_CONFIG_DIR"),
     "home": os.environ.get("HOME"),
+    "real_home": os.environ.get("DEBATE_BRIDGE_REAL_HOME"),
+    "pythonpath": os.environ.get("PYTHONPATH"),
 }
 with open(os.environ["FAKE_SEAT_LOG"], "a", encoding="utf-8") as handle:
     handle.write(json.dumps(record) + "\\n")
@@ -186,7 +188,7 @@ def _argv(
     extra: list[str] | None = None,
 ) -> list[str]:
     return [
-        "bridge",
+        bridge.SUBCOMMAND,
         "--seat-id",
         "claude:haiku",
         "--vendor",
@@ -435,6 +437,60 @@ def test_oversized_review_material_refuses_before_calling_the_seat(
     errors = capsys.readouterr().err.strip().splitlines()
     assert len(errors) == 1
     assert "too large" in errors[0]
+
+
+def test_the_default_inline_limit_fits_one_argument(
+    tmp_path: Path, seat: FakeSeat, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The whole prompt travels as ONE argument, and an operating system caps
+    how long a single argument may be (Linux: 128 KiB). A limit above that cap
+    can never be reached -- the launch fails first -- so the default sits below
+    it (final review wave, C2)."""
+    assert bridge.DEFAULT_INLINE_LIMIT_BYTES == 96 * 1024 == 98304
+    case = _make_case(tmp_path, docket={"criteria.md": "x" * (bridge.DEFAULT_INLINE_LIMIT_BYTES + 1)})
+    assert main(_argv(case, seat)) == 2
+    assert seat.calls() == []
+    assert not case.result_path.exists()
+    errors = capsys.readouterr().err.strip().splitlines()
+    assert len(errors) == 1
+    assert errors[0] == bridge.MATERIAL_TOO_LARGE_REFUSAL
+
+
+def test_an_argument_list_too_long_launch_reads_as_the_same_refusal(
+    tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The operating system's own cap is the same problem, found one step later:
+    the material did not fit. It must not read as a broken seat command."""
+    import errno as errno_module
+
+    case = _make_case(tmp_path)
+
+    def _too_long(*_args: object, **_kwargs: object) -> None:
+        raise OSError(errno_module.E2BIG, "Argument list too long")
+
+    monkeypatch.setattr(subprocess, "run", _too_long)
+    assert main(_argv(case, seat)) == 2
+    assert not case.result_path.exists()
+    errors = capsys.readouterr().err.strip().splitlines()
+    assert len(errors) == 1
+    assert errors[0] == bridge.MATERIAL_TOO_LARGE_REFUSAL
+
+
+def test_any_other_launch_failure_still_reads_as_a_broken_seat_command(
+    tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import errno as errno_module
+
+    case = _make_case(tmp_path)
+
+    def _missing(*_args: object, **_kwargs: object) -> None:
+        raise OSError(errno_module.ENOENT, "No such file or directory")
+
+    monkeypatch.setattr(subprocess, "run", _missing)
+    assert main(_argv(case, seat)) == 2
+    errors = capsys.readouterr().err.strip().splitlines()
+    assert len(errors) == 1
+    assert "cannot start the seat command" in errors[0]
 
 
 # --- invocation -------------------------------------------------------------
@@ -786,6 +842,7 @@ def test_parse_bridge_command_reads_a_placeholder_command(tmp_path: Path, seat: 
         [sys.executable, "/home/me/seat_adapter.py", "opus", "{input_path}", "{result_path}"],
         [sys.executable, "-m", "debate", "status", "--root", "collab"],
         [sys.executable, "-m", "debate", "bridge", "--seat-id", "claude:haiku"],
+        [sys.executable, "-m", "debate", "run-seat", "--seat-id", "claude:haiku"],
         [],
     ],
 )
@@ -802,3 +859,51 @@ def test_the_subcommand_is_not_advertised_in_help() -> None:
         check=True,
     )
     assert "bridge" not in proc.stdout
+
+
+def test_an_unknown_subcommand_never_names_a_forbidden_word() -> None:
+    """The hidden subcommand is kept out of `--help`, but argparse prints the
+    whole list of choices when a subcommand is misspelled -- so its NAME is
+    user-facing anyway, and it has to be a plain one (final review wave, M1).
+    """
+    proc = subprocess.run(
+        [sys.executable, "-m", "debate", "deffinitely-not-a-command"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
+        check=False,
+    )
+    combined = (proc.stdout + proc.stderr).lower()
+    assert "invalid choice" in combined
+    assert "run-seat" in combined
+    for word in ("bridge", "brokered", "placeholder"):
+        assert word not in combined, combined
+
+
+def test_the_seat_never_sees_debates_own_pointers(
+    tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two names travel to this process so it can do its job: where Debate is
+    installed, and where the operator's home directory is. Neither is any of
+    the seat's business, so neither reaches it (final review wave, M7)."""
+    home = _real_home(tmp_path, monkeypatch)
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "somewhere" / "src"))
+    case = _make_case(tmp_path)
+    assert main(_argv(case, seat, extra=["--config-home", "CLAUDE_CONFIG_DIR=.claude"])) == 0
+    call = seat.calls()[0]
+    assert call["real_home"] is None
+    assert call["pythonpath"] is None
+    # The pointer still did its job: the seat was told where its own folder is.
+    assert call["config_dir"] == str(home / ".claude")
+
+
+def test_the_seat_sees_no_pointers_without_a_configuration_folder_either(
+    tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DEBATE_BRIDGE_REAL_HOME", str(tmp_path / "operator-home"))
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "somewhere" / "src"))
+    case = _make_case(tmp_path)
+    assert main(_argv(case, seat)) == 0
+    call = seat.calls()[0]
+    assert call["real_home"] is None
+    assert call["pythonpath"] is None

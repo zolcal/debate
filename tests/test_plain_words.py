@@ -36,7 +36,7 @@ SKILL_FILES = (
 
 README = ROOT / "README.md"
 
-ENGINE_MODULES = ("opening.py", "onboarding.py", "seats.py", "__main__.py")
+ENGINE_MODULES = ("opening.py", "onboarding.py", "seats.py", "watcher.py", "__main__.py")
 
 # The words the law bans. "bridge", "brokered" and "placeholder" are whole
 # words; the rest are literals.

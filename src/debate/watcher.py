@@ -55,14 +55,16 @@ _LOCK_BYTE_OFFSET = 1 << 16  # 65536 - orders of magnitude past a 3-line note
 
 @dataclass(frozen=True)
 class WatcherConfig:
-    """Per-party direct commands or a brokered controller, plus timing knobs.
+    """Per-party commands, or the controller that runs a debate itself, plus
+    timing knobs.
 
-    ``commands`` maps party name -> argv list. The placeholder ``{prompt}``
-    in any argv element is replaced with that party's pinned prompt from
-    ``prompts``. Legacy channels may omit a command for a human-driven party.
-    Managed version 1 requires commands for both recorded parties. Managed
-    version 2 requires exactly two brokered profiles. Both report an invalid
-    configuration instead of silently waiting for a live session.
+    ``commands`` maps party name -> argv list; ``{prompt}`` in any argv element
+    is replaced with that party's pinned prompt from ``prompts``. Legacy
+    channels may omit a command for a human-driven party. A channel whose
+    ``managed_version`` is 1 requires commands for both recorded parties; one
+    whose ``managed_version`` is 2 requires exactly two adapter profiles under
+    ``broker``. Both report an invalid configuration instead of silently
+    waiting for a live session.
     """
 
     channel_root: Path
@@ -117,20 +119,24 @@ class WatcherConfig:
             raise ChannelError("refused: a managed watcher must be bound to exactly two channel parties")
         if self.broker is not None:
             if self.managed_version != BROKERED_MANAGED_VERSION or self.channel_name is None or self.parties is None:
-                raise ChannelError("refused: brokered adapters require a named managed-version 2 channel")
+                raise ChannelError(
+                    "refused: the seat adapters of a fully managed debate need a named "
+                    "managed-version 2 channel"
+                )
             if set(self.broker.profiles) != set(self.parties):
                 raise ChannelError(
-                    "refused: brokered adapter names must exactly match the two channel parties"
+                    "refused: the seat adapter names must exactly match the two channel parties"
                 )
             if self.commands:
                 raise ChannelError(
-                    "refused: do not mix direct commands with brokered adapter profiles"
+                    "refused: do not mix direct commands with seat adapter profiles"
                 )
             runtime = self.broker.runtime_root.resolve()
             state = self.state_path.resolve()
             if not state.is_relative_to(runtime):
                 raise ChannelError(
-                    f"refused: brokered watcher state {state} must live below runtime_root {runtime}"
+                    f"refused: a fully managed debate's watcher state {state} must live "
+                    f"below runtime_root {runtime}"
                 )
 
     def managed_problem(self) -> str | None:
@@ -144,14 +150,14 @@ class WatcherConfig:
         assert self.parties is not None
         expected = set(self.parties)
         if self.managed_version == BROKERED_MANAGED_VERSION and self.broker is None:
-            return "managed-version 2 requires two brokered adapter profiles"
+            return "managed-version 2 requires two seat adapter profiles"
         if self.broker is not None:
             configured_profiles = set(self.broker.profiles)
             if configured_profiles != expected:
                 missing = sorted(expected - configured_profiles)
                 extra = sorted(configured_profiles - expected)
                 return (
-                    "brokered adapter bindings do not match channel parties "
+                    "seat adapter bindings do not match channel parties "
                     f"(missing={missing}, extra={extra})"
                 )
             return None
@@ -1007,7 +1013,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
         except ChannelError as error:
             output.append(f"broker refused {decision.invoke} for seq {seq}: {error}")
             output.append(
-                f"ESCALATE: brokered case for {decision.invoke!r} cannot proceed on "
+                f"ESCALATE: the fully managed case for {decision.invoke!r} cannot proceed on "
                 f"thread {signal.get('thread')!r}"
             )
             state = record_escalation(state, str(signal.get("thread", "")), seq)
