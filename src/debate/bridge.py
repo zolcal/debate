@@ -262,15 +262,21 @@ def _mapping(payload: dict[str, Any], key: str) -> dict[str, Any]:
     return value
 
 
-def _instruction_block(payload: dict[str, Any], phase: str) -> str:
-    stance = ADVERSARIAL_STANCE if phase == "sealed" else ANALYTICAL_STANCE
+def _instruction_block(payload: dict[str, Any]) -> str:
+    """Block 1: who the seat is and the rules that hold for every pass alike.
+
+    Phase-independent on purpose -- together with the docket and source blocks
+    it forms a byte-identical prefix across a case's calls, so a provider that
+    caches a shared prefix can reuse it. The pass's stance (adversarial for the
+    sealed pass, analytical for later ones) lives in the phase block instead.
+    """
     seat = _mapping(payload, "seat")
     who = (
         f"You are the seat named {seat.get('party', 'unknown')!r} in a two-seat review "
         f"of somebody else's work. Your relationship to the author is "
         f"{seat.get('author_relationship', 'unstated')!r}."
     )
-    return "\n\n".join([INSTRUCTION_HEADER, who, stance, ISOLATION_RULES, ANSWER_RULES])
+    return "\n\n".join([INSTRUCTION_HEADER, who, ISOLATION_RULES, ANSWER_RULES])
 
 
 def _inline_limit() -> int:
@@ -338,26 +344,40 @@ def _source_block(payload: dict[str, Any]) -> str:
     )
 
 
-def _transcript_block(payload: dict[str, Any]) -> str:
+def _has_transcript(payload: dict[str, Any]) -> bool:
     entries = payload.get("current_thread")
-    if not isinstance(entries, list) or not entries:
-        return ""
-    sections = [TRANSCRIPT_HEADER, "These entries are already published. Read every one before you answer."]
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        heading = f"### {entry.get('id', 'entry')} from {entry.get('sender', 'the other seat')}"
-        kind = str(entry.get("type", ""))
-        refs = str(entry.get("refs", ""))
-        if kind:
-            heading += f" ({kind})"
-        if refs:
-            heading += f", about {refs}"
-        sections.append(f"{heading}\n\n{entry.get('body', '')}")
-    sections.append(
-        "Answer with your own verdict for this round: re-verify what is claimed above against "
-        "fresh evidence, say plainly what you now retract or adopt, and decide."
-    )
+    return isinstance(entries, list) and bool(entries)
+
+
+def _phase_block(payload: dict[str, Any], phase: str) -> str:
+    """Block 4: the part that is NOT shared across a case's calls.
+
+    The pass's stance always goes first (adversarial for the sealed pass,
+    analytical for later ones); a later pass with a published debate appends
+    it, quoted in full, and the instruction to re-verify it. Kept last, after
+    the phase-independent instruction, docket and source blocks, so those
+    three form a byte-identical prefix a provider can cache across the case.
+    """
+    sections = [ADVERSARIAL_STANCE if phase == "sealed" else ANALYTICAL_STANCE]
+    if phase != "sealed" and _has_transcript(payload):
+        entries = payload["current_thread"]
+        sections.append(TRANSCRIPT_HEADER)
+        sections.append("These entries are already published. Read every one before you answer.")
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            heading = f"### {entry.get('id', 'entry')} from {entry.get('sender', 'the other seat')}"
+            kind = str(entry.get("type", ""))
+            refs = str(entry.get("refs", ""))
+            if kind:
+                heading += f" ({kind})"
+            if refs:
+                heading += f", about {refs}"
+            sections.append(f"{heading}\n\n{entry.get('body', '')}")
+        sections.append(
+            "Answer with your own verdict for this round: re-verify what is claimed above against "
+            "fresh evidence, say plainly what you now retract or adopt, and decide."
+        )
     return "\n\n".join(sections)
 
 
@@ -371,24 +391,23 @@ def _quotes_review_material(phase: str, deliberation_input: str) -> bool:
 
 
 def build_prompt(payload: dict[str, Any], *, deliberation_input: str) -> str:
-    """Assemble the seat's prompt: task, then material, then code, then the debate."""
+    """Assemble the seat's prompt: task, material, code -- the stable prefix a
+    provider can cache across a case's calls -- then the pass's stance and,
+    for a later pass, the debate so far."""
     phase = str(payload.get("phase", ""))
-    blocks = [_instruction_block(payload, phase)]
+    blocks = [_instruction_block(payload)]
     if _quotes_review_material(phase, deliberation_input):
         blocks.append(_docket_block(payload))
     blocks.append(_source_block(payload))
-    if phase != "sealed":
-        transcript = _transcript_block(payload)
-        if not transcript and not _quotes_review_material(phase, deliberation_input):
-            # Fail closed. Leaning on the debate so far only works when there IS
-            # one; with neither the published verdicts nor the review material
-            # the seat would be asked to review out of thin air.
-            raise Refusal(
-                "refused: this pass was told to lean on the debate so far, and the debate "
-                "so far is empty"
-            )
-        if transcript:
-            blocks.append(transcript)
+    if phase != "sealed" and not _has_transcript(payload) and not _quotes_review_material(phase, deliberation_input):
+        # Fail closed. Leaning on the debate so far only works when there IS
+        # one; with neither the published verdicts nor the review material
+        # the seat would be asked to review out of thin air.
+        raise Refusal(
+            "refused: this pass was told to lean on the debate so far, and the debate "
+            "so far is empty"
+        )
+    blocks.append(_phase_block(payload, phase))
     return "\n\n".join(blocks)
 
 

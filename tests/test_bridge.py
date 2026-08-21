@@ -232,17 +232,11 @@ def test_prompt_block_order_is_instruction_docket_source_phase(tmp_path: Path, s
 
 
 def test_prompt_order_keeps_the_stable_prefix_first(tmp_path: Path, seat: FakeSeat) -> None:
-    """O15: the docket and the source -- the bulk material that stays the same
-    across a case's calls -- go before the round-specific phase block, in the
-    order instruction, docket, source, phase. This is a cost feature only; no
-    speedup is claimed or measured here.
-
-    Note: the instruction block itself is NOT byte-identical between the sealed
-    and deliberation phases (its stance paragraph reads ADVERSARIAL for sealed,
-    ANALYTICAL for deliberation -- see test_sealed_prompt_is_adversarial_and_
-    deliberation_is_analytical above), so this test pins byte-identity for the
-    docket and source blocks specifically, not for the whole prefix string.
-    """
+    """O15: the instruction, docket and source blocks -- the material that
+    stays the same across a case's calls -- form a byte-identical prefix, so a
+    provider prefix cache can reuse it; the pass's stance (and, for a later
+    pass, the debate so far) is confined to the last, round-specific block.
+    This is a cost feature only; no speedup is claimed or measured here."""
     # Same docket, same source export for both phases -- only "phase" (and the
     # transcript that comes with it) differs, per the O15 contract.
     sealed = _make_case(tmp_path, phase="sealed")
@@ -267,19 +261,35 @@ def test_prompt_order_keeps_the_stable_prefix_first(tmp_path: Path, seat: FakeSe
     assert main(_argv(deliberation, seat, extra=["--deliberation-input", "full"])) == 0
     deliberation_prompt = seat.prompt()
 
-    # (a) whichever of the four block markers are present appear in the
-    # cache-friendly order: instruction, docket, source, phase.
+    # (a) the four block markers appear in the order instruction < docket <
+    # source < phase in both prompts. The phase block itself opens with the
+    # pass's stance rather than a "## " header, so it is located by that text.
     for prompt in (sealed_prompt, deliberation_prompt):
         instruction = prompt.index(bridge.INSTRUCTION_HEADER)
         docket = prompt.index(bridge.DOCKET_HEADER)
         source = prompt.index(bridge.SOURCE_HEADER)
-        assert instruction < docket < source
+        stance = prompt.index("Stance for THIS pass")
+        assert instruction < docket < source < stance
     assert bridge.TRANSCRIPT_HEADER not in sealed_prompt
-    phase = deliberation_prompt.index(bridge.TRANSCRIPT_HEADER)
-    assert deliberation_prompt.index(bridge.SOURCE_HEADER) < phase
+    deliberation_phase = deliberation_prompt.index("Stance for THIS pass")
+    assert deliberation_phase < deliberation_prompt.index(bridge.TRANSCRIPT_HEADER)
 
-    # (b) the docket and source blocks -- the material a provider prefix cache
-    # would actually reuse -- are byte-identical between the two phases.
+    # (b) everything before the phase block is byte-identical between the two
+    # phases -- the stable prefix a provider could cache across the case.
+    sealed_phase = sealed_prompt.index("Stance for THIS pass")
+    assert sealed_prompt[:sealed_phase] == deliberation_prompt[:deliberation_phase]
+
+    # The stance itself lives in the phase block, and only there: adversarial
+    # for the sealed pass, analytical for the later one -- never both, and
+    # never before the phase block starts.
+    assert "ADVERSARIALLY" in sealed_prompt[sealed_phase:]
+    assert "ADVERSARIALLY" not in sealed_prompt[:sealed_phase]
+    assert "ANALYTICALLY" not in sealed_prompt
+    assert "ANALYTICALLY" in deliberation_prompt[deliberation_phase:]
+    assert "ANALYTICALLY" not in deliberation_prompt[:deliberation_phase]
+    assert "ADVERSARIALLY" not in deliberation_prompt
+
+    # The docket and source blocks -- verified directly, not just by position.
     assert bridge._docket_block(sealed_payload) == bridge._docket_block(deliberation_payload)
     assert bridge._source_block(sealed_payload) == bridge._source_block(deliberation_payload)
 
