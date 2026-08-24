@@ -108,3 +108,18 @@ def test_public_docs_name_upgrade_compatibility_and_safe_pruning() -> None:
     ):
         assert phrase in combined
     assert "hostile-code safe" not in combined.lower()
+
+
+def test_public_docs_pin_host_specific_onboarding_timing() -> None:
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+    contract = (REPO / "hooks" / "HOOK-CONTRACT.md").read_text(encoding="utf-8")
+
+    assert "unready project opens in Claude Code" in readme
+    assert "Codex 0.149.1 keeps prompt-free startup silent" in readme
+    assert "stops that turn before inference" in readme
+    assert "does not send\nor replay the stopped prompt" in readme
+    assert "On your next launch in a project" not in readme
+    assert "first submitted\n  turn" in changelog
+    assert "zero first-turn network requests" in contract
+    assert "malformed/broken-hook\n  error paths" in contract

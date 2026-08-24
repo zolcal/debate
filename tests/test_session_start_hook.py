@@ -4,7 +4,7 @@ The hook is exercised exactly as a host runs it: a subprocess with a JSON
 event on stdin and the plugin root in the environment. Every case asserts
 exit 0 (a hook must never break a host session), valid JSON on stdout, and
 -- for the whole battery -- zero filesystem writes and zero seat
-invocations (no seat command exists in these fixtures at all).
+invocations (a sentinel seat command must remain unexecuted).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from debate import __version__
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOK = REPO_ROOT / "hooks" / "session-start"
+CODEX_ENV = {"PLUGIN_ROOT": str(REPO_ROOT)}
 
 
 def _run(
@@ -95,6 +96,21 @@ def _write_ready_state(project: Path, registry: Path) -> None:
     )
 
 
+def _write_attention_state(project: Path, registry: Path, attention: str) -> None:
+    if attention == "offer_setup":
+        return
+    _write_ready_state(project, registry)
+    if attention == "offer_refresh":
+        raw = json.loads(registry.read_text(encoding="utf-8"))
+        raw["tool_version"] = "0.0.1"
+        registry.write_text(json.dumps(raw), encoding="utf-8")
+        return
+    if attention == "repair_required":
+        (project / "debate-profile.json").write_text("{broken", encoding="utf-8")
+        return
+    raise AssertionError(f"unexpected attention fixture: {attention}")
+
+
 def test_fresh_project_gets_the_setup_notice(tmp_path: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()
@@ -110,6 +126,51 @@ def test_fresh_project_gets_the_setup_notice(tmp_path: Path) -> None:
     assert isinstance(context, str)
     assert "offer_setup" in context
     assert "debate-plugin" in context  # launcher path is injected
+    assert "continue" not in payload
+    assert "stopReason" not in payload
+
+
+@pytest.mark.parametrize("attention", ["offer_setup", "offer_refresh", "repair_required"])
+def test_codex_attention_stops_first_turn_before_model(
+    tmp_path: Path, attention: str
+) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    registry = tmp_path / "reg" / "seats.json"
+    _write_attention_state(project, registry, attention)
+    before = _snapshot(tmp_path)
+
+    payload, _, _ = _run(project, registry, extra_env=CODEX_ENV)
+
+    assert _snapshot(tmp_path) == before
+    assert payload["continue"] is False
+    assert payload["stopReason"] == (
+        "Debate setup attention stopped this first Codex prompt before model inference."
+    )
+    message = payload.get("systemMessage")
+    assert isinstance(message, str)
+    assert "Codex stopped this first prompt before it reached the model" in message
+    assert "repeat it to continue normally" in message
+    assert 'reply "set up Debate"' in message
+    context = payload["hookSpecificOutput"]
+    assert isinstance(context, dict)
+    assert f'"attention": "{attention}"' in str(context["additionalContext"])
+
+
+@pytest.mark.parametrize("attention", ["offer_setup", "offer_refresh", "repair_required"])
+def test_claude_attention_warns_without_stopping(
+    tmp_path: Path, attention: str
+) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    registry = tmp_path / "reg" / "seats.json"
+    _write_attention_state(project, registry, attention)
+
+    payload, _, _ = _run(project, registry)
+
+    assert "systemMessage" in payload
+    assert "continue" not in payload
+    assert "stopReason" not in payload
 
 
 def test_healthy_project_is_quiet(tmp_path: Path) -> None:
@@ -125,6 +186,21 @@ def test_healthy_project_is_quiet(tmp_path: Path) -> None:
     assert isinstance(context, str)
     assert "ready" in context
     assert "debate-plugin" in context
+    assert "continue" not in payload
+    assert "stopReason" not in payload
+
+
+def test_codex_healthy_project_is_quiet_and_not_stopped(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    registry = tmp_path / "reg" / "seats.json"
+    _write_ready_state(project, registry)
+
+    payload, _, _ = _run(project, registry, extra_env=CODEX_ENV)
+
+    assert "systemMessage" not in payload
+    assert "continue" not in payload
+    assert "stopReason" not in payload
 
 
 def test_stale_registry_gets_a_refresh_notice(tmp_path: Path) -> None:
@@ -161,6 +237,23 @@ def test_malformed_input_is_a_visible_error_not_a_crash(tmp_path: Path) -> None:
     assert isinstance(message, str)
     assert "malformed" in message
     assert "malformed" in stderr
+    assert "continue" not in payload
+    assert "stopReason" not in payload
+
+
+def test_codex_malformed_input_warns_but_fails_open(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    payload, stderr, _ = _run(
+        project,
+        tmp_path / "reg.json",
+        stdin="{not json",
+        extra_env=CODEX_ENV,
+    )
+    assert "malformed" in str(payload.get("systemMessage"))
+    assert "malformed" in stderr
+    assert "continue" not in payload
+    assert "stopReason" not in payload
 
 
 def test_missing_engine_is_a_visible_error(tmp_path: Path) -> None:
@@ -172,6 +265,26 @@ def test_missing_engine_is_a_visible_error(tmp_path: Path) -> None:
     message = payload.get("systemMessage")
     assert isinstance(message, str)
     assert "engine is missing" in message or "reinstall" in message
+    assert "continue" not in payload
+    assert "stopReason" not in payload
+
+
+def test_codex_missing_engine_warns_but_fails_open(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    empty_root = tmp_path / "empty-plugin"
+    empty_root.mkdir()
+    payload, _, _ = _run(
+        project,
+        tmp_path / "reg.json",
+        plugin_root=empty_root,
+        extra_env=CODEX_ENV,
+    )
+    assert "engine is missing" in str(payload.get("systemMessage")) or "reinstall" in str(
+        payload.get("systemMessage")
+    )
+    assert "continue" not in payload
+    assert "stopReason" not in payload
 
 
 def test_project_path_with_spaces(tmp_path: Path) -> None:
@@ -192,6 +305,24 @@ def test_non_interactive_suppresses_the_banner(tmp_path: Path) -> None:
         project, tmp_path / "reg.json", extra_env={"DEBATE_ONBOARDING_QUIET": "1"}
     )
     assert "systemMessage" not in payload
+    hso = payload["hookSpecificOutput"]
+    assert isinstance(hso, dict)
+    assert "offer_setup" in str(hso["additionalContext"])
+    assert "continue" not in payload
+    assert "stopReason" not in payload
+
+
+def test_codex_quiet_attention_is_context_only_and_not_stopped(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    payload, _, _ = _run(
+        project,
+        tmp_path / "reg.json",
+        extra_env={**CODEX_ENV, "DEBATE_ONBOARDING_QUIET": "1"},
+    )
+    assert "systemMessage" not in payload
+    assert "continue" not in payload
+    assert "stopReason" not in payload
     hso = payload["hookSpecificOutput"]
     assert isinstance(hso, dict)
     assert "offer_setup" in str(hso["additionalContext"])
@@ -224,8 +355,30 @@ def test_hook_is_fast_and_writes_nothing(tmp_path: Path) -> None:
     before = _snapshot(tmp_path)
     _, _, elapsed_ready = _run(project, registry)
     _, _, elapsed_setup = _run(tmp_path / "proj", tmp_path / "other-reg.json")
+    _, _, elapsed_codex = _run(
+        tmp_path / "proj",
+        tmp_path / "codex-reg.json",
+        extra_env=CODEX_ENV,
+    )
     assert _snapshot(tmp_path) == before
-    assert elapsed_ready < 8 and elapsed_setup < 8  # manifest timeout is 10s
+    assert elapsed_ready < 8 and elapsed_setup < 8 and elapsed_codex < 8
+
+
+def test_hook_never_launches_an_approved_seat(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    registry = tmp_path / "reg" / "seats.json"
+    _write_ready_state(project, registry)
+    invoked = tmp_path / "seat-was-invoked"
+    raw = json.loads(registry.read_text(encoding="utf-8"))
+    raw["seats"]["probe/fake"]["commands"] = [
+        [sys.executable, "-c", f"from pathlib import Path; Path({str(invoked)!r}).touch()"]
+    ]
+    registry.write_text(json.dumps(raw), encoding="utf-8")
+
+    _run(project, registry, extra_env=CODEX_ENV)
+
+    assert not invoked.exists()
 
 
 def test_notices_are_ascii(tmp_path: Path) -> None:

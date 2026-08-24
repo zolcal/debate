@@ -65,8 +65,10 @@ The field fold was gated on `plan-v080-field-fold-14206` (PASS, MSG-20).
 
 - **Installation-driven onboarding** — a read-only, zero-model-call `SessionStart`
   hook (per-host manifests: `hooks/hooks.json` for Claude, `hooks/hooks-codex.json`
-  for Codex, field-identical documents) shows a setup notice when a project is not
-  ready and stays silent when it is. Headless Claude sessions
+  for Codex, field-identical documents) shows an unready Claude project's setup
+  notice at prompt-free launch. Codex 0.149.1 remains silent until the first submitted
+  turn, then visibly stops that turn before inference and asks the user to repeat it
+  or request setup. Ready projects stay silent. Headless Claude sessions
   (`CLAUDE_CODE_ENTRYPOINT=sdk-cli`, spike-attested) get one context line, never a
   banner; for Codex automation the documented lever is `DEBATE_ONBOARDING_QUIET=1`
   (no headless signal is attestable there until a hook is trusted interactively).

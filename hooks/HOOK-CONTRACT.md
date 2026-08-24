@@ -1,11 +1,11 @@
-# Session-start hook contract — Slice 1A spike record (2026-08-19)
+# Session-start hook contract — Slice 1A plus Codex first-turn fold
 
-Verified against: local `codex-cli 0.148.0` + `claude-code 2.1.235` installations, the
+Verified against: local `codex-cli 0.148.0`/`0.149.1` + `claude-code 2.1.235`/`2.1.241`
+installations, the
 working user-level hook at `~/.codex/hooks/session_start.py` (wired via
 `~/.codex/hooks.json`, Claude-schema manifest, accepted by Codex), the
 `hooks.state` trust blocks in `~/.codex/config.toml`, and
-https://learn.chatgpt.com/docs/hooks (fetched 2026-08-19; previously an untrusted
-citation — now confirmed on the points below).
+https://learn.chatgpt.com/docs/hooks (rechecked 2026-08-24).
 
 ## Input (stdin, JSON, both hosts)
 
@@ -18,13 +18,19 @@ missing fields. Malformed JSON on stdin is an error path, never a crash.
 - `systemMessage` (string): visible notice in the host UI.
 - `hookSpecificOutput.additionalContext` (string): model-only context. Claude requires
   the sibling `hookEventName: "SessionStart"`; Codex tolerates it — always included.
+- `continue: false` plus `stopReason` (Codex only): for an unready interactive Codex
+  project, visibly stop the first submitted turn before inference. These fields are
+  absent for Claude, ready projects, quiet/headless runs, and malformed/broken-hook
+  error paths.
 
 ## Environment
 
-Codex provides `PLUGIN_ROOT`/`PLUGIN_DATA` with legacy aliases `CLAUDE_PLUGIN_ROOT`/
-`CLAUDE_PLUGIN_DATA`; Claude provides `CLAUDE_PLUGIN_ROOT`. Manifest commands therefore
-use `${CLAUDE_PLUGIN_ROOT}` in both dialects, and the script itself falls back to its
-own resolved path when the variable is absent (direct test invocation).
+Codex provides the host-specific `PLUGIN_ROOT`/`PLUGIN_DATA` variables plus legacy
+aliases `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA`; Claude provides
+`CLAUDE_PLUGIN_ROOT`. The hook uses the presence of `PLUGIN_ROOT` as the attested
+Codex host signal. Manifest commands still use `${CLAUDE_PLUGIN_ROOT}` in both
+dialects, and the script falls back to its own resolved path when the variable is
+absent (direct test invocation).
 
 ## Manifests
 
@@ -47,10 +53,33 @@ Empirically attested by an env/stdin dump hook in an isolated HOME:
   The stdin event carries `session_id`, `transcript_path`, `cwd`,
   `hook_event_name`, `source` -- no interactivity field.
 - Codex: an UNTRUSTED user hook is silently skipped in `codex exec`, so no
-  headless signal could be attested without an interactive trust session.
-  Until one is attested, `DEBATE_ONBOARDING_QUIET=1` is the documented
-  automation lever for Codex (set it in the automation environment). This
-  is an honest limitation, not a claim of detection.
+  headless distinction is attested. `PLUGIN_ROOT` identifies Codex, not whether its
+  current session is interactive. `DEBATE_ONBOARDING_QUIET=1` is therefore the
+  documented automation lever for Codex and suppresses both the warning and
+  interruption. This is an honest limitation, not a claim of automatic headless
+  detection.
+
+## Codex 0.149.1 lifecycle timing and interruption (2026-08-24)
+
+Installed-host evidence showed that Codex discovers, enables, and trusts the plugin
+hook but does not invoke `SessionStart` merely because a prompt-free thread opens.
+The first submitted turn invokes it before inference. In an isolated installed-plugin
+app-server and real TUI proof, an attention-state hook result containing one
+`systemMessage`, `continue: false`, and `stopReason` produced `SessionStart (stopped)`,
+an empty completed turn, zero first-turn network requests, zero model-output items,
+and zero token-usage events.
+
+Product behavior is therefore host-specific:
+
+- Claude keeps its prompt-free next-launch warning and never receives
+  `continue: false`.
+- Codex prompt-free startup is silent. Its first submitted prompt is stopped only
+  when onboarding reports `offer_setup`, `offer_refresh`, or `repair_required`, and
+  only when `PLUGIN_ROOT` is present and quiet mode is off.
+- The stopped prompt is not replayed or retained by Debate. The user must repeat it
+  to continue normally or reply `set up Debate`.
+- Ready projects remain silent. Malformed input, missing engine, import failure, and
+  status failure warn but fail open rather than creating a prompt loop.
 
 ## Trust
 
