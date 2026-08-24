@@ -23,15 +23,19 @@ The field fold was gated on `plan-v080-field-fold-14206` (PASS, MSG-20).
   `~/.claude-ox`, and admitted only as frontier/API-backed. Approval displays and
   records the exact Stealth-policy revision; a changed revision returns onboarding
   to attention and blocks a product open. The notice uses the binding EULA's strict
-  retention/sharing/training terms rather than the model page's softer summary.
+  retention/sharing/training terms rather than the model page's softer summary. The
+  launcher refuses explicit settings, model/fallback, agent and effort overrides
+  rather than allowing a caller to escape the declared Ox/max route.
 - **Code-known credential-name transport** — a catalog or manual seat may declare
   `--credential-env` only for a source-controlled name (initially
   `OPENROUTER_API_KEY`). The controller copies its current value directly into that
-  seat's child environment at launch, refuses a missing variable before writing a
-  channel, and never serializes the value or a digest. Raw values and SHA-256 digests
-  echoed by a seat are redacted before output or diagnostics are retained. The Ox
-  notice states plainly that its process/tools can see the owner-selected generic
-  key and its complete usable OpenRouter scope is in the blast radius.
+  seat's child environment at launch, refuses a missing variable before smoke
+  confirmation/scratch/model launch or before writing a channel, and never serializes
+  the value or a digest. Raw values and SHA-256 digests echoed by a seat are redacted
+  before output or diagnostics are retained, including a result written before an
+  adapter timeout. The Ox notice states plainly that its process/tools can see the
+  owner-selected generic key and its complete usable OpenRouter scope is in the blast
+  radius.
 - **Bounded review contracts and two explicit modes** — every new product open records
   a non-empty goal, valid review domain, stop rule and `ordinary`/`release-gate` mode.
   Ordinary reviews use cap 5 (four vote-producing seat turns, at most eight nested

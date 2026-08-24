@@ -1093,6 +1093,15 @@ def smoke_seat(
     seat = registry.seats.get(seat_id)
     if seat is None:
         raise channel.ChannelError(f"refused: no seat {seat_id!r} in the registry")
+    validate_credential_env(seat.credential_env)
+    missing_credentials = [
+        name for name in seat.credential_env if not os.environ.get(name)
+    ]
+    if missing_credentials:
+        raise channel.ChannelError(
+            f"refused: seat {seat.seat_id!r} needs credential environment "
+            f"{', '.join(missing_credentials)} in the launching process"
+        )
     if not assume_yes:
         answer = ask(
             f"smoke {seat_id}: this spends ONE model call "

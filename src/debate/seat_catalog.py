@@ -94,6 +94,9 @@ class CatalogEntry:
     # the accepted revision in the project profile.
     data_policy_revision: str | None = None
     data_policy_notice: str | None = None
+    # Current catalog observation shown during inspect, never copied into the
+    # host registry or project profile. Time-sensitive by definition.
+    price_observation: str | None = None
 
 
 CATALOG: tuple[CatalogEntry, ...] = (
@@ -154,6 +157,10 @@ CATALOG: tuple[CatalogEntry, ...] = (
             "permits content retention, sharing, training, and a broad content license. Use only "
             "non-sensitive material. The generic OpenRouter key is visible to the Ox process and "
             "potentially its tools, putting every route and allowance available to that key in scope."
+        ),
+        price_observation=(
+            "Observed 2026-08-23: $0/M input and output; this API-backed preview "
+            "price is time-sensitive and not guaranteed."
         ),
     ),
     CatalogEntry(

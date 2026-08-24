@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 
 from . import channel, seats
+from .seat_catalog import CATALOG
 
 SCHEMA_VERSION = 1
 
@@ -204,6 +205,16 @@ def _candidates(registry: seats.Registry, existing_ids: set[str]) -> list[dict[s
     its id form outright (see `approve`)."""
     rows: list[dict[str, object]] = []
     for seat_id, seat in sorted(registry.seats.items()):
+        catalog_entry = next(
+            (
+                entry
+                for entry in CATALOG
+                if seat.source == "catalog"
+                and entry.vendor == seat.vendor
+                and seat.submodel in entry.submodels
+            ),
+            None,
+        )
         row: dict[str, object] = {
                 "seat_id": seat_id,
                 "vendor": seat.vendor,
@@ -221,6 +232,8 @@ def _candidates(registry: seats.Registry, existing_ids: set[str]) -> list[dict[s
         if seat.data_policy_revision is not None:
             row["data_policy_revision"] = seat.data_policy_revision
             row["data_policy_notice"] = seat.data_policy_notice
+        if catalog_entry is not None and catalog_entry.price_observation is not None:
+            row["price_observation"] = catalog_entry.price_observation
         rows.append(row)
     for sibling in seats.scan_siblings():
         rows.append(

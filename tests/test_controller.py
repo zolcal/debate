@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -33,6 +34,7 @@ from debate.watcher import WatcherConfig, read_status, run_once
 
 
 FAKE_ADAPTER = r"""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -45,6 +47,21 @@ result_path = Path(sys.argv[2])
 payload = json.loads(input_path.read_text(encoding="utf-8"))
 mode = os.environ.get("FAKE_MODE", "good")
 if mode == "timeout":
+    time.sleep(2)
+if mode == "credential-timeout":
+    credential = os.environ["OPENROUTER_API_KEY"]
+    result_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entry_type": "verdict",
+                "decision": "PASS",
+                "body": credential + " " + hashlib.sha256(credential.encode()).hexdigest(),
+                "runtime_model": os.environ.get("RUNTIME_MODEL", "fake-model-1"),
+            }
+        ),
+        encoding="utf-8",
+    )
     time.sleep(2)
 if mode == "orphan":
     import subprocess
@@ -724,6 +741,7 @@ def test_root_pytest_does_not_collect_duplicate_tests_from_hidden_runtime(
         **os.environ,
         "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTEST_ADDOPTS": "-p no:cacheprovider",
     }
     collected = _run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"],
@@ -1803,6 +1821,79 @@ def test_real_adapter_timeout_is_bounded_and_retryable_without_mailbox_write(tmp
     assert caught.value.retryable is True
     assert caught.value.close_reason == "adapter-timeout"
     assert len(channel.read_entries(root, name)) == 1
+
+
+def test_timeout_redacts_a_credential_bearing_result_before_retention(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    secret = "or-timeout-secret-fixture-123456789"
+    digest = hashlib.sha256(secret.encode()).hexdigest()
+    monkeypatch.setenv("OPENROUTER_API_KEY", secret)
+    broker = make_broker(repo, sha, alice_timeout=1)
+    original = broker.profiles["alice"]
+    leaking = AdapterProfile(
+        **{
+            **original.__dict__,
+            "environment": {
+                **original.environment,
+                "FAKE_MODE": "credential-timeout",
+            },
+            "environment_allowlist": (
+                *original.environment_allowlist,
+                "OPENROUTER_API_KEY",
+            ),
+            "credential_env": ("OPENROUTER_API_KEY",),
+        }
+    )
+    profiles = {**broker.profiles, "alice": leaking}
+    protected_broker = BrokerConfig(
+        repository_root=broker.repository_root,
+        runtime_root=broker.runtime_root,
+        source_ref=broker.source_ref,
+        profiles=profiles,
+        timing=TimingPolicy(
+            thread_cap=12,
+            scheduler_interval_seconds=60,
+            retry_seconds=120,
+            whole_case_timeout_seconds=900,
+            profiles=(profiles["alice"], profiles["bob"]),
+        ),
+        config_sha256=broker.config_sha256,
+        docket_files=broker.docket_files,
+        sealed_concurrency="sequential",
+    )
+    managed = BrokerController(protected_broker)
+    managed.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="credential-timeout",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+
+    with pytest.raises(AdapterError, match="timed out after 1s"):
+        managed.drive_case(
+            channel_root=root,
+            channel_name=name,
+            thread="credential-timeout",
+            sequence=1,
+            attempt=1,
+        )
+
+    retained = (
+        protected_broker.runtime_root
+        / "cases"
+        / "credential-timeout"
+        / "invocations"
+        / "1-alice-1"
+        / "result.json"
+    ).read_text(encoding="utf-8")
+    assert secret not in retained
+    assert digest not in retained
+    assert "[redacted credential OPENROUTER_API_KEY]" in retained
+    assert "[redacted digest OPENROUTER_API_KEY]" in retained
 
 
 def test_expiry_during_sealed_invocation_closes_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

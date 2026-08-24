@@ -1104,6 +1104,8 @@ def main(argv: list[str] | None = None) -> int:
                                     f"  policy {row['data_policy_revision']}: "
                                     f"{row['data_policy_notice']}"
                                 )
+                            if row.get("price_observation"):
+                                _flushing_print(f"  pricing: {row['price_observation']}")
                 _flushing_print(f"candidate_revision: {onboarding_report['candidate_revision']}")
             return 0
 

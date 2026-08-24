@@ -931,6 +931,36 @@ def _redact_credential_material(
     return text
 
 
+def _redact_result_file(
+    result_path: Path, profile: AdapterProfile, environment: dict[str, str]
+) -> None:
+    """Sanitize a result the adapter may have written before any exit path retains it."""
+    def discard() -> None:
+        try:
+            result_path.unlink(missing_ok=True)
+        except OSError as error:
+            raise AdapterError(
+                f"refused: cannot sanitize adapter result {result_path}: {error}"
+            ) from error
+
+    if result_path.is_symlink():
+        discard()
+        return
+    if not result_path.is_file():
+        return
+    try:
+        result_text = result_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        discard()
+        return
+    redacted_result = _redact_credential_material(result_text, profile, environment)
+    if redacted_result != result_text:
+        try:
+            result_path.write_text(redacted_result, encoding="utf-8")
+        except OSError:
+            discard()
+
+
 def _bounded_verification_text(
     value: object,
     *,
@@ -1589,6 +1619,7 @@ class BrokerController:
                     process.communicate(timeout=_KILL_GRACE_SECONDS)
                 except subprocess.TimeoutExpired:  # pragma: no cover - SIGKILL is final
                     pass
+                _redact_result_file(result_path, profile, environment)
                 deadline_limited = timeout >= remaining
                 raise AdapterError(
                     f"adapter {party!r} timed out after {timeout:g}s within the whole-case budget",
@@ -1603,19 +1634,12 @@ class BrokerController:
                 # operator walks away from a live vendor CLI and its children
                 # (final wave follow-up). The exception itself is untouched.
                 _kill_adapter_tree(process)
+                _redact_result_file(result_path, profile, environment)
                 raise
             returncode = process.returncode
         stdout = _redact_credential_material(stdout, profile, environment)
         stderr = _redact_credential_material(stderr, profile, environment)
-        if result_path.is_file():
-            try:
-                result_text = result_path.read_text(encoding="utf-8")
-            except (OSError, UnicodeError):
-                pass
-            else:
-                redacted_result = _redact_credential_material(result_text, profile, environment)
-                if redacted_result != result_text:
-                    result_path.write_text(redacted_result, encoding="utf-8")
+        _redact_result_file(result_path, profile, environment)
         stdout_path = invocation_root / "stdout.txt"
         stderr_path = invocation_root / "stderr.txt"
         stdout_path.write_text(stdout, encoding="utf-8")

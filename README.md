@@ -239,6 +239,10 @@ Which seats can take part in a fully managed debate:
   to the Ox process and potentially its tools; every route and allowance available
   to that generic key is therefore in the blast radius. If a seat echoes the raw
   value or its SHA-256, Debate redacts it before retaining output or diagnostics.
+  This includes a result file written before an adapter times out. A missing key
+  refuses before smoke confirmation, scratch creation or model launch, and the
+  standalone launcher refuses explicit settings, model/fallback, agent and effort
+  overrides so callers cannot escape the declared Ox/max route.
   Current `$0/M` pricing is time-sensitive; declare this seat's cost mode as `api`,
   never local or subscription.
 - **Any other tool joins once you tell Debate how it turns those off:**

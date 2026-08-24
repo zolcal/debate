@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from debate import bridge, channel, controller, onboarding, opening, seats
+from debate.__main__ import main
 
 NOW = "2026-08-23T12:00:00+00:00"
 POLICY_REVISION = "openrouter-stealth-eula-2026-08-23"
@@ -211,7 +212,7 @@ def test_legacy_payload_stays_free_of_new_optional_fields() -> None:
 
 
 def test_onboarding_requires_and_records_exact_policy_revision(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -231,6 +232,13 @@ def test_onboarding_requires_and_records_exact_policy_revision(
     assert row["credential_env"] == ["OPENROUTER_API_KEY"]
     assert row["data_policy_revision"] == POLICY_REVISION
     assert "generic OpenRouter key" in str(row["data_policy_notice"])
+    assert "$0/M" in str(row["price_observation"])
+    assert "time-sensitive" in str(row["price_observation"])
+
+    assert main(["onboarding", "inspect", "--project", str(project)]) == 0
+    rendered = capsys.readouterr().out
+    assert "$0/M" in rendered
+    assert "time-sensitive" in rendered
 
     revision = str(report["candidate_revision"])
     with pytest.raises(channel.ChannelError, match="explicit acceptance"):
@@ -331,6 +339,36 @@ def test_changed_policy_and_missing_key_refuse_before_channel_write(
             real_home=tmp_path,
         )
     assert sorted(str(path.relative_to(project)) for path in project.rglob("*")) == initial_paths
+
+
+def test_missing_credential_refuses_smoke_before_confirmation_or_scratch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    launcher = _launcher(tmp_path)
+    ox = _ox_seat(launcher)
+    registry = seats.Registry(seats={ox.seat_id: ox})
+    scratch = tmp_path / "smoke-scratch"
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    def forbidden_ask(_question: str) -> str:
+        pytest.fail("missing credential reached the spend confirmation")
+
+    monkeypatch.setattr(
+        "debate.setup.smoke",
+        lambda *_args, **_kwargs: pytest.fail("missing credential invoked setup.smoke"),
+    )
+
+    with pytest.raises(channel.ChannelError, match="needs credential environment"):
+        seats.smoke_seat(
+            registry,
+            ox.seat_id,
+            scratch_base=scratch,
+            now=NOW,
+            ask=forbidden_ask,
+        )
+
+    assert not scratch.exists()
+    assert ox.smoke is None
 
 
 def test_cli_policy_acceptance_parser_is_exact() -> None:
