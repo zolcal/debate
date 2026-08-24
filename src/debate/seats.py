@@ -20,7 +20,12 @@ from pathlib import Path
 from typing import Callable
 
 from . import channel
-from .seat_catalog import CATALOG, CAPABILITY_CLASSES, VENDOR_CONFIG_HOME_VARS
+from .seat_catalog import (
+    CATALOG,
+    CAPABILITY_CLASSES,
+    KNOWN_CREDENTIAL_ENV_VARS,
+    VENDOR_CONFIG_HOME_VARS,
+)
 from .setup import SECRET_PATTERN
 
 REGISTRY_PATH = Path("~/.config/debate/seats.json")
@@ -37,6 +42,8 @@ SANDBOX_ENV: frozenset[str] = frozenset({
 })
 
 _CONFIG_HOME_VAR_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_DATA_POLICY_REVISION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+DATA_POLICY_NOTICE_MAX_CHARS = 4096
 
 
 @dataclass
@@ -76,6 +83,9 @@ class Seat:
     verification_argv: list[str] = field(default_factory=list)
     verification_basis: str | None = None  # "catalogued" | "declared"
     result_schema_version: int = 1
+    credential_env: list[str] = field(default_factory=list)
+    data_policy_revision: str | None = None
+    data_policy_notice: str | None = None
 
 
 COST_MODES = ("subscription", "api", "local", "unknown")
@@ -116,6 +126,44 @@ def config_home_shape(value: str) -> None:
         raise channel.ChannelError(
             f"refused: config-home {value!r} must look like VAR=dir, with "
             "both the variable name and the folder non-empty"
+        )
+
+
+def validate_credential_env(names: list[str]) -> None:
+    """Accept only unique, source-controlled credential variable names."""
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise channel.ChannelError(
+            f"refused: duplicate credential environment names: {', '.join(duplicates)}"
+        )
+    unknown = sorted(set(names) - KNOWN_CREDENTIAL_ENV_VARS)
+    if unknown:
+        raise channel.ChannelError(
+            "refused: credential environment names are code-known, not arbitrary; "
+            f"unsupported: {', '.join(unknown)}"
+        )
+
+
+def validate_data_policy(revision: str | None, notice: str | None) -> None:
+    """Keep third-party policy declarations paired, printable, and bounded."""
+    if (revision is None) != (notice is None):
+        raise channel.ChannelError(
+            "refused: data_policy_revision and data_policy_notice must be declared together"
+        )
+    if revision is None or notice is None:
+        return
+    if not _DATA_POLICY_REVISION_PATTERN.fullmatch(revision):
+        raise channel.ChannelError(
+            "refused: data_policy_revision must be 1-128 lowercase letters, digits, dots, "
+            "underscores, or hyphens"
+        )
+    if not notice.strip() or len(notice) > DATA_POLICY_NOTICE_MAX_CHARS:
+        raise channel.ChannelError(
+            f"refused: data_policy_notice must be 1-{DATA_POLICY_NOTICE_MAX_CHARS} characters"
+        )
+    if not notice.isprintable():
+        raise channel.ChannelError(
+            "refused: data_policy_notice must contain printable text without control characters"
         )
 
 
@@ -247,6 +295,28 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
         raise channel.ChannelError(
             f"refused: registry seat {seat_id!r} result_schema_version must be 1 or 2"
         )
+    credential_env_raw = raw.get("credential_env", [])
+    if not isinstance(credential_env_raw, list) or not all(
+        isinstance(name, str) for name in credential_env_raw
+    ):
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} credential_env must be a list of strings"
+        )
+    credential_env = list(credential_env_raw)
+    validate_credential_env(credential_env)
+    data_policy_revision_raw = raw.get("data_policy_revision")
+    data_policy_notice_raw = raw.get("data_policy_notice")
+    if data_policy_revision_raw is not None and not isinstance(data_policy_revision_raw, str):
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} data_policy_revision must be a string"
+        )
+    if data_policy_notice_raw is not None and not isinstance(data_policy_notice_raw, str):
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} data_policy_notice must be a string"
+        )
+    data_policy_revision = data_policy_revision_raw
+    data_policy_notice = data_policy_notice_raw
+    validate_data_policy(data_policy_revision, data_policy_notice)
     return Seat(
         seat_id=seat_id,
         vendor=str(raw.get("vendor", "")),
@@ -264,6 +334,9 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
         verification_argv=list(verification_argv_raw),
         verification_basis=verification_basis,
         result_schema_version=result_schema_version,
+        credential_env=credential_env,
+        data_policy_revision=data_policy_revision,
+        data_policy_notice=data_policy_notice,
     )
 
 
@@ -309,6 +382,8 @@ def load_registry() -> Registry:
 def screen_credentials(registry: Registry) -> None:
     """Refuse anything key-shaped in endpoint or capability argv."""
     for seat in registry.seats.values():
+        validate_credential_env(seat.credential_env)
+        validate_data_policy(seat.data_policy_revision, seat.data_policy_notice)
         for argv in (
             *seat.commands,
             seat.isolation_argv,
@@ -319,7 +394,8 @@ def screen_credentials(registry: Registry) -> None:
                 if SECRET_PATTERN.search(part):
                     raise channel.ChannelError(
                         f"refused: seat {seat.seat_id!r} command looks credential-shaped; "
-                        "seat credentials belong in a self-sourcing wrapper, never the registry"
+                        "credentials enter only through a code-known --credential-env name, "
+                        "never through registry argv"
                     )
 
 
@@ -351,6 +427,15 @@ def registry_payload(registry: Registry) -> dict[str, object]:
                 "verification_argv": seat.verification_argv,
                 "verification_basis": seat.verification_basis,
                 "result_schema_version": seat.result_schema_version,
+                **({"credential_env": seat.credential_env} if seat.credential_env else {}),
+                **(
+                    {
+                        "data_policy_revision": seat.data_policy_revision,
+                        "data_policy_notice": seat.data_policy_notice,
+                    }
+                    if seat.data_policy_revision is not None
+                    else {}
+                ),
             }
             for seat_id, seat in sorted(registry.seats.items())
         },
@@ -492,6 +577,9 @@ def discover(
                     verification_argv=list(entry.verification_argv),
                     verification_basis="catalogued" if entry.verification_capable else None,
                     result_schema_version=1,
+                    credential_env=list(entry.credential_env),
+                    data_policy_revision=entry.data_policy_revision,
+                    data_policy_notice=entry.data_policy_notice,
                 )
                 diff.append(f"+ {seat_id} ({argv[0]})")
                 refreshed[seat_id] = registry.seats[seat_id]
@@ -511,6 +599,9 @@ def discover(
                 existing.verification_basis = (
                     "catalogued" if entry.verification_capable else None
                 )
+                existing.credential_env = list(entry.credential_env)
+                existing.data_policy_revision = entry.data_policy_revision
+                existing.data_policy_notice = entry.data_policy_notice
                 if base_changed:
                     for derived in registry.seats.values():
                         if derived.source != "derived":
@@ -552,6 +643,9 @@ def discover(
             list(base_seat.verification_argv),
             base_seat.verification_basis,
             base_seat.result_schema_version,
+            list(base_seat.credential_env),
+            base_seat.data_policy_revision,
+            base_seat.data_policy_notice,
         )
         if inherited != (
             derived_seat.capability_class,
@@ -561,6 +655,9 @@ def discover(
             derived_seat.verification_argv,
             derived_seat.verification_basis,
             derived_seat.result_schema_version,
+            derived_seat.credential_env,
+            derived_seat.data_policy_revision,
+            derived_seat.data_policy_notice,
         ):
             diff.append(
                 f"~ {derived_seat.seat_id} took over {base_seat.seat_id}'s recorded settings"
@@ -572,6 +669,9 @@ def discover(
         derived_seat.verification_argv = list(base_seat.verification_argv)
         derived_seat.verification_basis = base_seat.verification_basis
         derived_seat.result_schema_version = base_seat.result_schema_version
+        derived_seat.credential_env = list(base_seat.credential_env)
+        derived_seat.data_policy_revision = base_seat.data_policy_revision
+        derived_seat.data_policy_notice = base_seat.data_policy_notice
     for seat in registry.seats.values():
         if seat.source == "catalog" and seat.seat_id not in seen_ids and seat.present:
             base = seat.seat_id.split("@", 1)[0]
@@ -763,6 +863,7 @@ def add_seat(
     verification_argv: list[str] | None = None,
     verification_declared: bool = False,
     result_schema_version: int | None = None,
+    credential_env: list[str] | None = None,
     home: Path | None = None,
 ) -> None:
     """Create a manual seat, or APPEND an endpoint option to an existing
@@ -795,6 +896,7 @@ def add_seat(
         validate_config_home(config_home, home=home if home is not None else Path.home())
     if result_schema_version not in (None, 1, 2):
         raise channel.ChannelError("refused: result_schema_version must be 1 or 2")
+    validate_credential_env(list(credential_env or []))
     if verification_argv and not verification_declared:
         raise channel.ChannelError(
             "refused: --verification-argv needs the explicit --verification-capable declaration"
@@ -825,7 +927,7 @@ def add_seat(
         if SECRET_PATTERN.search(part):
             raise channel.ChannelError(
                 "refused: command looks credential-shaped; credentials belong in a "
-                "self-sourcing wrapper, never the registry"
+                "code-known --credential-env declaration, never registry argv"
             )
     if bridge_style and result_schema_version == 2 and not verification_declared:
         raise channel.ChannelError(
@@ -862,6 +964,8 @@ def add_seat(
             existing.verification_argv = list(verification_argv or [])
         if result_schema_version is not None:
             existing.result_schema_version = result_schema_version
+        if credential_env:
+            existing.credential_env = list(credential_env)
         return
     vendor, _, submodel = seat_id.partition("/")
     base_id, _, effort = seat_id.partition("@")
@@ -882,6 +986,7 @@ def add_seat(
         verification_argv=list(verification_argv or []),
         verification_basis="declared" if verification_declared else None,
         result_schema_version=result_schema_version or 1,
+        credential_env=list(credential_env or []),
     )
 
 
@@ -950,6 +1055,9 @@ def add_effort_seat(registry: Registry, seat_id: str) -> None:
         verification_argv=list(base.verification_argv),
         verification_basis=base.verification_basis,
         result_schema_version=base.result_schema_version,
+        credential_env=list(base.credential_env),
+        data_policy_revision=base.data_policy_revision,
+        data_policy_notice=base.data_policy_notice,
     )
 
 
@@ -1032,6 +1140,7 @@ class Profile:
     mechanism. Opt-in per project: no file, no restriction."""
 
     allowlist: tuple[str, ...]
+    data_policy_acceptances: dict[str, str] = field(default_factory=dict)
 
 
 def vendor_display(vendor: str) -> tuple[str, tuple[str, ...]]:
@@ -1088,7 +1197,24 @@ def load_profile(project: str, registry: Registry) -> Profile | None:
                 f"refused: project profile {path} allowlists {seat_id!r}, which is "
                 "not in the registry; run: debate seats discover"
             )
-    return Profile(allowlist=tuple(allowlist_raw))
+    acceptances_raw = raw.get("data_policy_acceptances", {})
+    if not isinstance(acceptances_raw, dict) or not all(
+        isinstance(seat_id, str) and isinstance(revision, str)
+        for seat_id, revision in acceptances_raw.items()
+    ):
+        raise channel.ChannelError(
+            f"refused: project profile {path} 'data_policy_acceptances' must map seat ids to revisions"
+        )
+    outside = sorted(set(acceptances_raw) - set(allowlist_raw))
+    if outside:
+        raise channel.ChannelError(
+            f"refused: project profile {path} accepts policy for non-allowlisted seats: "
+            f"{', '.join(outside)}"
+        )
+    return Profile(
+        allowlist=tuple(allowlist_raw),
+        data_policy_acceptances={str(key): str(value) for key, value in acceptances_raw.items()},
+    )
 
 
 # Backwards-compatible alias (pre-0.8 internal name).

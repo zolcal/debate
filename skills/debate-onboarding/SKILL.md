@@ -52,6 +52,14 @@ Core rules, non-negotiable:
    "existing registry entry" where labelled). Label existing state visibly
    as existing state -- it is candidate input only. After the table, in plain
    language and roughly this order:
+   If a row includes `data_policy_revision`, show its complete
+   `data_policy_notice` immediately below that row and label the revision. If it
+   includes `credential_env`, name the required variable but never resolve, hash,
+   or print its value. For `stealth/ox-alpha`, say that it is an anonymous-provider
+   limited preview for non-sensitive material, that the generic OpenRouter key is
+   visible to the Ox process and potentially its tools, and that every route and
+   allowance available to that key is in the blast radius. Current zero pricing is
+   time-sensitive and its cost mode is API, not local or subscription.
    (a) one sentence on where the list comes from: "I found these by scanning
    this machine for AI tools I recognize";
    (b) one sentence of glossary if you will use the words: what an agent and
@@ -121,6 +129,10 @@ Core rules, non-negotiable:
    approval". Prefer the host's structured question tool (multi-select); fall
    back to a numbered in-terminal question. Zero selections: report that
    onboarding stays incomplete, write nothing.
+   For every selected seat with a data-policy revision, ask a separate explicit
+   numbered acceptance only after showing the complete notice: "1 accept this exact
+   revision for this project  2 do not approve this seat". Selection alone is not
+   policy acceptance. On answer 2, remove that seat from the proposed allowlist.
 5. Only after the user's answer: FIRST register any SELECTED pending wrappers
    -- disclosing that this writes the machine registry and is undone with
    `seats remove <SEAT>` --
@@ -133,7 +145,11 @@ Core rules, non-negotiable:
    wrapper is never registered at all), then re-run inspect for the fresh
    candidate revision, then run:
    `<launcher> onboarding approve --project <ABS-CWD> --candidate-revision <rev>
-   --allow <SEAT> [--allow <SEAT> ...] --confirmed --json`
+   --allow <SEAT> [--allow <SEAT> ...]
+   [--accept-policy <SEAT>=<DISPLAYED-REVISION> ...] --confirmed --json`
+   Pass `--accept-policy` only for a seat whose exact displayed revision the user
+   accepted in the current turn. A missing, stale, duplicate, or unselected
+   acceptance refuses before either file is written.
    A "candidate set changed" refusal means the machine changed under you:
    re-run inspect and re-ask.
 6. If the user declares a seat's cost mode ("claude is on my subscription"),

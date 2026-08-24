@@ -204,6 +204,7 @@ class BridgeSpec:
     verification_basis: str | None
     result_schema_version: int
     config_home: str | None
+    credential_env: tuple[str, ...]
     deliberation_input: str
     isolation_flags_basis: str
 
@@ -260,6 +261,12 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         help="let the seat read one folder of the operator's own configuration",
     )
     parser.add_argument(
+        "--credential-env-json",
+        default="[]",
+        metavar="JSON",
+        help="code-known credential variable names inherited by this seat",
+    )
+    parser.add_argument(
         "--deliberation-input",
         default="full",
         choices=DELIBERATION_INPUTS,
@@ -297,6 +304,13 @@ def _string_list(raw: str, what: str) -> tuple[str, ...]:
 
 
 def spec_from_arguments(args: argparse.Namespace) -> BridgeSpec:
+    credential_env = _string_list(
+        str(args.credential_env_json), "the credential environment names"
+    )
+    try:
+        seats.validate_credential_env(list(credential_env))
+    except channel.ChannelError as error:
+        raise Refusal(str(error)) from error
     return BridgeSpec(
         seat_id=str(args.seat_id),
         vendor=str(args.vendor),
@@ -312,6 +326,7 @@ def spec_from_arguments(args: argparse.Namespace) -> BridgeSpec:
         ),
         result_schema_version=int(args.result_schema_version),
         config_home=None if args.config_home is None else str(args.config_home),
+        credential_env=credential_env,
         deliberation_input=str(args.deliberation_input),
         isolation_flags_basis=str(args.isolation_flags_basis),
     )
@@ -676,6 +691,40 @@ def save_seat_output(result_path: Path, completed: subprocess.CompletedProcess[s
     print(errors, file=sys.stderr)
 
 
+def redact_seat_output(
+    completed: subprocess.CompletedProcess[str],
+    *,
+    credential_env: tuple[str, ...],
+    environment: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    """Redact inherited credentials and their SHA-256 before any output is retained."""
+    replacements: list[tuple[str, str]] = []
+    for name in credential_env:
+        value = environment.get(name, "")
+        if not value:
+            continue
+        replacements.extend(
+            [
+                (value, f"[redacted credential {name}]"),
+                (hashlib.sha256(value.encode("utf-8")).hexdigest(), f"[redacted digest {name}]"),
+            ]
+        )
+
+    def redact(text: str) -> str:
+        for material, replacement in sorted(
+            replacements, key=lambda item: len(item[0]), reverse=True
+        ):
+            text = text.replace(material, replacement)
+        return text
+
+    return subprocess.CompletedProcess(
+        args=completed.args,
+        returncode=completed.returncode,
+        stdout=redact(completed.stdout),
+        stderr=redact(completed.stderr),
+    )
+
+
 # --- reading the seat's answer ----------------------------------------------
 
 
@@ -959,6 +1008,9 @@ def _run(args: argparse.Namespace) -> int:
     argv = seat_argv(spec, prompt)
     source = _mapping(payload, "source")
     completed = run_seat(argv, cwd=str(source.get("root", "")), environment=environment)
+    completed = redact_seat_output(
+        completed, credential_env=spec.credential_env, environment=environment
+    )
     save_seat_output(result_path, completed)
     if completed.returncode != 0:
         failure = {

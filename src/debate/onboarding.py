@@ -43,6 +43,27 @@ def _smoke_word(seat: seats.Seat) -> str:
     return seat.smoke.result
 
 
+def parse_policy_acceptances(declarations: list[str]) -> dict[str, str]:
+    """Parse repeatable ``SEAT=REVISION`` acknowledgements without guessing."""
+    accepted: dict[str, str] = {}
+    for declaration in declarations:
+        if declaration.count("=") != 1:
+            raise channel.ChannelError(
+                f"refused: policy acceptance {declaration!r} must look like SEAT=REVISION"
+            )
+        seat_id, _, revision = declaration.partition("=")
+        if not seat_id or not revision:
+            raise channel.ChannelError(
+                f"refused: policy acceptance {declaration!r} needs both a seat and revision"
+            )
+        if seat_id in accepted:
+            raise channel.ChannelError(
+                f"refused: duplicate policy acceptance for {seat_id!r}"
+            )
+        accepted[seat_id] = revision
+    return accepted
+
+
 def status(project: str) -> dict[str, object]:
     """Read-only onboarding state for one project root (absolute path)."""
     from . import __version__
@@ -52,6 +73,7 @@ def status(project: str) -> dict[str, object]:
     registry_state = "missing"
     profile_state = "missing"
     approved: list[dict[str, object]] = []
+    stale_policy = False
 
     registry: seats.Registry | None = None
     if not seats.registry_path().exists():
@@ -122,14 +144,28 @@ def status(project: str) -> dict[str, object]:
                         )
                     else:
                         seen_commands[argv_key] = seat_id
-                    approved.append(
-                        {
+                    row: dict[str, object] = {
                             "seat_id": seat_id,
                             "present": present,
                             "smoke": smoke_word,
                             "cost_mode": seat.cost_mode,
-                        }
-                    )
+                    }
+                    if seat.data_policy_revision is not None:
+                        accepted_revision = profile.data_policy_acceptances.get(seat_id)
+                        policy_current = accepted_revision == seat.data_policy_revision
+                        row.update(
+                            {
+                                "data_policy_revision": seat.data_policy_revision,
+                                "data_policy_accepted": policy_current,
+                            }
+                        )
+                        if not policy_current:
+                            stale_policy = True
+                            reasons.append(
+                                f"approved seat {seat_id} needs acceptance of data policy "
+                                f"{seat.data_policy_revision!r}"
+                            )
+                    approved.append(row)
 
     if registry_state == "broken" or profile_state == "broken":
         attention = ATTENTION_REPAIR
@@ -137,7 +173,7 @@ def status(project: str) -> dict[str, object]:
         attention = ATTENTION_OFFER_SETUP
     elif any(not entry["present"] for entry in approved):
         attention = ATTENTION_REPAIR
-    elif registry_state == "stale" or any(
+    elif registry_state == "stale" or stale_policy or any(
         entry["smoke"] in ("fail", "stale") for entry in approved
     ):
         attention = ATTENTION_OFFER_REFRESH
@@ -168,8 +204,7 @@ def _candidates(registry: seats.Registry, existing_ids: set[str]) -> list[dict[s
     its id form outright (see `approve`)."""
     rows: list[dict[str, object]] = []
     for seat_id, seat in sorted(registry.seats.items()):
-        rows.append(
-            {
+        row: dict[str, object] = {
                 "seat_id": seat_id,
                 "vendor": seat.vendor,
                 "submodel": seat.submodel,
@@ -180,8 +215,13 @@ def _candidates(registry: seats.Registry, existing_ids: set[str]) -> list[dict[s
                 "smoke": _smoke_word(seat),
                 "cost_mode": seat.cost_mode,
                 "existing": seat_id in existing_ids,
-            }
-        )
+        }
+        if seat.credential_env:
+            row["credential_env"] = list(seat.credential_env)
+        if seat.data_policy_revision is not None:
+            row["data_policy_revision"] = seat.data_policy_revision
+            row["data_policy_notice"] = seat.data_policy_notice
+        rows.append(row)
     for sibling in seats.scan_siblings():
         rows.append(
             {
@@ -253,6 +293,7 @@ def approve(
     candidate_revision: str,
     confirmed: bool,
     now: str,
+    accepted_policies: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Rescan, verify the candidate revision, validate the selected ids, then
     TRANSACTIONALLY write the machine registry and the project profile: every
@@ -278,6 +319,7 @@ def approve(
         raise channel.ChannelError(
             f"refused: duplicate --allow ids: {', '.join(duplicates)}"
         )
+    policy_acceptances = dict(accepted_policies or {})
     registry, existing_ids, _existing_state = _scan(now)
     rows = _candidates(registry, existing_ids)
     revision = _candidate_revision(rows)
@@ -308,14 +350,34 @@ def approve(
                 f"refused: {seat_id!r} is not currently runnable; approving it "
                 "would record a seat that cannot debate"
             )
+        seat = registry.seats[seat_id]
+        required_revision = seat.data_policy_revision
+        accepted_revision = policy_acceptances.get(seat_id)
+        if required_revision is not None and accepted_revision != required_revision:
+            raise channel.ChannelError(
+                f"refused: {seat_id!r} requires explicit acceptance of data policy "
+                f"{required_revision!r}; pass --accept-policy "
+                f"{seat_id}={required_revision} only after showing the notice to the user"
+            )
+    unnecessary = sorted(
+        seat_id
+        for seat_id in policy_acceptances
+        if seat_id not in allow or registry.seats[seat_id].data_policy_revision is None
+    )
+    if unnecessary:
+        raise channel.ChannelError(
+            "refused: policy acceptance was supplied for an unselected or policy-free seat: "
+            f"{', '.join(unnecessary)}"
+        )
 
     registry_target = seats.registry_path()
     profile_target = project_path / seats.PROFILE_NAME
     registry_target.parent.mkdir(parents=True, exist_ok=True)
     registry_text = json.dumps(seats.registry_payload(registry), indent=2) + "\n"
-    profile_text = (
-        json.dumps({"profile_version": 1, "allowlist": list(allow)}, indent=2) + "\n"
-    )
+    profile_payload: dict[str, object] = {"profile_version": 1, "allowlist": list(allow)}
+    if policy_acceptances:
+        profile_payload["data_policy_acceptances"] = dict(sorted(policy_acceptances.items()))
+    profile_text = json.dumps(profile_payload, indent=2) + "\n"
     # Both temp files are fully written and fsynced BEFORE the first replace,
     # so every preparation failure leaves both prior files byte-identical.
     temps: list[str] = []

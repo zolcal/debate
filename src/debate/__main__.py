@@ -621,6 +621,14 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="result protocol spoken by a hand-authored file adapter; v2 is required for new product opens",
     )
+    p_seats_add.add_argument(
+        "--credential-env",
+        action="append",
+        default=[],
+        dest="seats_add_credential_env",
+        metavar="NAME",
+        help="code-known credential variable name to inherit only when this seat launches; repeatable",
+    )
     p_seats_setcost = seats_sub.add_parser(
         "set-cost-mode",
         help="declare who pays for an existing seat (catalog, derived, or manual)",
@@ -679,6 +687,14 @@ def main(argv: list[str] | None = None) -> int:
     p_onb_approve.add_argument(
         "--confirmed", action="store_true",
         help="assert the user answered the approval question in the current turn",
+    )
+    p_onb_approve.add_argument(
+        "--accept-policy",
+        action="append",
+        default=[],
+        dest="accepted_policies",
+        metavar="SEAT=REVISION",
+        help="accept the exact displayed data-policy revision for one selected seat; repeatable",
     )
     p_onb_approve.add_argument("--json", action="store_true", dest="as_json")
 
@@ -1065,6 +1081,7 @@ def main(argv: list[str] | None = None) -> int:
                     candidate_revision=args.candidate_revision,
                     confirmed=args.confirmed,
                     now=now,
+                    accepted_policies=onboarding.parse_policy_acceptances(args.accepted_policies),
                 )
             if args.as_json:
                 print(json.dumps(onboarding_report, indent=2))
@@ -1082,6 +1099,11 @@ def main(argv: list[str] | None = None) -> int:
                                 f"smoke {row['smoke']}"
                                 f"{', existing registry entry' if row['existing'] else ''}"
                             )
+                            if row.get("data_policy_revision"):
+                                _flushing_print(
+                                    f"  policy {row['data_policy_revision']}: "
+                                    f"{row['data_policy_notice']}"
+                                )
                 _flushing_print(f"candidate_revision: {onboarding_report['candidate_revision']}")
             return 0
 
@@ -1361,6 +1383,7 @@ def main(argv: list[str] | None = None) -> int:
                         ),
                         verification_declared=args.seats_add_verification_capable,
                         result_schema_version=args.seats_add_result_schema_version,
+                        credential_env=list(args.seats_add_credential_env),
                     )
                 elif "@" in args.seat_id:
                     seats.add_effort_seat(registry, args.seat_id)
@@ -1404,7 +1427,7 @@ def main(argv: list[str] | None = None) -> int:
                     payload = {}
                     for seat_id, seat in sorted(registry.seats.items()):
                         notes, known_efforts = seats.vendor_display(seat.vendor)
-                        payload[seat_id] = {
+                        seat_row: dict[str, object] = {
                             "present": seat.present,
                             "effort": seat.effort,
                             "commands": seat.commands,
@@ -1417,6 +1440,12 @@ def main(argv: list[str] | None = None) -> int:
                                 else None
                             ),
                         }
+                        if seat.credential_env:
+                            seat_row["credential_env"] = list(seat.credential_env)
+                        if seat.data_policy_revision is not None:
+                            seat_row["data_policy_revision"] = seat.data_policy_revision
+                            seat_row["data_policy_notice"] = seat.data_policy_notice
+                        payload[seat_id] = seat_row
                     _flushing_print(json.dumps(payload, indent=2))
                     return 0
                 if not registry.seats:
@@ -1438,6 +1467,15 @@ def main(argv: list[str] | None = None) -> int:
                         f"{' '.join(seat.commands[0])}{efforts}\n"
                         f"    note: {notes}"
                     )
+                    if seat.credential_env:
+                        _flushing_print(
+                            f"    credential environment: {','.join(seat.credential_env)} "
+                            "(name only; the raw value is visible to the seat process/tools)"
+                        )
+                    if seat.data_policy_revision is not None:
+                        _flushing_print(
+                            f"    data policy {seat.data_policy_revision}: {seat.data_policy_notice}"
+                        )
                 return 0
             raise channel.ChannelError(f"unknown seats command {args.seats_command!r}")
 

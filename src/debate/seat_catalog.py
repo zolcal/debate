@@ -51,6 +51,10 @@ CAPABILITY_CLASSES = ("frontier", "light")
 # checks in seats.validate_config_home.
 VENDOR_CONFIG_HOME_VARS: frozenset[str] = frozenset({"CLAUDE_CONFIG_DIR", "CODEX_HOME"})
 
+# Credential values never enter catalog or registry data. A seat may name only
+# one of these operator-environment variables for launch-time inheritance.
+KNOWN_CREDENTIAL_ENV_VARS: frozenset[str] = frozenset({"OPENROUTER_API_KEY"})
+
 
 @dataclass(frozen=True)
 class CatalogEntry:
@@ -83,6 +87,13 @@ class CatalogEntry:
     # "VAR=relative/dir": the vendor's documented configuration-home
     # variable and its folder, relative to $HOME. None means undeclared.
     config_home: str | None = None
+    # Code-known credential variable NAMES only. Values are resolved from the
+    # launching process at adapter launch and are never serialized.
+    credential_env: tuple[str, ...] = ()
+    # Optional revisioned third-party data-use notice. Approval records only
+    # the accepted revision in the project profile.
+    data_policy_revision: str | None = None
+    data_policy_notice: str | None = None
 
 
 CATALOG: tuple[CatalogEntry, ...] = (
@@ -109,6 +120,41 @@ CATALOG: tuple[CatalogEntry, ...] = (
         ),
         verification_capable=True,
         config_home="CLAUDE_CONFIG_DIR=.claude",
+    ),
+    CatalogEntry(
+        vendor="stealth",
+        binaries=("claude-ox",),
+        submodels=("ox-alpha",),
+        known_efforts=("max",),
+        invocation=("{binary}", "-p", "{prompt}"),
+        submodel_argv=(),
+        effort_argv=(),
+        notes=(
+            "claude-ox pins OpenRouter stealth/ox-alpha at max effort; anonymous-provider "
+            "limited preview, checked 2026-08-23; current zero price is not guaranteed"
+        ),
+        sibling_pattern=None,
+        capability_classes={"ox-alpha": "frontier"},
+        isolation_argv=(
+            "--safe-mode", "--setting-sources", "", "--strict-mcp-config",
+            "--disable-slash-commands",
+        ),
+        no_persistence_argv=("--no-session-persistence",),
+        verification_argv=(
+            "--permission-mode", "dontAsk",
+            "--tools", "Read,Grep,Glob,Bash",
+            "--allowedTools", "Read,Grep,Glob,Bash",
+        ),
+        verification_capable=True,
+        config_home="CLAUDE_CONFIG_DIR=.claude-ox",
+        credential_env=("OPENROUTER_API_KEY",),
+        data_policy_revision="openrouter-stealth-eula-2026-08-23",
+        data_policy_notice=(
+            "Ox Alpha is an anonymous-provider limited preview. OpenRouter's binding Stealth EULA "
+            "permits content retention, sharing, training, and a broad content license. Use only "
+            "non-sensitive material. The generic OpenRouter key is visible to the Ox process and "
+            "potentially its tools, putting every route and allowance available to that key in scope."
+        ),
     ),
     CatalogEntry(
         vendor="codex",

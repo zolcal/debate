@@ -11,6 +11,7 @@ writes the wizard's defaults cache as a side effect (plan fold H2).
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import tempfile
@@ -388,6 +389,18 @@ def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
             validate_config_home(seat.config_home, home=real_home)
         except channel.ChannelError as error:
             return str(error)
+    from .seats import validate_credential_env
+
+    try:
+        validate_credential_env(seat.credential_env)
+    except channel.ChannelError as error:
+        return str(error)
+    missing_credentials = [name for name in seat.credential_env if not os.environ.get(name)]
+    if missing_credentials:
+        return (
+            f"refused: seat {seat.seat_id!r} needs credential environment "
+            f"{', '.join(missing_credentials)} in the launching process"
+        )
     if seat.verification_basis not in ("catalogued", "declared"):
         return f"refused: seat {seat.seat_id!r} {NO_VERIFICATION_CAPABILITY_REFUSAL}"
     return None
@@ -964,13 +977,17 @@ def _brokered_adapter(
             "cli_version": f"registry seat (debate {tool_version}); bridge-reported at runtime",
             "cost_mode": seat.cost_mode,
             "authentication_mode": (
-                "seat bridge is self-authenticating; the controller handles no credentials"
+                "seat-declared credential names are inherited only at launch; their raw values "
+                "are visible to the seat process and tools but are not serialized"
+                if seat.credential_env
+                else "seat bridge is self-authenticating; the controller handles no credentials"
             ),
             "permission_policy": (
                 "controller-bound invocation from a pinned read-only source export"
             ),
             "settings_sources": [],
-            "environment_allowlist": ["PATH", "LANG", "LC_ALL"],
+            **({"credential_env": list(seat.credential_env)} if seat.credential_env else {}),
+            "environment_allowlist": ["PATH", "LANG", "LC_ALL", *seat.credential_env],
             "timeout_seconds": 1200,
             "retry_limit": 1,
             "session_persistence": False,
@@ -990,6 +1007,11 @@ def _brokered_adapter(
         "--verification-argv-json", json.dumps(seat.verification_argv),
         "--verification-basis", str(seat.verification_basis),
         "--result-schema-version", "2",
+        *(
+            ["--credential-env-json", json.dumps(seat.credential_env)]
+            if seat.credential_env
+            else []
+        ),
         "--deliberation-input", deliberation_input,
         "--isolation-flags-basis",
         "catalogued" if seat.source in ("catalog", "derived") else "declared",
@@ -1007,7 +1029,10 @@ def _brokered_adapter(
         ),
         "cost_mode": seat.cost_mode,
         "authentication_mode": (
-            "the tool authenticates itself through its own configuration folder; "
+            "the declared credential is inherited by name only at launch; its raw value is "
+            "visible to the seat process and tools but is not serialized"
+            if seat.credential_env
+            else "the tool authenticates itself through its own configuration folder; "
             "Debate handles no credentials"
         ),
         "permission_policy": (
@@ -1015,6 +1040,7 @@ def _brokered_adapter(
             "tool's own settings, plugins and session saving are turned off"
         ),
         "settings_sources": [],
+        **({"credential_env": list(seat.credential_env)} if seat.credential_env else {}),
         # The sandbox drops every name it was not handed, so the two pointers
         # the wrapper needs -- where Debate itself is installed, and where the
         # operator's home directory is -- travel with the profile.
@@ -1022,7 +1048,7 @@ def _brokered_adapter(
             "PYTHONPATH": str(Path(__file__).resolve().parent.parent),
             "DEBATE_BRIDGE_REAL_HOME": str(real_home),
         },
-        "environment_allowlist": list(_INHERITED_ENVIRONMENT),
+        "environment_allowlist": [*_INHERITED_ENVIRONMENT, *seat.credential_env],
         "timeout_seconds": 1200,
         "retry_limit": 1,
         "session_persistence": False,
@@ -1094,6 +1120,15 @@ def open_debate_brokered(
             )
     first = _seatable(registry, spec.pair[0])
     second = _seatable(registry, spec.pair[1])
+    for selected in (first, second):
+        if selected.data_policy_revision is None:
+            continue
+        accepted_revision = profile.data_policy_acceptances.get(selected.seat_id)
+        if accepted_revision != selected.data_policy_revision:
+            raise channel.ChannelError(
+                f"refused: seat {selected.seat_id!r} needs project acceptance of data policy "
+                f"{selected.data_policy_revision!r}; re-run onboarding inspect and approve"
+            )
     _identity_guard(first, second, allow_identical=spec.allow_identical_seats)
 
     if first.vendor != second.vendor:

@@ -134,6 +134,7 @@ class AdapterProfile:
     permission_policy: str
     settings_sources: tuple[str, ...]
     environment_allowlist: tuple[str, ...] = ()
+    credential_env: tuple[str, ...] = ()
     environment: dict[str, str] = field(default_factory=dict)
     timeout_seconds: int = 1800
     retry_limit: int = 1
@@ -224,6 +225,30 @@ class AdapterProfile:
             raise channel.ChannelError(
                 f"refused: adapter environment_allowlist for {self.party!r} must contain strings"
             )
+        from .seat_catalog import KNOWN_CREDENTIAL_ENV_VARS
+
+        duplicate_credentials = sorted(
+            {name for name in self.credential_env if self.credential_env.count(name) > 1}
+        )
+        unknown_credentials = sorted(set(self.credential_env) - KNOWN_CREDENTIAL_ENV_VARS)
+        if duplicate_credentials or unknown_credentials:
+            detail = duplicate_credentials or unknown_credentials
+            raise channel.ChannelError(
+                f"refused: adapter credential_env for {self.party!r} contains unsupported "
+                f"or duplicate names: {', '.join(detail)}"
+            )
+        missing_allowlist = sorted(set(self.credential_env) - set(self.environment_allowlist))
+        if missing_allowlist:
+            raise channel.ChannelError(
+                f"refused: adapter credential_env for {self.party!r} is not inherited: "
+                f"{', '.join(missing_allowlist)}"
+            )
+        persisted_credentials = sorted(set(self.credential_env).intersection(self.environment))
+        if persisted_credentials:
+            raise channel.ChannelError(
+                f"refused: adapter {self.party!r} puts credential values in persistent "
+                f"environment additions: {', '.join(persisted_credentials)}"
+            )
 
     @classmethod
     def from_mapping(cls, party: str, raw: object) -> "AdapterProfile":
@@ -278,6 +303,7 @@ class AdapterProfile:
             permission_policy=str(raw["permission_policy"]),
             settings_sources=_string_list(raw["settings_sources"], "settings_sources"),
             environment_allowlist=_string_list(raw.get("environment_allowlist", []), "environment_allowlist"),
+            credential_env=_string_list(raw.get("credential_env", []), "credential_env"),
             environment={str(key): str(value) for key, value in environment.items()},
             timeout_seconds=timeout,
             retry_limit=retry,
@@ -303,6 +329,7 @@ class AdapterProfile:
             "permission_policy": self.permission_policy,
             "settings_sources": list(self.settings_sources),
             "environment_allowlist": list(self.environment_allowlist),
+            **({"credential_env": list(self.credential_env)} if self.credential_env else {}),
             "environment_additions": env_hashes,
             "timeout_seconds": self.timeout_seconds,
             "retry_limit": self.retry_limit,
@@ -850,6 +877,14 @@ def _kill_adapter_tree(process: subprocess.Popen[str]) -> None:
 
 
 def _adapter_environment(config: BrokerConfig, profile: AdapterProfile, runtime: Path) -> dict[str, str]:
+    missing_credentials = [
+        name for name in profile.credential_env if not os.environ.get(name)
+    ]
+    if missing_credentials:
+        raise AdapterError(
+            f"refused: adapter {profile.party!r} needs credential environment "
+            f"{', '.join(missing_credentials)} in the launching process"
+        )
     environment = _baseline_environment()
     environment.update({key: os.environ[key] for key in profile.environment_allowlist if key in os.environ})
     environment.update(profile.environment)
@@ -874,6 +909,26 @@ def _adapter_environment(config: BrokerConfig, profile: AdapterProfile, runtime:
         }
     )
     return environment
+
+
+def _redact_credential_material(
+    text: str, profile: AdapterProfile, environment: dict[str, str]
+) -> str:
+    """Remove inherited credential values and their SHA-256 from retained text."""
+    replacements: list[tuple[str, str]] = []
+    for name in profile.credential_env:
+        value = environment.get(name, "")
+        if not value:
+            continue
+        replacements.extend(
+            [
+                (value, f"[redacted credential {name}]"),
+                (hashlib.sha256(value.encode("utf-8")).hexdigest(), f"[redacted digest {name}]"),
+            ]
+        )
+    for material, replacement in sorted(replacements, key=lambda item: len(item[0]), reverse=True):
+        text = text.replace(material, replacement)
+    return text
 
 
 def _bounded_verification_text(
@@ -1550,6 +1605,17 @@ class BrokerController:
                 _kill_adapter_tree(process)
                 raise
             returncode = process.returncode
+        stdout = _redact_credential_material(stdout, profile, environment)
+        stderr = _redact_credential_material(stderr, profile, environment)
+        if result_path.is_file():
+            try:
+                result_text = result_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                pass
+            else:
+                redacted_result = _redact_credential_material(result_text, profile, environment)
+                if redacted_result != result_text:
+                    result_path.write_text(redacted_result, encoding="utf-8")
         stdout_path = invocation_root / "stdout.txt"
         stderr_path = invocation_root / "stderr.txt"
         stdout_path.write_text(stdout, encoding="utf-8")

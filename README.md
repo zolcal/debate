@@ -226,6 +226,21 @@ Which seats can take part in a fully managed debate:
   `--permission-mode dontAsk`, `--tools Read,Grep,Glob,Bash`, and
   `--allowedTools Read,Grep,Glob,Bash`; the Codex wrapper is recorded as
   inherently verification-capable.
+- **Ox Alpha is an optional frontier seat when `claude-ox` is already installed.**
+  Discovery records `stealth/ox-alpha` as an anonymous-provider, API-backed
+  limited preview; it never classifies Ox as lightweight. Before project approval,
+  onboarding displays the exact revisioned Stealth data-use notice and requires a
+  matching explicit acceptance. The binding
+  [Stealth terms](https://openrouter.ai/terms/stealth) permit retention, sharing,
+  training and a broad content license, so use only non-sensitive material. At the
+  owner's direction this setup inherits the existing `OPENROUTER_API_KEY` by name
+  only at process launch. The value is never written to the registry, project
+  profile, watcher configuration, channel record or diagnostics, but it is visible
+  to the Ox process and potentially its tools; every route and allowance available
+  to that generic key is therefore in the blast radius. If a seat echoes the raw
+  value or its SHA-256, Debate redacts it before retaining output or diagnostics.
+  Current `$0/M` pricing is time-sensitive; declare this seat's cost mode as `api`,
+  never local or subscription.
 - **Any other tool joins once you tell Debate how it turns those off:**
   `debate seats add mytool/big --command '/path/to/mytool -p {prompt}'
   --isolation-argv=--no-config --no-persistence-argv=--no-history
