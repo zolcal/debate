@@ -11,6 +11,7 @@ import json
 import stat
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,6 +19,11 @@ from debate import channel, onboarding, opening, seats
 from debate.__main__ import _watcher_config
 
 NOW = "2026-08-19T12:00:00+00:00"
+REVIEW_CONTRACT: dict[str, Any] = {
+    "goal": "Establish whether the fixture satisfies its recorded criterion.",
+    "review_domain": "The pinned fixture source and docket.",
+    "stop_rule": "Stop after the bounded checks and a decisive verdict.",
+}
 
 
 def _write_registry(path: Path, seats_obj: dict[str, object]) -> None:
@@ -44,6 +50,9 @@ def _seat(command: list[str], *, vendor: str | None = None, submodel: str = "fak
         "source": "manual",
         "present": True,
         "smoke": None,
+        "verification_argv": [],
+        "verification_basis": "declared",
+        "result_schema_version": 2,
     }
 
 
@@ -210,11 +219,14 @@ def _fake_adapter_script(tmp_path: Path, name: str) -> Path:
     script.write_text(
         "import json, sys\n"
         "result = {\n"
-        "    'schema_version': 1,\n"
+        "    'schema_version': 2,\n"
         "    'entry_type': 'verdict',\n"
         "    'decision': 'PASS',\n"
         f"    'body': 'stub verdict from {name}: PASS on own reading',\n"
         f"    'runtime_model': '{name}-model',\n"
+        "    'verification': {'status': 'performed', 'items': [\n"
+        "        {'command': 'python fixture probe', 'exit_status': 0, 'output': 'fixture passed'}\n"
+        "    ]},\n"
         "}\n"
         "with open(sys.argv[2], 'w', encoding='utf-8') as handle:\n"
         "    json.dump(result, handle)\n",
@@ -272,6 +284,7 @@ def test_brokered_open_refuses_without_profile(isolated: tuple[Path, Path], tmp_
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="claude",
+        **REVIEW_CONTRACT,
     )
     with pytest.raises(channel.ChannelError, match="no approved seats"):
         opening.open_debate_brokered(
@@ -297,6 +310,7 @@ def test_brokered_open_identity_guard(isolated: tuple[Path, Path], tmp_path: Pat
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "alpha/fake"), source_ref=_head(project), author_vendor="claude",
+        **REVIEW_CONTRACT,
     )
     with pytest.raises(channel.ChannelError, match="same seat twice"):
         opening.open_debate_brokered(
@@ -331,6 +345,7 @@ def test_brokered_open_refuses_prompt_style_seats(isolated: tuple[Path, Path], t
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="claude",
+        **REVIEW_CONTRACT,
     )
     with pytest.raises(channel.ChannelError, match="isolated mode a managed debate needs"):
         opening.open_debate_brokered(
@@ -350,6 +365,7 @@ def test_brokered_open_mints_managed_v2_with_provenance(
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="claude",
+        **REVIEW_CONTRACT,
     )
     live_registry = seats.load_registry()
     result = opening.open_debate_brokered(
@@ -385,6 +401,7 @@ def test_author_vendor_derives_the_recorded_relationship(
     spec = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "beta/fake"),
         source_ref=_head(project), author_vendor="alpha",
+        **REVIEW_CONTRACT,
     )
     result = opening.open_debate_brokered(
         spec, seats.load_registry(), load_config_fn=_watcher_config,
@@ -404,6 +421,7 @@ def test_author_vendor_derives_the_recorded_relationship(
             opening.BrokeredOpenSpec(
                 root=project / "collab2", label="stub", pair=("alpha/fake", "beta/fake"),
                 source_ref=_head(project), author_vendor="  ",
+                **REVIEW_CONTRACT,
             ),
             seats.load_registry(), load_config_fn=_watcher_config,
             now=NOW, tool_version="test",
@@ -425,6 +443,7 @@ def test_padded_author_vendor_still_matches_and_typo_is_refused(
         opening.BrokeredOpenSpec(
             root=root, label="stub", pair=("alpha/fake", "beta/fake"),
             source_ref=_head(project), author_vendor=" Alpha ",
+            **REVIEW_CONTRACT,
         ),
         seats.load_registry(), load_config_fn=_watcher_config,
         now=NOW, tool_version="test",
@@ -437,6 +456,7 @@ def test_padded_author_vendor_still_matches_and_typo_is_refused(
             opening.BrokeredOpenSpec(
                 root=root2, label="stub", pair=("alpha/fake", "beta/fake"),
                 source_ref=_head(project), author_vendor="clade",
+                **REVIEW_CONTRACT,
             ),
             seats.load_registry(), load_config_fn=_watcher_config,
             now=NOW, tool_version="test",
@@ -537,6 +557,7 @@ def test_brokered_open_docket_files_snapshot_and_prewrite_refusal(
     missing = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "beta/fake"),
         source_ref=_head(project), author_vendor="claude", docket_files=("no-such-file.md",),
+        **REVIEW_CONTRACT,
     )
     with pytest.raises(channel.ChannelError, match="docket file"):
         opening.open_debate_brokered(
@@ -547,6 +568,7 @@ def test_brokered_open_docket_files_snapshot_and_prewrite_refusal(
     good = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "beta/fake"),
         source_ref=_head(project), author_vendor="claude", docket_files=("README",),
+        **REVIEW_CONTRACT,
     )
     result = opening.open_debate_brokered(
         good, seats.load_registry(), load_config_fn=_watcher_config,
@@ -577,6 +599,7 @@ def test_docket_file_escapes_are_refused_pre_write(
                     root=root, label="stub", pair=("alpha/fake", "beta/fake"),
                     source_ref=_head(project), author_vendor="claude",
                     docket_files=(bad,),
+                    **REVIEW_CONTRACT,
                 ),
                 seats.load_registry(), load_config_fn=_watcher_config,
                 now=NOW, tool_version="test",
@@ -696,6 +719,7 @@ def test_stub_debate_reaches_typed_close(
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("alpha/fake", "beta/fake"), source_ref=_head(project), author_vendor="claude",
+        **REVIEW_CONTRACT,
     )
     live_registry = seats.load_registry()
     result = opening.open_debate_brokered(

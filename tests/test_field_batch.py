@@ -214,6 +214,9 @@ def test_interactive_open_defaults_to_a_snappy_tick(
         opening.BrokeredOpenSpec(
             root=project / "collab", label="stub", pair=("alpha/fake", "beta/fake"),
             source_ref=head, author_vendor="claude",
+            goal="Establish whether the fixture meets its criterion.",
+            review_domain="The pinned fixture source and docket.",
+            stop_rule="Stop after bounded checks and a decisive verdict.",
         ),
         seats.load_registry(), load_config_fn=_watcher_config,
         now="2026-08-20T12:00:00+00:00", tool_version="test",
@@ -248,6 +251,9 @@ def test_open_survives_post_creation_bookkeeping_failure(
         "open", "--brokered", "--root", str(project / "collab"),
         "--label", "stub", "--pair", "alpha/fake,beta/fake",
         "--author-vendor", "claude",
+        "--goal", "Establish whether the fixture meets its criterion.",
+        "--review-domain", "The pinned fixture source and docket.",
+        "--stop-rule", "Stop after bounded checks and a decisive verdict.",
     ])
     captured = capsys.readouterr()
     assert rc == 0

@@ -13,7 +13,7 @@ from typing import Any, NamedTuple
 
 import pytest
 
-from debate import channel
+from debate import channel, opening, seats
 from debate.controller import (
     AdapterError,
     AdapterProfile,
@@ -220,6 +220,87 @@ def make_broker(
         docket_files=("docs/plans/superseded.md", "watcher.json"),
         contamination_canaries=canaries or {},
         sealed_concurrency=sealed_concurrency,
+    )
+
+
+NESTED_SEAT = r"""
+import json
+import os
+import sys
+
+mode = os.environ.get("NESTED_MODE", "success")
+if mode == "malformed":
+    print("this is not a structured answer")
+else:
+    print("```json")
+    print(json.dumps({
+        "schema_version": 2,
+        "entry_type": "verdict",
+        "decision": "PASS",
+        "body": "fresh nested-seat review",
+        "verification": {"status": "performed", "items": [{
+            "command": "python -m pytest -q",
+            "exit_status": 0,
+            "output": "fixture passed",
+        }]},
+    }))
+    print("```")
+if mode == "exit-101":
+    raise SystemExit(101)
+"""
+
+
+def bundled_profile(tmp_path: Path, party: str, mode: str) -> AdapterProfile:
+    script = tmp_path / f"nested-{party}.py"
+    script.write_text(NESTED_SEAT, encoding="utf-8")
+    seat = seats.Seat(
+        seat_id=f"nested/{party}",
+        vendor="nested",
+        submodel=party,
+        effort=None,
+        commands=[[sys.executable, str(script), "{prompt}"]],
+        source="manual",
+        present=True,
+        smoke=None,
+        cost_mode="local",
+        isolation_argv=["--isolated"],
+        no_persistence_argv=["--forget"],
+        verification_basis="declared",
+    )
+    mapping = opening._brokered_adapter(
+        seat,
+        tool_version="test",
+        author_vendor="author",
+        real_home=tmp_path,
+    )
+    raw_environment = mapping["environment"]
+    assert isinstance(raw_environment, dict)
+    environment = {str(key): str(value) for key, value in raw_environment.items()}
+    environment["NESTED_MODE"] = mode
+    mapping["environment"] = environment
+    return AdapterProfile.from_mapping(party, mapping)
+
+
+def broker_with_profile(
+    base: BrokerConfig, party: str, profile: AdapterProfile
+) -> BrokerConfig:
+    profiles = {**base.profiles, party: profile}
+    return BrokerConfig(
+        repository_root=base.repository_root,
+        runtime_root=base.runtime_root,
+        source_ref=base.source_ref,
+        profiles=profiles,
+        timing=TimingPolicy(
+            thread_cap=base.timing.thread_cap,
+            scheduler_interval_seconds=base.timing.scheduler_interval_seconds,
+            retry_seconds=base.timing.retry_seconds,
+            whole_case_timeout_seconds=base.timing.whole_case_timeout_seconds,
+            profiles=(profiles["alice"], profiles["bob"]),
+        ),
+        config_sha256=base.config_sha256,
+        docket_files=base.docket_files,
+        contamination_canaries=base.contamination_canaries,
+        sealed_concurrency=base.sealed_concurrency,
     )
 
 
@@ -448,6 +529,91 @@ def test_malformed_or_sender_asserting_result_is_refused_without_mailbox_write(
     assert len(channel.read_entries(root, name)) == 1
 
 
+def test_nested_nonzero_retries_once_then_closes_with_exact_status(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = broker_with_profile(
+        make_broker(repo, sha), "bob", bundled_profile(tmp_path, "bob", "exit-101")
+    )
+    open_brokered_thread(root, name, broker)
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+        retry_seconds=0,
+    )
+
+    first = run_once(config)
+    assert any("nested seat process" in line and "exited 101" in line for line in first)
+    assert channel.read_signal(root, name)["phase"] != "terminal"
+    assert [entry.entry_type for entry in channel.read_entries(root, name)] == [
+        "review-request"
+    ]
+
+    run_once(config)
+    signal = channel.read_signal(root, name)
+    assert signal["terminal_result"] == "ERROR"
+    closing = channel.read_entries(root, name)[-1]
+    assert closing.entry_type == "close"
+    assert "nested seat process" in closing.body
+    assert "exited 101" in closing.body
+    bob_invocations = sorted(
+        (broker.runtime_root / "cases" / "review-one" / "invocations").glob("*-bob-*")
+    )
+    assert len(bob_invocations) == 2
+    for invocation in bob_invocations:
+        assert not (invocation / "result.json").exists()
+        nested = json.loads((invocation / "seat-failure.json").read_text(encoding="utf-8"))
+        outer = json.loads((invocation / "failure.json").read_text(encoding="utf-8"))
+        assert nested["seat_process_exit_status"] == 101
+        assert outer["seat_process_exit_status"] == 101
+        assert outer["adapter_process_exit_status"] == 3
+
+
+def test_bundled_status_two_and_custom_status_three_are_not_retryable(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    malformed = broker_with_profile(
+        make_broker(repo, sha), "bob", bundled_profile(tmp_path, "bob", "malformed")
+    )
+    with pytest.raises(AdapterError, match="exited 2") as bundled:
+        BrokerController(malformed)._invoke(
+            party="bob",
+            phase="sealed",
+            thread="malformed-answer",
+            sequence=1,
+            attempt=1,
+            transcript=None,
+        )
+    assert bundled.value.retryable is False
+
+    custom_script = tmp_path / "custom-exit-three.py"
+    custom_script.write_text("raise SystemExit(3)\n", encoding="utf-8")
+    base = make_broker(repo, sha, sealed_concurrency="sequential")
+    custom = AdapterProfile(
+        **{
+            **base.profiles["bob"].__dict__,
+            "command": (
+                sys.executable,
+                str(custom_script),
+                "{input_path}",
+                "{result_path}",
+            ),
+        }
+    )
+    custom_broker = broker_with_profile(base, "bob", custom)
+    with pytest.raises(AdapterError, match="exited 3") as arbitrary:
+        BrokerController(custom_broker)._invoke(
+            party="bob",
+            phase="sealed",
+            thread="custom-three",
+            sequence=1,
+            attempt=1,
+            transcript=None,
+        )
+    assert arbitrary.value.retryable is False
+
+
 @pytest.mark.parametrize("label", ["controller-only", "opponent-only", "historical", "user-memory"])
 def test_contamination_canary_attempt_rejects_profile_and_records_reason(tmp_path: Path, label: str) -> None:
     repo, sha = make_repository(tmp_path)
@@ -482,6 +648,14 @@ def test_contamination_canary_attempt_rejects_profile_and_records_reason(tmp_pat
 
 def test_source_export_is_complete_except_separated_state_and_git_is_unreachable(tmp_path: Path) -> None:
     repo, sha = make_repository(tmp_path)
+    prior = repo / ".debate" / "runtime" / "old-channel" / "cases" / "old"
+    prior.mkdir(parents=True)
+    (prior / "input.json").write_text('{"historical": true}\n', encoding="utf-8")
+    (prior / "result.json").write_text('{"decision": "PASS"}\n', encoding="utf-8")
+    (prior / "stdout.txt").write_text("old output\n", encoding="utf-8")
+    assert _run(["git", "add", "-f", ".debate"], repo).returncode == 0
+    assert _run(["git", "commit", "-m", "committed hidden runtime fixture"], repo).returncode == 0
+    sha = _run(["git", "rev-parse", "HEAD"], repo).stdout.strip()
     broker = make_broker(repo, sha)
     export = create_source_export(broker, "bob")
 
@@ -490,13 +664,17 @@ def test_source_export_is_complete_except_separated_state_and_git_is_unreachable
     assert not (export.root / ".git").exists()
     assert not (export.root / "collab").exists()
     assert not (export.root / "var").exists()
+    assert not (export.root / ".debate").exists()
+    assert any(path.startswith(".debate/") for path in export.excluded)
+    manifest = json.loads(export.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["exclusion_policy"] == ["collab/", "var/", ".git/", ".debate/"]
     tracked = set(
         _run(["git", "ls-tree", "-r", "--name-only", sha], repo).stdout.splitlines()
     )
     expected = {
         path
         for path in tracked
-        if path.split("/", 1)[0] not in {"collab", "var", ".git"}
+        if path.split("/", 1)[0] not in {"collab", "var", ".git", ".debate"}
     }
     assert set(export.files) == expected
 
@@ -528,6 +706,33 @@ def test_source_export_is_complete_except_separated_state_and_git_is_unreachable
         env=env,
     )
     assert project_test.returncode == 0, (project_test.stdout, project_test.stderr)
+
+
+def test_root_pytest_does_not_collect_duplicate_tests_from_hidden_runtime(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "collection-fixture"
+    hidden = project / ".debate" / "runtime" / "old" / "exports" / "seat"
+    hidden.mkdir(parents=True)
+    (project / "test_duplicate.py").write_text(
+        "def test_visible():\n    assert True\n", encoding="utf-8"
+    )
+    (hidden / "test_duplicate.py").write_text(
+        "def test_hidden_copy():\n    assert False\n", encoding="utf-8"
+    )
+    environment = {
+        **os.environ,
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    collected = _run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"],
+        project,
+        env=environment,
+    )
+    assert collected.returncode == 0, (collected.stdout, collected.stderr)
+    assert "test_visible" in collected.stdout
+    assert "test_hidden_copy" not in collected.stdout
 
 
 def test_untracked_docket_files_are_content_addressed_and_manifested(tmp_path: Path) -> None:
@@ -1806,6 +2011,112 @@ def test_thread_cap_exhaustion_closes_no_pass(tmp_path: Path) -> None:
     assert len(channel.thread_entries(root, "review-one", name)) == 5, "typed close may follow the cap"
 
 
+def test_insufficient_sealed_room_closes_without_invoking_a_seat(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo, thread_cap=5)
+    broker = make_broker(repo, sha, thread_cap=5)
+    open_brokered_thread(root, name, broker)
+    for index in range(3):
+        channel.post(root, "owner", "info", "review-one", f"context {index}", name=name)
+    outcome = BrokerController(broker).drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="review-one",
+        sequence=4,
+        attempt=1,
+    )
+    assert outcome.close_reason == "thread-cap-exhausted"
+    invocations = broker.runtime_root / "cases" / "review-one" / "invocations"
+    assert not invocations.exists() or list(invocations.iterdir()) == []
+
+
+def test_sealed_supervisor_race_retains_diagnostics_and_publishes_no_vote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo, thread_cap=5)
+    broker = make_broker(repo, sha, thread_cap=5)
+    controller = BrokerController(broker)
+    open_brokered_thread(root, name, broker)
+    channel.post(root, "owner", "info", "review-one", "context one", name=name)
+    channel.post(root, "owner", "info", "review-one", "context two", name=name)
+    original = controller._capture_sealed_positions
+
+    def raced(**kwargs: object) -> None:
+        original(**kwargs)  # type: ignore[arg-type]
+        channel.post(root, "owner", "info", "review-one", "racing context", name=name)
+
+    monkeypatch.setattr(controller, "_capture_sealed_positions", raced)
+    outcome = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="review-one",
+        sequence=3,
+        attempt=1,
+    )
+    assert outcome.close_reason == "thread-cap-race"
+    entries = channel.thread_entries(root, "review-one", name)
+    assert not any(entry.entry_type == "verdict" for entry in entries)
+    assert entries[-1].entry_type == "close"
+    invocations = sorted(
+        (broker.runtime_root / "cases" / "review-one" / "invocations").iterdir()
+    )
+    assert len(invocations) == 2
+    assert all((path / "result.json").is_file() for path in invocations)
+    assert all(path.name.endswith("-1") for path in invocations), "the race spends no retry"
+
+
+def test_deliberation_supervisor_race_retains_diagnostics_and_publishes_no_new_vote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo, thread_cap=5)
+    broker = make_broker(
+        repo,
+        sha,
+        thread_cap=5,
+        alice_sealed_decision="PASS",
+        bob_sealed_decision="NO_PASS",
+        alice_deliberation_decision="PASS",
+        bob_deliberation_decision="NO_PASS",
+    )
+    controller = BrokerController(broker)
+    open_brokered_thread(root, name, broker)
+    first = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="review-one",
+        sequence=1,
+        attempt=1,
+    )
+    assert first.phase == "deliberation"
+    original = controller._invoke
+
+    def raced(**kwargs: object) -> tuple[AdapterResult, dict[str, str | Path]]:
+        result = original(**kwargs)  # type: ignore[arg-type]
+        channel.post(root, "owner", "info", "review-one", "racing context one", name=name)
+        channel.post(root, "owner", "info", "review-one", "racing context two", name=name)
+        return result
+
+    monkeypatch.setattr(controller, "_invoke", raced)
+    outcome = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="review-one",
+        sequence=3,
+        attempt=1,
+    )
+    assert outcome.close_reason == "thread-cap-race"
+    entries = channel.thread_entries(root, "review-one", name)
+    assert len([entry for entry in entries if entry.entry_type == "verdict"]) == 2
+    assert entries[-1].entry_type == "close"
+    later = list(
+        (broker.runtime_root / "cases" / "review-one" / "invocations").glob("3-*-1")
+    )
+    assert len(later) == 1 and (later[0] / "result.json").is_file()
+    assert not list(later[0].parent.glob("3-*-2"))
+
+
 def test_verdict_without_typed_decision_is_refused_before_mailbox_write(tmp_path: Path) -> None:
     repo, sha = make_repository(tmp_path)
     root, name = make_channel(repo)
@@ -2293,6 +2604,10 @@ def test_sealed_adapter_input_matches_its_golden_payload(tmp_path: Path) -> None
             "author_relationship": "author-independent",
             "topology": "minimum-two-agent",
         },
+        "review_contract": {
+            "review_mode": "release-gate",
+            "review_contract_basis": "legacy-absent",
+        },
         "source": {
             "root": "<runtime>/exports/<ref>/bob",
             "ref": "<ref>",
@@ -2333,6 +2648,7 @@ def test_sealed_adapter_input_matches_its_golden_payload(tmp_path: Path) -> None
         "phase",
         "thread",
         "seat",
+        "review_contract",
         "source",
         "docket",
         "result",

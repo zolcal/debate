@@ -217,7 +217,9 @@ def apply(spec: SetupSpec,
     # refusal leaves the project byte-untouched (gate finding, MSG-33). The
     # loader is REQUIRED -- an optional one made this whole gate skippable by
     # default (gate finding, MSG-36 F1).
-    with tempfile.TemporaryDirectory(prefix="debate-setup-") as scratch:
+    with tempfile.TemporaryDirectory(
+        prefix=".debate-setup-", dir=spec.channel_root.resolve().parent
+    ) as scratch:
         probe = Path(scratch) / spec.config_path.name
         probe.write_text(json.dumps(config, indent=2), encoding="utf-8")
         loaded = load_config_fn(spec.channel_root, probe, spec.channel_name or None)

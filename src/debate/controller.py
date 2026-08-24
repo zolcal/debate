@@ -30,7 +30,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from debate import channel
 
-RESULT_SCHEMA_VERSION = 1
+LEGACY_RESULT_SCHEMA_VERSION = 1
+PRODUCT_RESULT_SCHEMA_VERSION = 2
 AUTHOR_RELATIONSHIPS = ("author-affiliated", "author-independent")
 SEAT_DECISIONS = ("PASS", "NO_PASS")
 SEALED_CONCURRENCY_MODES = ("concurrent", "sequential")
@@ -40,6 +41,14 @@ RECORDED_DELIBERATION_INPUTS = ("verdicts-only", "full-docket")
 LATER_PHASES = ("open", "deliberation")
 COST_MODES = ("subscription", "api", "local", "unknown")
 ISOLATION_MODES = ("advisory", "os-enforced")
+VERIFICATION_ITEM_LIMIT = 16
+VERIFICATION_COMMAND_SCALARS = 1024
+VERIFICATION_COMMAND_BYTES = 4096
+VERIFICATION_OUTPUT_SCALARS = 8192
+VERIFICATION_OUTPUT_BYTES = 32768
+VERIFICATION_REASON_SCALARS = 1024
+VERIFICATION_REASON_BYTES = 4096
+VERIFICATION_OBJECT_BYTES = 262144
 _PINNED_REF = re.compile(r"^[0-9a-f]{40}$")
 _TOOL_CACHE_NAMES = {".pytest_cache", ".pytest-tmp", ".mypy_cache", ".ruff_cache", "__pycache__"}
 _RESERVED_ENV = {
@@ -131,6 +140,7 @@ class AdapterProfile:
     session_persistence: bool = False
     isolation_mode: str = "advisory"
     expected_runtime_model: str | None = None
+    result_schema_version: int = LEGACY_RESULT_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
         if not self.command or not all(isinstance(part, str) and part for part in self.command):
@@ -162,6 +172,16 @@ class AdapterProfile:
         if self.isolation_mode not in ISOLATION_MODES:
             raise channel.ChannelError(
                 f"refused: isolation_mode for {self.party!r} must be one of {ISOLATION_MODES}"
+            )
+        if (
+            isinstance(self.result_schema_version, bool)
+            or self.result_schema_version not in (
+                LEGACY_RESULT_SCHEMA_VERSION,
+                PRODUCT_RESULT_SCHEMA_VERSION,
+            )
+        ):
+            raise channel.ChannelError(
+                f"refused: result_schema_version for {self.party!r} must be 1 or 2"
             )
         if self.session_persistence:
             raise channel.ChannelError(
@@ -232,6 +252,12 @@ class AdapterProfile:
         try:
             timeout = int(raw.get("timeout_seconds", 1800))
             retry = int(raw.get("retry_limit", 1))
+            result_schema_version = raw.get(
+                "result_schema_version", LEGACY_RESULT_SCHEMA_VERSION
+            )
+            if isinstance(result_schema_version, bool):
+                raise ValueError("boolean is not a schema version")
+            result_schema_version = int(result_schema_version)
         except (TypeError, ValueError) as error:
             raise channel.ChannelError(
                 f"refused: adapter timing for {party!r} must contain integers"
@@ -257,6 +283,7 @@ class AdapterProfile:
             retry_limit=retry,
             session_persistence=bool(raw.get("session_persistence", False)),
             isolation_mode=str(raw.get("isolation_mode", "advisory")),
+            result_schema_version=result_schema_version,
         )
 
     def sanitized_manifest(self) -> dict[str, object]:
@@ -282,7 +309,7 @@ class AdapterProfile:
             "session_persistence": self.session_persistence,
             "isolation_mode": self.isolation_mode,
             "command_sha256": command_hash,
-            "result_schema_version": RESULT_SCHEMA_VERSION,
+            "result_schema_version": self.result_schema_version,
         }
 
     @property
@@ -325,8 +352,15 @@ class TimingPolicy:
         return min(self.unconstrained_seconds, self.whole_case_timeout_seconds)
 
     def report(self) -> dict[str, int]:
+        from .opening import review_budget
+
+        budget = review_budget(
+            self.thread_cap, [profile.retry_limit for profile in self.profiles]
+        )
         return {
             "thread_cap": self.thread_cap,
+            "seat_turn_ceiling": budget.seat_turn_ceiling,
+            "nested_launch_ceiling": budget.nested_launch_ceiling,
             "unconstrained_schedule_seconds": self.unconstrained_seconds,
             "whole_case_timeout_seconds": self.whole_case_timeout_seconds,
             "enforced_terminal_bound_seconds": self.enforced_seconds,
@@ -347,20 +381,32 @@ class BrokerConfig:
     # share nothing but the read-only export and docket, and every write stays
     # on the driving thread. "sequential" is the one-at-a-time original.
     sealed_concurrency: str = "concurrent"
+    review_mode: str = "release-gate"
+    review_contract_basis: str = "legacy-absent"
+    goal: str | None = None
+    review_domain: str | None = None
+    stop_rule: str | None = None
 
     def __post_init__(self) -> None:
         repo = self.repository_root.resolve()
         runtime = self.runtime_root.resolve()
-        expected_root = (repo / "var" / "debate").resolve()
-        if runtime == expected_root or not runtime.is_relative_to(expected_root):
-            raise channel.ChannelError(
-                f"refused: managed runtime_root {runtime} must be a case directory below {expected_root}"
-            )
-        relative_parts = runtime.relative_to(repo).parts
+        accepted_roots = {
+            (repo / "var" / "debate").resolve(),
+            (repo / ".debate" / "runtime").resolve(),
+        }
+        try:
+            relative_parts = runtime.relative_to(repo).parts
+        except ValueError:
+            relative_parts = ()
         bad = sorted(_TOOL_CACHE_NAMES.intersection(relative_parts))
         if bad:
             raise channel.ChannelError(
                 f"refused: managed runtime_root may not live under tool-managed caches: {', '.join(bad)}"
+            )
+        if runtime.parent not in accepted_roots:
+            raise channel.ChannelError(
+                f"refused: managed runtime_root {runtime} must be an exact channel "
+                f"directory below one of {', '.join(str(path) for path in sorted(accepted_roots))}"
             )
         if not _PINNED_REF.fullmatch(self.source_ref):
             raise channel.ChannelError(
@@ -400,6 +446,35 @@ class BrokerConfig:
                 f"refused: sealed_concurrency must be one of {SEALED_CONCURRENCY_MODES}, "
                 f"got {self.sealed_concurrency!r}"
             )
+        if self.review_mode not in channel.REVIEW_MODES:
+            raise channel.ChannelError(
+                f"refused: review_mode must be one of {channel.REVIEW_MODES}"
+            )
+        if self.review_contract_basis not in channel.REVIEW_CONTRACT_BASES:
+            raise channel.ChannelError(
+                "refused: review_contract_basis must be 'recorded' or 'legacy-absent'"
+            )
+        fields = (self.goal, self.review_domain, self.stop_rule)
+        if self.review_contract_basis == "recorded":
+            if any(not isinstance(value, str) or not value.strip() for value in fields):
+                raise channel.ChannelError(
+                    "refused: recorded review contract needs goal, review_domain and stop_rule"
+                )
+        elif any(value is not None for value in fields):
+            raise channel.ChannelError(
+                "refused: legacy-absent review contract may not fabricate bounded fields"
+            )
+        if self.review_contract_basis == "recorded":
+            legacy = sorted(
+                profile.party
+                for profile in self.profiles.values()
+                if profile.result_schema_version != PRODUCT_RESULT_SCHEMA_VERSION
+            )
+            if legacy:
+                raise channel.ChannelError(
+                    "refused: a new product debate requires result schema v2 from both "
+                    f"adapters; v1: {', '.join(legacy)}"
+                )
 
     @property
     def topology(self) -> str:
@@ -411,6 +486,22 @@ class BrokerConfig:
     @property
     def profile_hashes(self) -> dict[str, str]:
         return {party: profile.profile_sha256 for party, profile in sorted(self.profiles.items())}
+
+    @property
+    def review_contract(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "review_mode": self.review_mode,
+            "review_contract_basis": self.review_contract_basis,
+        }
+        if self.review_contract_basis == "recorded":
+            payload.update(
+                {
+                    "goal": self.goal,
+                    "review_domain": self.review_domain,
+                    "stop_rule": self.stop_rule,
+                }
+            )
+        return payload
 
 
 @dataclass(frozen=True)
@@ -456,6 +547,11 @@ class AdapterResult:
     # verdicts alone ("verdicts-only") or the whole review material again
     # ("full-docket"). Absent on a sealed result, which always reads everything.
     deliberation_input: str | None = None
+    # Schema v2 evidence is a seat declaration that the controller validates
+    # structurally. Legacy v1 adapters remain explicit evidence-absent.
+    verification: dict[str, object] | None = None
+    verification_status: str = "absent"
+    verification_evidence_basis: str = "absent"
 
 
 @dataclass(frozen=True)
@@ -507,7 +603,7 @@ def _safe_member(name: str) -> PurePosixPath:
 
 
 def _is_separated(path: PurePosixPath) -> bool:
-    return path.parts[0] in ("collab", "var", ".git")
+    return path.parts[0] in ("collab", "var", ".git", ".debate")
 
 
 def _write_export_member(archive: tarfile.TarFile, member: tarfile.TarInfo, root: Path) -> None:
@@ -545,6 +641,21 @@ def _tree_files(root: Path) -> dict[str, str]:
         elif path.is_file():
             files[relative] = _file_hash(path)
     return files
+
+
+def _logical_tree_bytes(root: Path) -> int:
+    total = 0
+    if not root.exists():
+        return 0
+    for current, directories, files in os.walk(root, followlinks=False):
+        current_path = Path(current)
+        for name in directories:
+            candidate = current_path / name
+            if candidate.is_symlink():
+                total += candidate.lstat().st_size
+        for name in files:
+            total += (current_path / name).lstat().st_size
+    return total
 
 
 def _make_read_only(root: Path) -> None:
@@ -607,7 +718,7 @@ def create_source_export(config: BrokerConfig, party: str) -> SourceExport:
         "party": party,
         "files": files,
         "excluded": sorted(set(excluded)),
-        "exclusion_policy": ["collab/", "var/", ".git/"],
+        "exclusion_policy": ["collab/", "var/", ".git/", ".debate/"],
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     _make_read_only(export_root)
@@ -765,6 +876,135 @@ def _adapter_environment(config: BrokerConfig, profile: AdapterProfile, runtime:
     return environment
 
 
+def _bounded_verification_text(
+    value: object,
+    *,
+    party: str,
+    field_name: str,
+    scalar_limit: int,
+    byte_limit: int,
+) -> str:
+    if not isinstance(value, str) or not value:
+        raise AdapterError(
+            f"refused: adapter {party!r} verification {field_name} must be non-empty text"
+        )
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        raise AdapterError(
+            f"refused: adapter {party!r} verification {field_name} contains an isolated surrogate"
+        )
+    if len(value) > scalar_limit:
+        raise AdapterError(
+            f"refused: adapter {party!r} verification {field_name} exceeds "
+            f"{scalar_limit} Unicode scalar values"
+        )
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as error:  # defensive; surrogates are named above
+        raise AdapterError(
+            f"refused: adapter {party!r} verification {field_name} is not valid UTF-8"
+        ) from error
+    if len(encoded) > byte_limit:
+        raise AdapterError(
+            f"refused: adapter {party!r} verification {field_name} exceeds "
+            f"{byte_limit} UTF-8 bytes"
+        )
+    return value
+
+
+def _validated_result_verification(
+    value: object, *, party: str, decision: str | None
+) -> dict[str, object]:
+    """Independently validate v2 seat-declared evidence before publication."""
+    if not isinstance(value, dict):
+        raise AdapterError(f"refused: adapter {party!r} verification must be an object")
+    status = value.get("status")
+    if status == "performed":
+        if set(value) != {"status", "items"}:
+            raise AdapterError(
+                f"refused: adapter {party!r} performed verification must contain "
+                "exactly status and items"
+            )
+        items = value.get("items")
+        if not isinstance(items, list) or not 1 <= len(items) <= VERIFICATION_ITEM_LIMIT:
+            raise AdapterError(
+                f"refused: adapter {party!r} performed verification needs 1 to "
+                f"{VERIFICATION_ITEM_LIMIT} items"
+            )
+        normalized_items: list[dict[str, object]] = []
+        for index, item in enumerate(items, start=1):
+            if not isinstance(item, dict) or set(item) != {
+                "command",
+                "exit_status",
+                "output",
+            }:
+                raise AdapterError(
+                    f"refused: adapter {party!r} verification item {index} must contain "
+                    "exactly command, exit_status and output"
+                )
+            exit_status = item.get("exit_status")
+            if isinstance(exit_status, bool) or not isinstance(exit_status, int):
+                raise AdapterError(
+                    f"refused: adapter {party!r} verification item {index} "
+                    "exit_status must be an integer"
+                )
+            normalized_items.append(
+                {
+                    "command": _bounded_verification_text(
+                        item.get("command"),
+                        party=party,
+                        field_name=f"item {index} command",
+                        scalar_limit=VERIFICATION_COMMAND_SCALARS,
+                        byte_limit=VERIFICATION_COMMAND_BYTES,
+                    ),
+                    "exit_status": exit_status,
+                    "output": _bounded_verification_text(
+                        item.get("output"),
+                        party=party,
+                        field_name=f"item {index} output",
+                        scalar_limit=VERIFICATION_OUTPUT_SCALARS,
+                        byte_limit=VERIFICATION_OUTPUT_BYTES,
+                    ),
+                }
+            )
+        normalized: dict[str, object] = {
+            "status": "performed",
+            "items": normalized_items,
+        }
+    elif status == "unable":
+        if set(value) != {"status", "reason"}:
+            raise AdapterError(
+                f"refused: adapter {party!r} unable verification must contain "
+                "exactly status and reason"
+            )
+        if decision != "NO_PASS":
+            raise AdapterError(
+                f"refused: adapter {party!r} unable to verify must decide NO_PASS"
+            )
+        normalized = {
+            "status": "unable",
+            "reason": _bounded_verification_text(
+                value.get("reason"),
+                party=party,
+                field_name="unable reason",
+                scalar_limit=VERIFICATION_REASON_SCALARS,
+                byte_limit=VERIFICATION_REASON_BYTES,
+            ),
+        }
+    else:
+        raise AdapterError(
+            f"refused: adapter {party!r} verification status must be performed or unable"
+        )
+    encoded = json.dumps(
+        normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    if len(encoded) > VERIFICATION_OBJECT_BYTES:
+        raise AdapterError(
+            f"refused: adapter {party!r} canonical verification JSON exceeds "
+            f"{VERIFICATION_OBJECT_BYTES} UTF-8 bytes"
+        )
+    return normalized
+
+
 def _parse_result(
     path: Path, party: str, profile: AdapterProfile, *, phase: str = "sealed"
 ) -> AdapterResult:
@@ -791,9 +1031,10 @@ def _parse_result(
         raise AdapterError(
             f"refused: adapter {party!r} supplied controller-owned field 'sender'; sender is seat-bound"
         )
-    if raw.get("schema_version") != RESULT_SCHEMA_VERSION:
+    if raw.get("schema_version") != profile.result_schema_version:
         raise AdapterError(
-            f"refused: adapter {party!r} result schema_version must be {RESULT_SCHEMA_VERSION}"
+            f"refused: adapter {party!r} result schema_version must be "
+            f"{profile.result_schema_version}"
         )
     entry_type = raw.get("entry_type")
     if entry_type not in ("verdict", "fix-report", "question", "info"):
@@ -825,6 +1066,15 @@ def _parse_result(
         raise AdapterError(
             f"refused: adapter {party!r} supplied a decision on non-verdict entry type {entry_type!r}"
         )
+    verification: dict[str, object] | None = None
+    verification_status = "absent"
+    verification_evidence_basis = "absent"
+    if profile.result_schema_version == PRODUCT_RESULT_SCHEMA_VERSION:
+        verification = _validated_result_verification(
+            raw.get("verification"), party=party, decision=str(decision) if decision else None
+        )
+        verification_status = str(verification["status"])
+        verification_evidence_basis = "seat-declared"
     runtime_model_basis = raw.get("runtime_model_basis", "verified")
     if runtime_model_basis not in ("verified", "declared"):
         raise AdapterError(
@@ -856,16 +1106,21 @@ def _parse_result(
                 f"one of {RECORDED_DELIBERATION_INPUTS}"
             )
     return AdapterResult(
-        entry_type,
-        body.strip(),
-        refs,
-        appendix.strip(),
-        runtime_model.strip(),
-        str(decision) if decision is not None else None,
-        str(runtime_model_basis),
-        str(configuration_home),
-        str(isolation_flags) if isolation_flags is not None else None,
-        str(deliberation_input) if deliberation_input is not None else None,
+        entry_type=entry_type,
+        body=body.strip(),
+        refs=refs,
+        appendix_markdown=appendix.strip(),
+        runtime_model=runtime_model.strip(),
+        decision=str(decision) if decision is not None else None,
+        runtime_model_basis=str(runtime_model_basis),
+        configuration_home=str(configuration_home),
+        isolation_flags=str(isolation_flags) if isolation_flags is not None else None,
+        deliberation_input=(
+            str(deliberation_input) if deliberation_input is not None else None
+        ),
+        verification=verification,
+        verification_status=verification_status,
+        verification_evidence_basis=verification_evidence_basis,
     )
 
 
@@ -935,6 +1190,7 @@ class BrokerController:
             "profile_sha256": self.config.profile_hashes,
             "config_sha256": self.config.config_sha256,
             "topology": self.config.topology,
+            "review_contract": self.config.review_contract,
         }
         if manifest_path.exists():
             try:
@@ -964,6 +1220,7 @@ class BrokerController:
             "opened_at": now.isoformat(timespec="seconds"),
             "deadline": deadline.isoformat(timespec="seconds"),
             "timing": self.config.timing.report(),
+            "review_contract": self.config.review_contract,
             "profiles": {
                 party: profile.sanitized_manifest() for party, profile in sorted(self.config.profiles.items())
             },
@@ -1001,6 +1258,7 @@ class BrokerController:
                 "author_relationship": profile.author_relationship,
                 "topology": self.config.topology,
             },
+            "review_contract": self.config.review_contract,
             "source": {
                 "root": str(source.root),
                 "ref": source.source_ref,
@@ -1013,7 +1271,7 @@ class BrokerController:
             },
             "result": {
                 "path": str(result_path),
-                "schema_version": RESULT_SCHEMA_VERSION,
+                "schema_version": profile.result_schema_version,
                 "controller_owned_fields": ["sender"],
                 "required_fields": [
                     "schema_version",
@@ -1021,6 +1279,14 @@ class BrokerController:
                     "body",
                     "runtime_model",
                     "decision (PASS or NO_PASS for verdicts)",
+                    *(
+                        [
+                            "verification ({status: performed, items: [...]} or "
+                            "{status: unable, reason: ...})"
+                        ]
+                        if profile.result_schema_version == PRODUCT_RESULT_SCHEMA_VERSION
+                        else []
+                    ),
                 ],
             },
             "instructions": (
@@ -1068,6 +1334,7 @@ class BrokerController:
             f"- topology: {self.config.topology}\n"
             f"- controller-config-sha256: {self.config.config_sha256}\n"
             f"- source-ref: {self.config.source_ref}\n"
+            f"- review-contract: {json.dumps(self.config.review_contract, sort_keys=True)}\n"
             f"- docket-revision-sha256: {docket.revision_sha256}\n"
             f"- docket-files: {json.dumps(list(docket.files), sort_keys=True)}\n"
             f"- profile-sha256: {json.dumps(self.config.profile_hashes, sort_keys=True)}\n"
@@ -1141,6 +1408,8 @@ class BrokerController:
             f"- revision-sha256: {revision_sha}\n"
             f"- controller-config-sha256: {self.config.config_sha256}\n"
             f"- source-ref: {self.config.source_ref}\n"
+            f"- review-mode: {self.config.review_mode}\n"
+            f"- review-contract-basis: {self.config.review_contract_basis}\n"
             f"- docket-revision-sha256: {docket.revision_sha256}\n"
             f"- docket-files: {json.dumps(list(docket.files), sort_keys=True)}\n"
             f"- source-manifest-sha256: "
@@ -1285,6 +1554,11 @@ class BrokerController:
         stderr_path = invocation_root / "stderr.txt"
         stdout_path.write_text(stdout, encoding="utf-8")
         stderr_path.write_text(stderr, encoding="utf-8")
+        adapter_stdout_sha256 = _file_hash(stdout_path)
+        adapter_stderr_sha256 = _file_hash(stderr_path)
+        from . import bridge
+
+        bridge_spec = bridge.parse_bridge_command(profile.command)
         combined = stdout + "\n" + stderr
         if result_path.exists():
             try:
@@ -1306,15 +1580,80 @@ class BrokerController:
                     f"refused: adapter {party!r} exposed contamination canary {label!r}; profile rejected"
                 )
         if returncode != 0:
-            raise AdapterError(f"refused: adapter {party!r} exited {returncode}; see {stderr_path}")
+            failure: dict[str, object] = {
+                "adapter_process_exit_status": returncode,
+                "adapter_stdout_sha256": adapter_stdout_sha256,
+                "adapter_stderr_sha256": adapter_stderr_sha256,
+            }
+            nested_status: int | None = None
+            if returncode == 3 and bridge_spec is not None:
+                sidecar_path = invocation_root / "seat-failure.json"
+                try:
+                    sidecar_bytes = sidecar_path.read_bytes()
+                    if len(sidecar_bytes) > 64 * 1024:
+                        raise ValueError("sidecar exceeds 64 KiB")
+                    sidecar = json.loads(sidecar_bytes.decode("utf-8"))
+                    if not isinstance(sidecar, dict):
+                        raise ValueError("sidecar is not an object")
+                    raw_status = sidecar.get("seat_process_exit_status")
+                    if (
+                        isinstance(raw_status, bool)
+                        or not isinstance(raw_status, int)
+                        or raw_status == 0
+                    ):
+                        raise ValueError("nested status is not a non-zero integer")
+                    for field_name in ("seat_stdout_sha256", "seat_stderr_sha256"):
+                        if not re.fullmatch(r"[0-9a-f]{64}", str(sidecar.get(field_name, ""))):
+                            raise ValueError(f"{field_name} is not a SHA-256 digest")
+                except (OSError, UnicodeError, ValueError) as error:
+                    failure["sidecar_error"] = str(error)
+                else:
+                    nested_status = raw_status
+                    failure.update(
+                        {
+                            "seat_process_exit_status": nested_status,
+                            "seat_stdout_sha256": str(sidecar["seat_stdout_sha256"]),
+                            "seat_stderr_sha256": str(sidecar["seat_stderr_sha256"]),
+                        }
+                    )
+            _atomic_json(invocation_root / "failure.json", failure)
+            if nested_status is not None:
+                raise AdapterError(
+                    f"refused: nested seat process for adapter {party!r} exited "
+                    f"{nested_status}; outer bundled bridge exited 3; see {invocation_root}",
+                    retryable=attempt <= profile.retry_limit,
+                )
+            raise AdapterError(
+                f"refused: adapter {party!r} exited {returncode}; see {stderr_path}"
+            )
         if _tree_files(source.root) != source.files:
             raise AdapterError(f"refused: adapter {party!r} modified its immutable source export")
         result = _parse_result(result_path, party, profile, phase=phase)
+        if bridge_spec is None:
+            seat_process_exit_status = "not-separate"
+            seat_stdout_sha256 = adapter_stdout_sha256
+            seat_stderr_sha256 = adapter_stderr_sha256
+        else:
+            seat_process_exit_status = "0"
+            seat_stdout_path = invocation_root / "seat-stdout.txt"
+            seat_stderr_path = invocation_root / "seat-stderr.txt"
+            if not seat_stdout_path.is_file() or not seat_stderr_path.is_file():
+                raise AdapterError(
+                    f"refused: bundled bridge {party!r} omitted its seat stream diagnostics"
+                )
+            seat_stdout_sha256 = _file_hash(seat_stdout_path)
+            seat_stderr_sha256 = _file_hash(seat_stderr_path)
         return result, {
             "input_sha256": _bytes_hash(input_bytes),
             "source_manifest_sha256": source.manifest_sha256,
             "docket_revision_sha256": docket.revision_sha256,
             "diagnostics_root": invocation_root,
+            "seat_process_exit_status": seat_process_exit_status,
+            "adapter_process_exit_status": "0",
+            "seat_stdout_sha256": seat_stdout_sha256,
+            "seat_stderr_sha256": seat_stderr_sha256,
+            "adapter_stdout_sha256": adapter_stdout_sha256,
+            "adapter_stderr_sha256": adapter_stderr_sha256,
         }
 
     def _published_body(
@@ -1336,6 +1675,18 @@ class BrokerController:
             if reveal_id is not None
             else ""
         )
+        verification = (
+            "\n\nController-Verification:\n"
+            f"- verification-status: {result.verification_status}\n"
+            f"- verification-evidence-basis: {result.verification_evidence_basis}\n"
+            f"- seat-declared-evidence: {json.dumps(result.verification, sort_keys=True)}"
+            if result.verification is not None
+            else (
+                "\n\nController-Verification:\n"
+                "- verification-status: absent\n"
+                "- verification-evidence-basis: absent"
+            )
+        )
         provenance = (
             "\n\nController-Provenance:\n"
             f"- phase: {phase}\n"
@@ -1344,6 +1695,8 @@ class BrokerController:
             f"- profile-sha256: {profile.profile_sha256}\n"
             f"- controller-config-sha256: {self.config.config_sha256}\n"
             f"- source-ref: {self.config.source_ref}\n"
+            f"- review-mode: {self.config.review_mode}\n"
+            f"- review-contract-basis: {self.config.review_contract_basis}\n"
             f"- source-manifest-sha256: {evidence['source_manifest_sha256']}\n"
             f"- docket-revision-sha256: {evidence['docket_revision_sha256']}\n"
             f"- input-sha256: {evidence['input_sha256']}\n"
@@ -1354,12 +1707,24 @@ class BrokerController:
             f"- isolation-mode: {profile.isolation_mode}\n"
             f"- runtime-model-basis: {result.runtime_model_basis}\n"
             f"- configuration-home: {result.configuration_home}"
+            f"\n- seat-process-exit-status: "
+            f"{evidence.get('seat_process_exit_status', 'legacy-absent')}"
+            f"\n- adapter-process-exit-status: "
+            f"{evidence.get('adapter_process_exit_status', 'legacy-absent')}"
+            f"\n- seat-stdout-sha256: {evidence.get('seat_stdout_sha256', 'legacy-absent')}"
+            f"\n- seat-stderr-sha256: {evidence.get('seat_stderr_sha256', 'legacy-absent')}"
+            f"\n- adapter-stdout-sha256: "
+            f"{evidence.get('adapter_stdout_sha256', 'legacy-absent')}"
+            f"\n- adapter-stderr-sha256: "
+            f"{evidence.get('adapter_stderr_sha256', 'legacy-absent')}"
+            f"\n- verification-status: {result.verification_status}"
+            f"\n- verification-evidence-basis: {result.verification_evidence_basis}"
         )
         if result.isolation_flags is not None:
             provenance += f"\n- isolation-flags: {result.isolation_flags}"
         if result.deliberation_input is not None:
             provenance += f"\n- deliberation-input: {result.deliberation_input}"
-        return result.body + appendix + typed + reveal + provenance
+        return result.body + appendix + typed + reveal + verification + provenance
 
     @staticmethod
     def _result_record(
@@ -1377,6 +1742,9 @@ class BrokerController:
                 "configuration_home": result.configuration_home,
                 "isolation_flags": result.isolation_flags,
                 "deliberation_input": result.deliberation_input,
+                "verification": result.verification,
+                "verification_status": result.verification_status,
+                "verification_evidence_basis": result.verification_evidence_basis,
             },
             "evidence": {key: str(value) for key, value in evidence.items()},
             "captured_at": captured_at,
@@ -1392,6 +1760,9 @@ class BrokerController:
                     "configuration_home": result.configuration_home,
                     "isolation_flags": result.isolation_flags,
                     "deliberation_input": result.deliberation_input,
+                    "verification": result.verification,
+                    "verification_status": result.verification_status,
+                    "verification_evidence_basis": result.verification_evidence_basis,
                     "evidence": {key: str(value) for key, value in evidence.items()},
                     "captured_at": captured_at,
                 }
@@ -1419,6 +1790,17 @@ class BrokerController:
                 isolation_flags=str(isolation_flags_raw) if isolation_flags_raw is not None else None,
                 deliberation_input=(
                     str(deliberation_input_raw) if deliberation_input_raw is not None else None
+                ),
+                verification=(
+                    dict(raw_result["verification"])
+                    if isinstance(raw_result.get("verification"), dict)
+                    else None
+                ),
+                verification_status=str(
+                    raw_result.get("verification_status", "absent")
+                ),
+                verification_evidence_basis=str(
+                    raw_result.get("verification_evidence_basis", "absent")
                 ),
             )
         except KeyError as error:
@@ -1522,6 +1904,7 @@ class BrokerController:
         thread: str,
         result: str,
         close_reason: str,
+        detail: str | None = None,
     ) -> DriveOutcome:
         state = self._load_case(thread)
         existing_result = state.get("terminal_result")
@@ -1532,7 +1915,9 @@ class BrokerController:
                     f"{existing_result!r}/{state.get('close_reason')!r}"
                 )
             return DriveOutcome("terminal", f"already terminal as {result}", result, close_reason)
-        target = {"result": result, "close_reason": close_reason}
+        target: dict[str, str] = {"result": result, "close_reason": close_reason}
+        if detail is not None:
+            target["detail"] = detail
         pending = state.get("pending_terminal")
         if pending is not None and pending != target:
             raise channel.ChannelError(
@@ -1545,6 +1930,23 @@ class BrokerController:
             f"Controller closed the managed case as {result}. "
             f"Reason: {close_reason}. Supervisor messages were not counted as party votes."
         )
+        if detail is not None:
+            body += f" Observed failure: {detail}"
+        product_config = (
+            self.config.repository_root
+            / ".debate"
+            / "channels"
+            / channel_name
+            / "watcher.json"
+        )
+        if product_config.is_file():
+            runtime_bytes = _logical_tree_bytes(self.config.runtime_root)
+            body += (
+                f" Runtime size at close: {runtime_bytes} logical bytes. Inspect retained and "
+                "regenerable state with: debate runtime "
+                f"--root {channel_root.resolve()} --channel {channel_name} "
+                f"--config {product_config.resolve()}"
+            )
         entry_id = channel.close_managed_case(
             channel_root,
             thread=thread,
@@ -1562,6 +1964,8 @@ class BrokerController:
                 "terminal_entry": entry_id,
             }
         )
+        if detail is not None:
+            state["terminal_detail"] = detail
         state.pop("pending_terminal", None)
         self._write_case(thread, state)
         return DriveOutcome("terminal", f"{entry_id} closed {result}: {close_reason}", result, close_reason)
@@ -1573,6 +1977,7 @@ class BrokerController:
         channel_name: str,
         thread: str,
         close_reason: str,
+        detail: str | None = None,
     ) -> DriveOutcome:
         return self._close_terminal(
             channel_root=channel_root,
@@ -1580,6 +1985,7 @@ class BrokerController:
             thread=thread,
             result="ERROR",
             close_reason=close_reason,
+            detail=detail,
         )
 
     def recover_terminal_state(
@@ -1935,14 +2341,20 @@ class BrokerController:
         if isinstance(pending_terminal, dict):
             result = pending_terminal.get("result")
             close_reason = pending_terminal.get("close_reason")
+            terminal_detail = pending_terminal.get("detail")
             if result not in channel.TERMINAL_RESULTS or not isinstance(close_reason, str):
                 raise channel.ChannelError(f"refused: case {thread!r} has malformed pending terminal state")
+            if terminal_detail is not None and not isinstance(terminal_detail, str):
+                raise channel.ChannelError(
+                    f"refused: case {thread!r} has malformed pending terminal detail"
+                )
             return self._close_terminal(
                 channel_root=channel_root,
                 channel_name=channel_name,
                 thread=thread,
                 result=str(result),
                 close_reason=close_reason,
+                detail=terminal_detail,
             )
         deadline = self._deadline_from(state, thread)
         if self._now() >= deadline:
@@ -1971,6 +2383,16 @@ class BrokerController:
         if phase in ("sealed", "reveal"):
             other = next(party for party in self.config.profiles if party != first_party)
             order = (first_party, other)
+            entries = channel.thread_entries(channel_root, thread, channel_name)
+            channel_config = channel.load_config(channel_root, channel_name)
+            if len(entries) + 2 > channel_config.thread_cap:
+                return self._close_terminal(
+                    channel_root=channel_root,
+                    channel_name=channel_name,
+                    thread=thread,
+                    result="NO_PASS",
+                    close_reason="thread-cap-exhausted",
+                )
             try:
                 self._capture_sealed_positions(
                     channel_root=channel_root,
@@ -1989,7 +2411,24 @@ class BrokerController:
                         close_reason=error.close_reason,
                     )
                 raise
-            return self.reveal_pair(channel_root=channel_root, channel_name=channel_name, thread=thread)
+            try:
+                return self.reveal_pair(
+                    channel_root=channel_root, channel_name=channel_name, thread=thread
+                )
+            except channel.ChannelError as error:
+                current = channel.thread_entries(channel_root, thread, channel_name)
+                if (
+                    "paired reveal would exceed thread cap" not in str(error)
+                    or len(current) + 2 <= channel_config.thread_cap
+                ):
+                    raise
+                return self._close_terminal(
+                    channel_root=channel_root,
+                    channel_name=channel_name,
+                    thread=thread,
+                    result="NO_PASS",
+                    close_reason="thread-cap-race",
+                )
         if phase != "deliberation":
             raise channel.ChannelError(f"refused: unknown managed case phase {phase!r}")
         entries = channel.thread_entries(channel_root, thread, channel_name)
@@ -2015,16 +2454,28 @@ class BrokerController:
             }
             for entry in entries
         ]
-        outcome = self.invoke_and_post(
-            channel_root=channel_root,
-            channel_name=channel_name,
-            party=turn,
-            thread=thread,
-            sequence=sequence,
-            attempt=attempt,
-            transcript=transcript,
-            phase="deliberation",
-        )
+        try:
+            outcome = self.invoke_and_post(
+                channel_root=channel_root,
+                channel_name=channel_name,
+                party=turn,
+                thread=thread,
+                sequence=sequence,
+                attempt=attempt,
+                transcript=transcript,
+                phase="deliberation",
+            )
+        except channel.ChannelError as error:
+            current = channel.thread_entries(channel_root, thread, channel_name)
+            if "is at its" not in str(error) or len(current) < channel_config.thread_cap:
+                raise
+            return self._close_terminal(
+                channel_root=channel_root,
+                channel_name=channel_name,
+                thread=thread,
+                result="NO_PASS",
+                close_reason="thread-cap-race",
+            )
         state = self._load_case(thread)
         agreement = self._agreement(state)
         if agreement is not None:
@@ -2155,6 +2606,15 @@ def doctor_lines(config: BrokerConfig) -> list[str]:
             lines.append(
                 f"seat {party}: configuration home {configuration_home}; "
                 f"isolation flags {spec.isolation_flags_basis}"
+            )
+            lines.append(
+                f"seat {party}: verification capability "
+                f"{spec.verification_basis or 'legacy-absent'}; "
+                f"result schema v{profile.result_schema_version}"
+            )
+        else:
+            lines.append(
+                f"seat {party}: custom adapter; result schema v{profile.result_schema_version}"
             )
     timing = config.timing.report()
     lines.append(f"unconstrained schedule: {timing['unconstrained_schedule_seconds']}s")

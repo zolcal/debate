@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 
@@ -18,6 +18,11 @@ from debate.__main__ import _watcher_config
 from test_open import _fake_tool, _raw_seat, managed_project
 
 NOW = "2026-08-20T12:00:00+00:00"
+REVIEW_CONTRACT: dict[str, Any] = {
+    "goal": "Review the pairing fixture.",
+    "review_domain": "The fixture and its recorded acceptance criteria.",
+    "stop_rule": "Stop after the fixture criteria are resolved.",
+}
 
 FORBIDDEN_WORDS = (
     "bridge",
@@ -54,6 +59,8 @@ def _seat(
         # that never declared these would be refused for the wrong reason.
         isolation_argv=["--no-config"],
         no_persistence_argv=["--no-history"],
+        verification_basis="catalogued" if source == "catalog" else "declared",
+        result_schema_version=2,
     )
 
 
@@ -217,7 +224,7 @@ def test_admission_fires_before_the_uneven_pair_gate(
         opening.open_debate_brokered(
             opening.BrokeredOpenSpec(
                 root=project / "collab", label="stub", pair=("big/one", "small/two"),
-                source_ref=head, author_vendor="big",
+                source_ref=head, author_vendor="big", **REVIEW_CONTRACT,
             ),
             seats.load_registry(), load_config_fn=_watcher_config,
             now=NOW, tool_version="test", real_home=tmp_path,
@@ -251,7 +258,7 @@ def test_managed_open_refuses_an_uneven_pair_without_the_flag(
     root = project / "collab"
     spec = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("big/one", "small/two"),
-        source_ref=head, author_vendor="big",
+        source_ref=head, author_vendor="big", **REVIEW_CONTRACT,
     )
     with pytest.raises(channel.ChannelError) as caught:
         opening.open_debate_brokered(
@@ -263,6 +270,7 @@ def test_managed_open_refuses_an_uneven_pair_without_the_flag(
     allowed = opening.BrokeredOpenSpec(
         root=root, label="stub", pair=("big/one", "small/two"),
         source_ref=head, author_vendor="big", allow_mismatched_pair=True,
+        **REVIEW_CONTRACT,
     )
     result = opening.open_debate_brokered(
         allowed, seats.load_registry(), load_config_fn=_watcher_config,
@@ -493,15 +501,22 @@ def test_two_seats_from_one_vendor_pair_up_only_as_a_last_resort(tmp_path: Path)
     ) == ("claude/haiku", "deepseek/flash")
 
 
-def test_a_seat_outside_the_approved_list_is_never_suggested(tmp_path: Path) -> None:
-    """Half of the quick pair is not approved here, so the quick pair is not
-    offered at all -- the approved strongest pair is not a substitute for it."""
+def test_a_missing_preferred_pair_falls_back_to_an_approved_symmetric_pair(
+    tmp_path: Path,
+) -> None:
+    """Half of the quick pair is not approved here, so the strongest approved
+    symmetric pair is offered with an honest fallback reason."""
     registry = _suggestion_registry(tmp_path, **FOUR_SEATS)
     approved = ("claude/haiku", "claude/opus", "deepseek/pro")
-    assert opening.suggest_pair(
+    suggestion = opening.suggest_pair_with_reason(
         registry, allowlist=approved, docket_bytes=10,
         quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
-    ) is None
+    )
+    assert suggestion is not None
+    assert suggestion.pair == ("claude/opus", "deepseek/pro")
+    assert suggestion.reason == (
+        "no symmetric light pair is available; using a symmetric frontier pair"
+    )
     assert opening.suggest_pair(
         registry, allowlist=approved, docket_bytes=opening.QUICK_REVIEW_MAX_BYTES,
         quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,

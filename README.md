@@ -120,7 +120,11 @@ approval: nothing found on PATH, in an old registry, or in a previous project's
 remembered pair is ever approved silently, and discovery makes zero model calls. Then
 say **"start a debate"**, pick exactly two approved seats, and Debate creates a fresh
 fully managed channel — the agent you are talking to stays outside both seats, and you
-are the supervisor. When everything is healthy, session start is silent.
+are the supervisor. A short request is enough: the installed skill derives and shows the
+artifact, bounded goal/domain, acceptance criteria, verification commands, stop rule,
+seat pair and retry-inclusive budget once before asking you to confirm. Every subject or
+changed-artifact re-review creates a new channel. When everything is healthy, session
+start is silent.
 
 Uninstalling the plugin removes the host integration only: your registry
 (`~/.config/debate/seats.json`), project profiles (`debate-profile.json`), and channel
@@ -206,6 +210,10 @@ debate open --root ./collab --label market-research \
 # version-1 channels for compatibility.
 debate open --brokered --root ./collab --label market-research \
     --pair alpha/fake,beta/fake --author-vendor claude \
+    --goal "Establish whether the documented behavior holds" \
+    --review-domain "README.md at the pinned source ref" \
+    --stop-rule "Stop after the documented checks and one decisive verdict" \
+    --review-mode ordinary \
     --docket-file README.md
 ```
 
@@ -213,14 +221,22 @@ Which seats can take part in a fully managed debate:
 
 - **Claude and Codex seats need no extra setup.** The packaged catalog already
   records, for each of them, the arguments that turn their own settings,
-  plugins and session saving off while they review.
+  plugins and session saving off while they review and the verified capability
+  to inspect the export and run bounded checks. Claude receives
+  `--permission-mode dontAsk`, `--tools Read,Grep,Glob,Bash`, and
+  `--allowedTools Read,Grep,Glob,Bash`; the Codex wrapper is recorded as
+  inherently verification-capable.
 - **Any other tool joins once you tell Debate how it turns those off:**
   `debate seats add mytool/big --command '/path/to/mytool -p {prompt}'
   --isolation-argv=--no-config --no-persistence-argv=--no-history
+  --verification-capable [--verification-argv=<documented args>]
   [--config-home MYTOOL_HOME=.mytool]`. Until that is on record the seat is
   refused, with the two ways forward named: declare those arguments, or record
-  a seat command of your own that reads a request file and writes an answer
-  file.
+  a seat command of your own that reads a request file and writes a version-2
+  answer file. A hand-authored file adapter also needs the explicit
+  `--result-schema-version 2` declaration; older v1 adapters keep working on
+  historical configurations but are evidence-absent and cannot enter a new
+  product review.
 - **Launcher scripts next to a tool Debate knows are detected**, listed as
   candidates with their model unverified, and offered for exactly that
   declaration — detection alone never registers or approves one.
@@ -313,7 +329,8 @@ When omitted, Debate still records the returned runtime identity but cannot refu
 model substitution; configure it whenever the adapter can report a falsifiable exact ID.
 
 Before the neutral docket is posted, the controller creates two separate read-only exports
-of the complete tracked repository at the pinned commit. `collab/`, `var/` and `.git` are
+of the complete tracked repository at the pinned commit. `collab/`, `var/`, `.debate/`
+and `.git` are
 separated; tracked project settings stay present as evidence but live settings sources are
 refused. Each seat gets a clean project-local HOME/cache/temp area, an allowlisted
 environment, a Git discovery ceiling, the immutable docket revision, and a controller-owned
@@ -324,17 +341,33 @@ JSON, may not contain `sender`, and is posted under the bound seat by the contro
 revision was only half-recorded; verdict provenance therefore never points only at a mutable
 gitignored filename.
 
-Every `verdict` result also carries a typed `decision` of `PASS` or `NO_PASS`:
+Every new product `verdict` uses result schema v2 and carries a typed `decision`
+plus bounded structured verification:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "entry_type": "verdict",
   "decision": "PASS",
   "body": "APPROVE - fresh export run: 412 passed.",
-  "runtime_model": "resolved-model-id"
+  "runtime_model": "resolved-model-id",
+  "verification": {
+    "status": "performed",
+    "items": [
+      {"command": "python -m pytest -q", "exit_status": 0, "output": "412 passed"}
+    ]
+  }
 }
 ```
+
+If a seat genuinely cannot execute verification it instead returns
+`{"status":"unable","reason":"..."}` and must decide `NO_PASS`. Read-only
+inspection commands count as performed. The controller validates the shape and limits
+again before publication, but the command/output is still **seat-declared evidence**,
+not truth authenticated or “verified by the schema.” The record separately carries
+controller-observed adapter/seat exit statuses and stdout/stderr hashes. A non-zero
+nested seat process never votes: the bundled adapter's status 3 may use the one configured
+retry; deterministic/schema status 2 and arbitrary custom-adapter status 3 do not.
 
 The case state advances through `docket` -> `sealed` -> `reveal` -> `deliberation` ->
 `terminal`. Both initial results are kept outside the shared record until they exist, then
@@ -349,20 +382,48 @@ The typed-close intent is persisted before its mailbox write, so the recurring s
 can likewise distinguish and repair a close whose signal update was interrupted; unrelated
 mailbox-ahead anomalies still follow the normal fail-closed escalation path.
 
-The runtime lives below `<project>/var/debate/<channel>/`, never `.pytest_cache` or another
-tool cache. `adapter-doctor` prints the unconstrained schedule estimate and the enforced
+New product watcher configuration lives at
+`<project>/.debate/channels/<channel>/watcher.json` and runtime at
+`<project>/.debate/runtime/<channel>/`; existing explicit
+`<project>/var/debate/<channel>/` configurations remain accepted. Debate suggests adding
+`.debate/` to `.gitignore` when needed but never edits the file. `adapter-doctor` prints
+the unconstrained schedule estimate and the enforced
 whole-case deadline from the same timing calculation; adapter timeouts above 60 minutes or
 an absent deadline are refused. It also prints `cost_mode` before any future smoke can spend
 money. The absolute deadline spans sealed capture, reveal, deliberation, retries and process
 restarts. Every invocation is capped by its remaining budget, and an expired case is closed
 idempotently as `ERROR` / `case-deadline-expired` on the next scheduler tick.
 
-Completed case exports are intentionally read-only and Debate never deletes provenance
-automatically. Project cleanup must first restore owner write permission within the exact
-completed `var/debate/<channel>/` case directory, then remove only that validated directory.
+Debate never deletes provenance automatically. Inspect one exact channel with
+`debate runtime --root <collab> --channel <id> --config <watcher.json>`. After terminal
+close, `--prune --yes` non-blockingly takes the same watcher lock and deletes only each
+invocation's regenerable `home/`, `build/`, and `tmp/` trees. It retains channel and case
+state, docket revisions, source exports/manifests, inputs/results, raw streams, hashes and
+fsynced prune receipts. An open case, held lock, wrong config/channel, or symlink target
+refuses without deletion.
+
+New product reviews record one of two modes. `ordinary` is criteria-bound and uses cap 5
+(at most four vote-producing seat turns and eight nested launches with one retry); a clean
+agreement uses two launches. `release-gate` keeps the exhaustive adversarial stance and
+defaults to cap 12 (eleven seat turns, twenty-two launches). Supervisor messages consume
+the same entry cap. A race after invocation can retain diagnostics, but cannot publish a
+vote or spend a retry; it closes `NO_PASS / thread-cap-race`. Historical configs lacking
+the mode remain release-gate/adversarial with an honest `legacy-absent` contract basis.
+
+This is a pre-release CLI break for new product opens: `open --brokered` now requires
+`--goal`, `--review-domain`, `--stop-rule`, and `--review-mode` (the installed skill
+normally derives them). Re-run `debate seats discover` to refresh catalogued
+verification capability with zero model calls. Manual prompt seats need an explicit
+verification declaration; hand-authored file adapters need that declaration plus result
+schema v2.
+
+If fresh evidence later falsifies a terminal finding, history stays append-only. The
+supervisor may add a `close`-typed correction under a fresh slug, citing the original
+message and exact new command/output. That correction does not rewrite the old verdict or
+terminal outcome and speaks in the supervisor's seat only with their authorization.
 
 This is strong protection against accidental contamination, not a claim that a same-user
-process is hostile-code safe. Read-only permissions, a clean environment, Git ceiling and
+process is safe against hostile code. Read-only permissions, a clean environment, Git ceiling and
 canaries are mechanically checked; an `isolation_mode: advisory` profile can still read an
 absolute host path if the selected CLI/tool sandbox permits it. That includes the private
 sealed-submission state stored elsewhere below the same project-local case runtime: prompt

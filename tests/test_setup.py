@@ -198,8 +198,12 @@ def test_end_to_end_cli_yes_flags_status_and_config_load(tmp_path: Path,
     config_path_cleanup.unlink()  # derived toplevel may be the real repo root
 
 
-def test_two_channels_refuse_without_channel_flag(tmp_path: Path,
-                                                  capsys: pytest.CaptureFixture[str]) -> None:
+def test_two_channels_refuse_without_channel_flag(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
     root, name1 = make_channel(tmp_path, label="one")
     name2 = channel.generate_channel_id(root, label="two")
     channel.init_channel(root, ("alpha", "beta"), "owner", 12, name=name2)

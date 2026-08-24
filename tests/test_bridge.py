@@ -313,6 +313,48 @@ def test_sealed_prompt_is_adversarial_and_deliberation_is_analytical(tmp_path: P
         assert entry["body"] in prompt
 
 
+def test_review_modes_change_only_contract_block_and_sealed_stance(tmp_path: Path) -> None:
+    case = _make_case(tmp_path, phase="sealed")
+    payload = json.loads(case.input_path.read_text(encoding="utf-8"))
+    bounded = {
+        "review_contract_basis": "recorded",
+        "goal": "Verify the retry helper.",
+        "review_domain": "retry.py and its tests.",
+        "stop_rule": "Stop after the stated checks resolve the criterion.",
+    }
+    ordinary_payload = {**payload, "review_contract": {**bounded, "review_mode": "ordinary"}}
+    release_payload = {
+        **payload,
+        "review_contract": {**bounded, "review_mode": "release-gate"},
+    }
+    ordinary = bridge.build_prompt(ordinary_payload, deliberation_input="full")
+    release = bridge.build_prompt(release_payload, deliberation_input="full")
+    assert bridge.ORDINARY_STANCE in ordinary
+    assert bridge.ADVERSARIAL_STANCE not in ordinary
+    assert bridge.ADVERSARIAL_STANCE in release
+    assert bridge.ORDINARY_STANCE not in release
+    ordinary_contract = (
+        "Review contract (recorded):\n"
+        "- mode: ordinary\n"
+        "- goal: Verify the retry helper.\n"
+        "- valid domain: retry.py and its tests.\n"
+        "- stop rule: Stop after the stated checks resolve the criterion."
+    )
+    release_contract = ordinary_contract.replace("mode: ordinary", "mode: release-gate")
+    assert ordinary_contract in ordinary
+    assert release_contract in release
+    assert ordinary.replace(ordinary_contract, "<contract>").replace(
+        bridge.ORDINARY_STANCE, "<stance>"
+    ) == release.replace(release_contract, "<contract>").replace(
+        bridge.ADVERSARIAL_STANCE, "<stance>"
+    )
+
+    legacy = bridge.build_prompt(payload, deliberation_input="full")
+    assert bridge.ADVERSARIAL_STANCE in legacy
+    assert "legacy-absent" in legacy
+    assert "Verify the retry helper" not in legacy
+
+
 def test_verdicts_mode_drops_the_review_files_only_in_deliberation(tmp_path: Path, seat: FakeSeat) -> None:
     sealed = _make_case(tmp_path / "sealed", phase="sealed")
     assert main(_argv(sealed, seat, extra=["--deliberation-input", "verdicts"])) == 0
@@ -471,6 +513,7 @@ def test_an_argument_list_too_long_launch_reads_as_the_same_refusal(
     monkeypatch.setattr(subprocess, "run", _too_long)
     assert main(_argv(case, seat)) == 2
     assert not case.result_path.exists()
+    assert not (case.result_path.parent / "seat-failure.json").exists()
     errors = capsys.readouterr().err.strip().splitlines()
     assert len(errors) == 1
     assert errors[0] == bridge.MATERIAL_TOO_LARGE_REFUSAL
@@ -681,8 +724,10 @@ def test_an_unusable_seat_answer_writes_no_result(
 def test_a_failing_seat_without_an_answer_writes_no_result(tmp_path: Path, seat: FakeSeat) -> None:
     case = _make_case(tmp_path)
     seat.respond(stdout="", stderr="the seat crashed\n", exit_code=3)
-    assert main(_argv(case, seat)) == 2
+    assert main(_argv(case, seat)) == 3
     assert not case.result_path.exists()
+    failure = json.loads((case.result_path.parent / "seat-failure.json").read_text())
+    assert failure["seat_process_exit_status"] == 3
 
 
 # --- the result file --------------------------------------------------------

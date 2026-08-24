@@ -54,6 +54,8 @@ LOCK_NAME = ".lock"
 MANAGED_VERSION = 1
 BROKERED_MANAGED_VERSION = 2
 SUPPORTED_MANAGED_VERSIONS = (MANAGED_VERSION, BROKERED_MANAGED_VERSION)
+REVIEW_MODES = ("ordinary", "release-gate")
+REVIEW_CONTRACT_BASES = ("recorded", "legacy-absent")
 
 # Writers (post, compact) serialize on a transient lock file. A holder that
 # crashed is assumed dead after the stale window — both operations complete
@@ -117,6 +119,11 @@ class ChannelConfig:
     name: str | None = None
     project: str | None = None
     managed_version: int | None = None
+    review_mode: str = "release-gate"
+    review_contract_basis: str = "legacy-absent"
+    goal: str | None = None
+    review_domain: str | None = None
+    stop_rule: str | None = None
 
     def __post_init__(self) -> None:
         names = (*self.parties, self.supervisor)
@@ -131,6 +138,24 @@ class ChannelConfig:
             raise ChannelError(
                 f"unsupported managed_version {self.managed_version!r}; "
                 f"this release supports {SUPPORTED_MANAGED_VERSIONS}"
+            )
+        if self.review_mode not in REVIEW_MODES:
+            raise ChannelError(
+                f"review_mode must be one of {REVIEW_MODES}, got {self.review_mode!r}"
+            )
+        if self.review_contract_basis not in REVIEW_CONTRACT_BASES:
+            raise ChannelError(
+                "review_contract_basis must be 'recorded' or 'legacy-absent'"
+            )
+        fields = (self.goal, self.review_domain, self.stop_rule)
+        if self.review_contract_basis == "recorded":
+            if any(not isinstance(value, str) or not value.strip() for value in fields):
+                raise ChannelError(
+                    "a recorded review contract needs non-empty goal, review_domain and stop_rule"
+                )
+        elif any(value is not None for value in fields):
+            raise ChannelError(
+                "a legacy-absent review contract may not fabricate goal, review_domain or stop_rule"
             )
 
     def other(self, party: str) -> str:
@@ -336,6 +361,11 @@ def init_channel(
     thread_cap: int = 12,
     name: str | None = None,
     managed_version: int | None = None,
+    review_mode: str = "release-gate",
+    review_contract_basis: str = "legacy-absent",
+    goal: str | None = None,
+    review_domain: str | None = None,
+    stop_rule: str | None = None,
 ) -> ChannelConfig:
     """Create a channel: config + empty mailbox + fresh doorbell.
 
@@ -359,6 +389,11 @@ def init_channel(
         name=name,
         project=project,
         managed_version=managed_version,
+        review_mode=review_mode,
+        review_contract_basis=review_contract_basis,
+        goal=goal,
+        review_domain=review_domain,
+        stop_rule=stop_rule,
     )
     root.mkdir(parents=True, exist_ok=True)
     config_path = _config_path(root, name)
@@ -376,6 +411,16 @@ def init_channel(
         payload["name"] = name
         payload["project"] = project
         payload["managed_version"] = config.managed_version
+        if config.review_contract_basis == "recorded":
+            payload.update(
+                {
+                    "review_mode": config.review_mode,
+                    "review_contract_basis": config.review_contract_basis,
+                    "goal": config.goal,
+                    "review_domain": config.review_domain,
+                    "stop_rule": config.stop_rule,
+                }
+            )
     _atomic_write(config_path, json.dumps(payload, indent=2))
     mailbox_path(root, name).touch()
     _atomic_write(_signal_path(root, name), json.dumps(_fresh_signal(), indent=2))
@@ -416,6 +461,27 @@ def load_config(root: Path, name: str | None = None) -> ChannelConfig:
             f"managed_version {managed_version!r}"
         )
     try:
+        contract_keys = {
+            "review_mode", "review_contract_basis", "goal", "review_domain", "stop_rule"
+        }
+        present_contract_keys = contract_keys.intersection(raw)
+        if present_contract_keys and present_contract_keys != contract_keys:
+            missing_contract_keys = sorted(contract_keys - present_contract_keys)
+            raise ChannelError(
+                f"refused: {_config_path(root, name).name} has a partial review contract; "
+                f"missing {', '.join(missing_contract_keys)}"
+            )
+        if present_contract_keys and not all(
+            isinstance(raw[key], str) for key in contract_keys
+        ):
+            raise ChannelError(
+                f"refused: {_config_path(root, name).name} review contract fields must be strings"
+            )
+        contract_basis = (
+            str(raw["review_contract_basis"])
+            if present_contract_keys
+            else "legacy-absent"
+        )
         return ChannelConfig(
             parties=(str(parties[0]), str(parties[1])),
             supervisor=str(supervisor),
@@ -423,6 +489,11 @@ def load_config(root: Path, name: str | None = None) -> ChannelConfig:
             name=name,
             project=str(project) if project is not None else None,
             managed_version=managed_version,
+            review_mode=str(raw["review_mode"]) if present_contract_keys else "release-gate",
+            review_contract_basis=contract_basis,
+            goal=str(raw["goal"]) if present_contract_keys else None,
+            review_domain=str(raw["review_domain"]) if present_contract_keys else None,
+            stop_rule=str(raw["stop_rule"]) if present_contract_keys else None,
         )
     except (TypeError, ValueError) as error:
         raise ChannelError(f"refused: invalid channel config {path}: {error}") from error

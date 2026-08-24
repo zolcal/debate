@@ -59,10 +59,15 @@ with open(log, "a", encoding="utf-8") as handle:
     handle.write(json.dumps({"call": before + 1}) + "\\n")
 print("```json")
 print(json.dumps({
-    "schema_version": 1,
+    "schema_version": 2,
     "entry_type": "verdict",
     "decision": answers[min(before, len(answers) - 1)],
     "body": "%s",
+    "verification": {
+        "status": "performed",
+        "items": [{"command": "inspect project_module.py", "exit_status": 0,
+                   "output": "VALUE = 42"}],
+    },
 }))
 print("```")
 ''' % VERDICT_BODY
@@ -82,11 +87,16 @@ before = len(log.read_text(encoding="utf-8").splitlines()) if log.exists() else 
 with open(log, "a", encoding="utf-8") as handle:
     handle.write(json.dumps({"call": before + 1}) + "\\n")
 Path(sys.argv[4]).write_text(json.dumps({
-    "schema_version": 1,
+    "schema_version": 2,
     "entry_type": "verdict",
     "decision": answers[min(before, len(answers) - 1)],
     "body": "%s",
     "runtime_model": "model",
+    "verification": {
+        "status": "performed",
+        "items": [{"command": "inspect project_module.py", "exit_status": 0,
+                   "output": "VALUE = 42"}],
+    },
 }), encoding="utf-8")
 ''' % VERDICT_BODY
 
@@ -107,6 +117,9 @@ def _seat_row(argv: list[str], *, vendor: str, submodel: str) -> dict[str, objec
         "isolation_argv": ["--no-config"],
         "no_persistence_argv": ["--no-history"],
         "config_home": None,
+        "verification_argv": [],
+        "verification_basis": "declared",
+        "result_schema_version": 2,
     }
 
 
@@ -205,11 +218,16 @@ class Case:
     world: World
 
 
-def _run_case(world: World, *, mode: str | None) -> Case:
+def _run_case(
+    world: World, *, mode: str | None, persistent_disagreement: bool = False
+) -> Case:
     """Open a fully managed debate through the real command line and drive it
     to a typed close, with the seats split on the sealed pass."""
     root = world.project / "collab"
-    world.says("othertool", "NO_PASS", "PASS")
+    if persistent_disagreement:
+        world.says("othertool", "NO_PASS")
+    else:
+        world.says("othertool", "NO_PASS", "PASS")
     argv = [
         "open",
         "--root", str(root),
@@ -219,6 +237,10 @@ def _run_case(world: World, *, mode: str | None) -> Case:
         "--source-ref", world.head,
         "--author-vendor", "claude",
         "--docket-file", "docket.md",
+        "--goal", "Verify that the project module answers 42.",
+        "--review-domain", "project_module.py and docket.md at the pinned commit.",
+        "--stop-rule", "Stop after the recorded criterion is resolved.",
+        "--review-mode", "ordinary",
         "--yes",
     ]
     if mode is not None:
@@ -227,7 +249,7 @@ def _run_case(world: World, *, mode: str | None) -> Case:
     names = sorted(path.name[: -len(".debate.json")] for path in root.glob("*.debate.json"))
     assert len(names) == 1, names
     name = names[0]
-    config_path = world.project / f"{name}.watcher.json"
+    config_path = world.project / ".debate" / "channels" / name / "watcher.json"
 
     assert main([
         "broker-open",
@@ -250,7 +272,7 @@ def _run_case(world: World, *, mode: str | None) -> Case:
         root=root,
         name=name,
         config_path=config_path,
-        runtime_root=world.project / "var" / "debate" / name,
+        runtime_root=world.project / ".debate" / "runtime" / name,
         world=world,
     )
 
@@ -279,6 +301,13 @@ def full_case(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Case]:
 @pytest.fixture(scope="module")
 def hand_authored_case(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Case]:
     yield from _case(tmp_path_factory, "hand", mode="full", hand_authored=True)
+
+
+@pytest.fixture(scope="module")
+def persistent_case(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Case]:
+    with pytest.MonkeyPatch.context() as patch:
+        world = _make_world(tmp_path_factory.mktemp("persistent"), patch)
+        yield _run_case(world, mode=None, persistent_disagreement=True)
 
 
 def _verdicts(case: Case) -> tuple[list[channel.Entry], list[channel.Entry]]:
@@ -335,10 +364,32 @@ def test_the_whole_review_material_is_re_read_when_the_operator_asks_for_it(
         assert "- deliberation-input:" not in entry.body
 
 
+def test_persistent_ordinary_disagreement_stops_at_four_launches_and_cap_five(
+    persistent_case: Case,
+) -> None:
+    closing = _closing_body(persistent_case)
+    assert "terminal-result: NO_PASS" in closing
+    assert "close-reason: thread-cap-exhausted" in closing
+    verdicts = [
+        entry
+        for entry in channel.thread_entries(
+            persistent_case.root, THREAD, persistent_case.name
+        )
+        if entry.entry_type == "verdict"
+    ]
+    assert len(verdicts) == 4
+    invocations = sorted(
+        (persistent_case.runtime_root / "cases" / THREAD / "invocations").iterdir()
+    )
+    assert len(invocations) == 4
+    assert all(path.name.endswith("-1") for path in invocations), "no retry was spent"
+
+
 # What differs between two runs of the same case no matter what: the channel's
 # own id, where it lives, the commit under review, and every hash and timestamp.
 _HASH = re.compile(r"\b[0-9a-f]{40,64}\b")
 _TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\+\d{2}:\d{2}|Z)?")
+_RUNTIME_SIZE = re.compile(r"Runtime size at close: \d+ logical bytes")
 
 
 def _shaped(case: Case) -> list[str]:
@@ -349,6 +400,7 @@ def _shaped(case: Case) -> list[str]:
     text = text.replace(world.head, "<commit>").replace(world.head[:12], "<commit>")
     text = _HASH.sub("<hash>", text)
     text = _TIME.sub("<time>", text)
+    text = _RUNTIME_SIZE.sub("Runtime size at close: <bytes> logical bytes", text)
     return [line.rstrip() for line in text.splitlines()]
 
 
@@ -393,6 +445,9 @@ ALLOWED_GOLDEN_DIFFERENCES = (
     "- isolation-flags: ",
     # B1: what the discussion round re-read; only the runner records it
     "- deliberation-input: ",
+    # The bundled adapter observes a separate child process; a hand-authored
+    # adapter is itself the only observed process.
+    "- seat-process-exit-status: ",
     # the recorded adapter manifests -- different commands, by construction
     "- sanitized-profile-manifests: ",
 )

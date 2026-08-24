@@ -1010,6 +1010,7 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
                     channel_name=config.channel_name,
                     thread=thread,
                     close_reason=error.close_reason,
+                    detail=str(error),
                 )
                 output.append(f"broker terminal ERROR for {thread!r}: {terminal.detail}")
         except ChannelError as error:

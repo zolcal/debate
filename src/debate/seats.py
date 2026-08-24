@@ -73,6 +73,9 @@ class Seat:
     # "VAR=relative/dir": SHAPE-checked at load, fully validated by
     # validate_config_home at declaration and at admission. None = undeclared.
     config_home: str | None = None
+    verification_argv: list[str] = field(default_factory=list)
+    verification_basis: str | None = None  # "catalogued" | "declared"
+    result_schema_version: int = 1
 
 
 COST_MODES = ("subscription", "api", "local", "unknown")
@@ -224,6 +227,26 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
     config_home = str(config_home_raw) if config_home_raw is not None else None
     if config_home is not None:
         config_home_shape(config_home)
+    verification_argv_raw = raw.get("verification_argv", [])
+    if not isinstance(verification_argv_raw, list) or not all(
+        isinstance(part, str) for part in verification_argv_raw
+    ):
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} verification_argv must be a list of strings"
+        )
+    verification_basis_raw = raw.get("verification_basis")
+    verification_basis = (
+        str(verification_basis_raw) if verification_basis_raw is not None else None
+    )
+    if verification_basis not in (None, "catalogued", "declared"):
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} verification_basis must be catalogued or declared"
+        )
+    result_schema_version = raw.get("result_schema_version", 1)
+    if isinstance(result_schema_version, bool) or result_schema_version not in (1, 2):
+        raise channel.ChannelError(
+            f"refused: registry seat {seat_id!r} result_schema_version must be 1 or 2"
+        )
     return Seat(
         seat_id=seat_id,
         vendor=str(raw.get("vendor", "")),
@@ -238,6 +261,9 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
         isolation_argv=list(isolation_argv_raw),
         no_persistence_argv=list(no_persistence_argv_raw),
         config_home=config_home,
+        verification_argv=list(verification_argv_raw),
+        verification_basis=verification_basis,
+        result_schema_version=result_schema_version,
     )
 
 
@@ -281,9 +307,14 @@ def load_registry() -> Registry:
 
 
 def screen_credentials(registry: Registry) -> None:
-    """Refuse anything key-shaped in any endpoint argv (wizard rule)."""
+    """Refuse anything key-shaped in endpoint or capability argv."""
     for seat in registry.seats.values():
-        for argv in seat.commands:
+        for argv in (
+            *seat.commands,
+            seat.isolation_argv,
+            seat.no_persistence_argv,
+            seat.verification_argv,
+        ):
             for part in argv:
                 if SECRET_PATTERN.search(part):
                     raise channel.ChannelError(
@@ -317,6 +348,9 @@ def registry_payload(registry: Registry) -> dict[str, object]:
                 "isolation_argv": seat.isolation_argv,
                 "no_persistence_argv": seat.no_persistence_argv,
                 "config_home": seat.config_home,
+                "verification_argv": seat.verification_argv,
+                "verification_basis": seat.verification_basis,
+                "result_schema_version": seat.result_schema_version,
             }
             for seat_id, seat in sorted(registry.seats.items())
         },
@@ -455,6 +489,9 @@ def discover(
                     isolation_argv=list(entry.isolation_argv),
                     no_persistence_argv=list(entry.no_persistence_argv),
                     config_home=entry.config_home,
+                    verification_argv=list(entry.verification_argv),
+                    verification_basis="catalogued" if entry.verification_capable else None,
+                    result_schema_version=1,
                 )
                 diff.append(f"+ {seat_id} ({argv[0]})")
                 refreshed[seat_id] = registry.seats[seat_id]
@@ -470,6 +507,10 @@ def discover(
                 existing.isolation_argv = list(entry.isolation_argv)
                 existing.no_persistence_argv = list(entry.no_persistence_argv)
                 existing.config_home = entry.config_home
+                existing.verification_argv = list(entry.verification_argv)
+                existing.verification_basis = (
+                    "catalogued" if entry.verification_capable else None
+                )
                 if base_changed:
                     for derived in registry.seats.values():
                         if derived.source != "derived":
@@ -508,12 +549,18 @@ def discover(
             list(base_seat.isolation_argv),
             list(base_seat.no_persistence_argv),
             base_seat.config_home,
+            list(base_seat.verification_argv),
+            base_seat.verification_basis,
+            base_seat.result_schema_version,
         )
         if inherited != (
             derived_seat.capability_class,
             derived_seat.isolation_argv,
             derived_seat.no_persistence_argv,
             derived_seat.config_home,
+            derived_seat.verification_argv,
+            derived_seat.verification_basis,
+            derived_seat.result_schema_version,
         ):
             diff.append(
                 f"~ {derived_seat.seat_id} took over {base_seat.seat_id}'s recorded settings"
@@ -522,6 +569,9 @@ def discover(
         derived_seat.isolation_argv = list(base_seat.isolation_argv)
         derived_seat.no_persistence_argv = list(base_seat.no_persistence_argv)
         derived_seat.config_home = base_seat.config_home
+        derived_seat.verification_argv = list(base_seat.verification_argv)
+        derived_seat.verification_basis = base_seat.verification_basis
+        derived_seat.result_schema_version = base_seat.result_schema_version
     for seat in registry.seats.values():
         if seat.source == "catalog" and seat.seat_id not in seen_ids and seat.present:
             base = seat.seat_id.split("@", 1)[0]
@@ -710,6 +760,9 @@ def add_seat(
     isolation_argv: list[str] | None = None,
     no_persistence_argv: list[str] | None = None,
     config_home: str | None = None,
+    verification_argv: list[str] | None = None,
+    verification_declared: bool = False,
+    result_schema_version: int | None = None,
     home: Path | None = None,
 ) -> None:
     """Create a manual seat, or APPEND an endpoint option to an existing
@@ -740,6 +793,12 @@ def add_seat(
         )
     if config_home is not None:
         validate_config_home(config_home, home=home if home is not None else Path.home())
+    if result_schema_version not in (None, 1, 2):
+        raise channel.ChannelError("refused: result_schema_version must be 1 or 2")
+    if verification_argv and not verification_declared:
+        raise channel.ChannelError(
+            "refused: --verification-argv needs the explicit --verification-capable declaration"
+        )
     argv = split_argv(command_text)
     joined = " ".join(argv)
     prompt_style = "{prompt}" in joined
@@ -757,12 +816,21 @@ def add_seat(
             f"refused: seat command {head!r} is neither on PATH nor an existing "
             "executable file"
         )
-    for part in argv:
+    for part in [
+        *argv,
+        *(isolation_argv or []),
+        *(no_persistence_argv or []),
+        *(verification_argv or []),
+    ]:
         if SECRET_PATTERN.search(part):
             raise channel.ChannelError(
                 "refused: command looks credential-shaped; credentials belong in a "
                 "self-sourcing wrapper, never the registry"
             )
+    if bridge_style and result_schema_version == 2 and not verification_declared:
+        raise channel.ChannelError(
+            "refused: a result-schema-v2 wrapper needs --verification-capable"
+        )
     if cost_mode not in COST_MODES:
         raise channel.ChannelError(
             f"refused: cost_mode {cost_mode!r} must be one of {COST_MODES}"
@@ -789,6 +857,11 @@ def add_seat(
             existing.no_persistence_argv = list(no_persistence_argv)
         if config_home:
             existing.config_home = config_home
+        if verification_declared:
+            existing.verification_basis = "declared"
+            existing.verification_argv = list(verification_argv or [])
+        if result_schema_version is not None:
+            existing.result_schema_version = result_schema_version
         return
     vendor, _, submodel = seat_id.partition("/")
     base_id, _, effort = seat_id.partition("@")
@@ -806,6 +879,9 @@ def add_seat(
         isolation_argv=list(isolation_argv) if isolation_argv else [],
         no_persistence_argv=list(no_persistence_argv) if no_persistence_argv else [],
         config_home=config_home,
+        verification_argv=list(verification_argv or []),
+        verification_basis="declared" if verification_declared else None,
+        result_schema_version=result_schema_version or 1,
     )
 
 
@@ -871,6 +947,9 @@ def add_effort_seat(registry: Registry, seat_id: str) -> None:
         isolation_argv=list(base.isolation_argv),
         no_persistence_argv=list(base.no_persistence_argv),
         config_home=base.config_home,
+        verification_argv=list(base.verification_argv),
+        verification_basis=base.verification_basis,
+        result_schema_version=base.result_schema_version,
     )
 
 

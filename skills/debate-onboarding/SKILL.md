@@ -25,6 +25,12 @@ Core rules, non-negotiable:
   approval question in the CURRENT turn. Never pre-answer it.
 - Internal commands are implementation detail: describe outcomes to the user in
   plain language; show commands only if they ask for details.
+- **Only the owner declares a change trivial or waives review.** Never say that
+  something is too small to debate. When a plan, branch, or publishable artifact
+  is ready, ask the owner whether to debate it unless they already answered.
+- **Every subject gets a fresh channel.** A changed artifact being re-reviewed is
+  a new subject and a new channel. Never reuse a terminal channel as if its old
+  verdict had been rewritten.
 - **Plain words, always.** Say *agent* for an AI tool installed on this
   machine (claude, codex, kimi, ...), and *wrapper* for a small script of the
   user's that launches one with fixed settings. Define a term the first time
@@ -100,11 +106,16 @@ Core rules, non-negotiable:
    saving a session (`--no-persistence-argv`), and, where the tool documents
    a configuration folder of its own, `--config-home VAR=dir`. On answer 2
    or 3, say plainly that the seat can still act as a reviewer in a classic
-   debate, and that a small command of your own -- one that reads a request
-   file and writes an answer file -- is the way into a fully managed one. (Engine fact for YOU, never for the user's ears: a
-   fully managed open now accepts a {prompt}-style seat as soon as both flag
-   lists are on record; a command taking {input_path} and {result_path} is a
-   hand-authored adapter and is admitted without them.)
+   debate. A small command of your own is a fully managed option only when you
+   can make it speak the current evidence contract: it reads the request file,
+   writes a version-2 answer file, and supplies either performed verification
+   items (`command`, integer `exit_status`, non-empty `output`) or an `unable`
+   reason with a `NO_PASS` decision. Show that result shape and the declarations
+   `--verification-capable --result-schema-version 2` in the SAME approval.
+   Never offer to write a wrapper that the product will then refuse or whose
+   answer lacks evidence. (Engine fact for YOU: a prompt-style seat is wrapped
+   when isolation, no-persistence, and verification capability are recorded;
+   a hand-authored file adapter additionally needs declared result schema v2.)
 4. Ask which seats to approve for THIS project, listing the user-named
    wrappers from step 3 as pending rows labelled "will be registered on
    approval". Prefer the host's structured question tool (multi-select); fall
@@ -115,7 +126,9 @@ Core rules, non-negotiable:
    `seats remove <SEAT>` --
    `<launcher> seats add <vendor>/<submodel> --command "<their argv>"
    --cost-mode <their answer or unknown> [--isolation-argv=<args>]
-   [--no-persistence-argv=<args>] [--config-home VAR=dir]`
+   [--no-persistence-argv=<args>] [--config-home VAR=dir]
+   --verification-capable [--verification-argv=<args>]
+   [--result-schema-version 2]`
    (the last three only where step 3 confirmed them; an unselected pending
    wrapper is never registered at all), then re-run inspect for the fresh
    candidate revision, then run:
@@ -144,14 +157,18 @@ Core rules, non-negotiable:
 
 1. Run `<launcher> onboarding status --project <ABS-CWD> --json`. If `attention`
    is not `ready`, run Flow 1 first (or the repair it names).
-2. Show only currently present, project-approved seats. The user picks EXACTLY
-   two. A remembered pair may be shown only as a labelled convenience default,
-   never preselected on first onboarding.
-3. Ask for or derive the debate subject and the review target, summarize what
-   will be created in user words -- "your two chosen seats will independently
-   review it, argue if they disagree, and every word lands in a permanent
-   record; you are the supervisor, and I never vote" -- and get the user's
-   confirmation. If the two picks are clearly different capability classes
+2. Derive a concrete review brief from the user's short request and the real
+   project files. It must name: subject; exact artifact/ref; goal; valid input
+   domain; acceptance criteria; project-local verification commands; stop rule;
+   and mode. Use `ordinary` for bounded feature/fix review. Use `release-gate`
+   for branch, release, security, or other owner-designated gates. Do not invent
+   criteria the artifact does not claim.
+3. Ask the engine for its current numbered pair menu by running the product open
+   form without `--pair` (it refuses read-only after printing the menu and
+   budget). Render ONLY its admissible choices, in its stable order; never invent
+   or re-rank a pair. A remembered pair is a labelled convenience, never silently
+   selected. The user picks EXACTLY two. If two picks have different capability
+   classes,
    (a lightweight fast model against a frontier reasoning model), say so
    plainly before confirming: seats of different weight often produce
    one-sided verdicts and cost an extra deliberation lap. The engine enforces
@@ -161,12 +178,40 @@ Core rules, non-negotiable:
    current turn; answer 2 sends you back to step 2. (Engine fact for YOU, never
    for the user's ears: what gets created is a managed-version-2 brokered
    channel.)
-4. Run EXACTLY this form (agent-only engine fact: `--brokered` is NOT
+4. Present one confirmation table, exactly these columns and rows:
+
+   | Review field | Proposed value |
+   |---|---|
+   | Subject | ... |
+   | Exact artifact | ... |
+   | Mode | ordinary or release-gate |
+   | Goal | ... |
+   | Valid review domain | ... |
+   | Acceptance criteria | ... |
+   | Verification commands | ... |
+   | Stop rule | ... |
+   | Seats | exact pair from the engine menu |
+   | Clean path | 2 vote-producing seat turns / 2 nested-seat launches |
+   | Enforced maximum | engine-reported seat-turn and retry-inclusive nested-launch ceilings |
+
+   Say in the same confirmation: this creates one NEW channel; the owner is
+   supervisor and never a vote; supervisor posts consume the same entry cap;
+   isolation remains advisory, not protection against hostile code; and every
+   verification block is seat-declared evidence which the controller makes
+   falsifiable but does not authenticate as truth. For ordinary mode the engine
+   owns cap 5: at most four vote-producing seat turns and eight nested launches
+   with the product retry policy. For release-gate mode its default cap 12 permits
+   at most eleven seat turns and twenty-two launches. Use the exact budget the
+   engine printed, including any profile-specific retry difference, rather than
+   recalculating it. Ask once for confirmation before opening.
+5. Run EXACTLY this form (agent-only engine fact: `--brokered` is NOT
    optional -- the plain form mints a legacy version-1 channel and is never
    the product path):
    `<launcher> open --brokered --root <ABS collab dir> --label <slug>
    --pair <a>,<b> --author-vendor <your host's catalog vendor: "claude" in
-   Claude Code, "codex" in Codex> --docket-file <project-relative review input>
+   Claude Code, "codex" in Codex> --goal <goal> --review-domain <domain>
+   --stop-rule <stop> --review-mode <ordinary|release-gate>
+   --docket-file <project-relative review input>
    [--docket-file ...]` (the docket files are what the seats actually read --
    always pass the review target; --author-vendor makes the recorded author
    relationship a declared fact: a seat sharing your host's vendor is recorded
@@ -177,17 +222,37 @@ Core rules, non-negotiable:
    If the engine refuses a seat because it does not know how that tool turns
    off its settings, plugins and session saving, relay the two ways forward as
    a numbered question: "1 tell me those arguments and I'll record them once
-   2 let me write a small command for this tool instead". On answer 1, collect
-   and record them exactly as in Flow 1 step 3, then run the open again.
-5. Open the docket with the `broker-open` hint the engine prints (the request
+   2 let me write a version-2 review wrapper for this tool". On answer 1,
+   collect isolation, persistence and verification declarations exactly as in
+   Flow 1 step 3. On answer 2, show the mandatory v2 verification result shape
+   and both registration declarations before writing/registering anything.
+6. Print the engine's single `.debate/` ignore suggestion when it appears; never
+   edit `.gitignore`. Open the docket with the `broker-open` hint (the request
    body states what to verify), then drive it with the printed `watch
    --until-close` command. Set the expectation once -- "this takes a few
    minutes of model thinking; I'll report when it closes" -- then BE QUIET:
    no polling narration, no handover edits mid-debate, one report at the
    typed close. A status showing a seat invocation in flight within its
    budget is healthy, not stuck.
-6. Report the channel id and live status in plain language; keep the raw
-   commands behind a "details" answer.
+7. Report the channel id, typed result, and the engine-reported runtime size in
+   plain language. Mention the exact `debate runtime ...` inspection command
+   once at close. Pruning is never automatic: inspect first, and run
+   `debate runtime ... --prune --yes` only after explicit approval; it removes
+   invocation homes/build/temp state while retaining the record, case state,
+   inputs/results, streams, hashes, source manifests/exports and receipts.
+   Keep other raw commands behind a "details" answer.
+
+## Flow 3 — correct a falsified terminal finding
+
+When fresh evidence disproves a finding in a terminal channel, do not edit or
+reopen that history. Draft a supervisor `close`-typed post under a fresh correction slug.
+The body must cite the original MSG number, show the exact fresh
+command and output, say what was falsified, and state explicitly that the
+historical verdict remains in the append-only record. Include nearby real defects
+when the same check exposes them, so the correction is not self-serving. Present
+the draft to the owner; post with `--from <recorded supervisor>` and
+`--verify-refs` only after the owner authorizes speaking in their seat. This flow
+opens no review case and wakes no model.
 
 ## What this skill never does
 

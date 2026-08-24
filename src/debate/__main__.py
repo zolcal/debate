@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from debate import bridge, channel, delta, onboarding, opening, seats
+from debate import bridge, channel, delta, onboarding, opening, runtime as runtime_state, seats
 from debate.controller import (
     SEALED_CONCURRENCY_MODES,
     AdapterProfile,
@@ -191,6 +191,50 @@ def _watcher_config(
                 f"refused: {config_path}: 'quick_review_max_bytes' must be a whole number of "
                 f"bytes above zero, got {quick_review_max_bytes!r}"
             )
+        review_keys = {
+            "review_mode", "review_contract_basis", "goal", "review_domain", "stop_rule"
+        }
+        present_review_keys = review_keys.intersection(raw)
+        if present_review_keys and present_review_keys != review_keys:
+            raise channel.ChannelError(
+                f"refused: {config_path}: partial review contract; missing "
+                f"{', '.join(sorted(review_keys - present_review_keys))}"
+            )
+        if present_review_keys and not all(
+            isinstance(raw[key], str) for key in review_keys
+        ):
+            raise channel.ChannelError(
+                f"refused: {config_path}: review contract fields must be strings"
+            )
+        review_mode: str
+        review_contract_basis: str
+        goal: str | None
+        review_domain: str | None
+        stop_rule: str | None
+        if present_review_keys:
+            review_mode = str(raw["review_mode"])
+            review_contract_basis = str(raw["review_contract_basis"])
+            goal = str(raw["goal"])
+            review_domain = str(raw["review_domain"])
+            stop_rule = str(raw["stop_rule"])
+        else:
+            review_mode = "release-gate"
+            review_contract_basis = "legacy-absent"
+            goal = review_domain = stop_rule = None
+        channel_contract = (
+            channel_config.review_mode,
+            channel_config.review_contract_basis,
+            channel_config.goal,
+            channel_config.review_domain,
+            channel_config.stop_rule,
+        )
+        watcher_contract = (
+            review_mode, review_contract_basis, goal, review_domain, stop_rule
+        )
+        if channel_contract != watcher_contract:
+            raise channel.ChannelError(
+                "refused: watcher review contract does not match the channel record"
+            )
         ordered_profiles = (profiles[channel_config.parties[0]], profiles[channel_config.parties[1]])
         timing = TimingPolicy(
             thread_cap=channel_config.thread_cap,
@@ -209,6 +253,11 @@ def _watcher_config(
             docket_files=tuple(docket_files_raw),
             contamination_canaries={str(key): str(value) for key, value in canaries_raw.items()},
             sealed_concurrency=str(sealed_concurrency),
+            review_mode=review_mode,
+            review_contract_basis=review_contract_basis,
+            goal=goal,
+            review_domain=review_domain,
+            stop_rule=stop_rule,
         )
     return WatcherConfig(
         channel_root=root,
@@ -373,10 +422,17 @@ def _delta_round_docket(
                 "a free path rather than overwriting it"
             )
     else:
+        runtime_relative = config.runtime_root.resolve().relative_to(project.resolve())
         number = 1
-        while (project / f"var/debate/{channel_name}/delta-docket-{args.thread}-{number}.md").exists():
+        while (
+            project
+            / runtime_relative
+            / f"delta-docket-{args.thread}-{number}.md"
+        ).exists():
             number += 1
-        relative = f"var/debate/{channel_name}/delta-docket-{args.thread}-{number}.md"
+        relative = str(
+            runtime_relative / f"delta-docket-{args.thread}-{number}.md"
+        )
 
     diffs: dict[str, str] = {}
     for current, prior in pairs:
@@ -543,6 +599,28 @@ def main(argv: list[str] | None = None) -> int:
         help="the tool's documented configuration variable and its folder under your home, "
              "e.g. CLAUDE_CONFIG_DIR=.claude",
     )
+    p_seats_add.add_argument(
+        "--verification-capable",
+        action="store_true",
+        dest="seats_add_verification_capable",
+        help="declare that this seat can inspect the pinned export and run bounded checks",
+    )
+    p_seats_add.add_argument(
+        "--verification-argv",
+        dest="seats_add_verification_argv",
+        default=None,
+        metavar="ARGS",
+        help="documented arguments that enable bounded inspection/check tools; requires "
+        "--verification-capable (use --verification-argv=ARGS when ARGS starts with a dash)",
+    )
+    p_seats_add.add_argument(
+        "--result-schema-version",
+        dest="seats_add_result_schema_version",
+        type=int,
+        choices=(1, 2),
+        default=None,
+        help="result protocol spoken by a hand-authored file adapter; v2 is required for new product opens",
+    )
     p_seats_setcost = seats_sub.add_parser(
         "set-cost-mode",
         help="declare who pays for an existing seat (catalog, derived, or manual)",
@@ -616,8 +694,11 @@ def main(argv: list[str] | None = None) -> int:
         help="two comma-separated seat ids, e.g. codex/gpt-5.6-sol,glm/glm-5.3",
     )
     p_open.add_argument("--supervisor", default="owner")
-    p_open.add_argument("--cap", type=int, default=12, dest="thread_cap",
-                        help="maximum entries in one thread")
+    p_open.add_argument(
+        "--cap", type=int, default=None, dest="thread_cap",
+        help="maximum entries in one thread (ordinary product reviews require 5; "
+        "release gates and legacy opens default to 12)",
+    )
     p_open.add_argument(
         "--yes",
         action="store_true",
@@ -642,6 +723,23 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="open a fully managed debate: the two seats run under Debate's control with "
         "you as supervisor; requires --pair and project approval",
+    )
+    p_open.add_argument(
+        "--goal", default=None,
+        help="fully managed debates only: the concrete outcome this review must establish",
+    )
+    p_open.add_argument(
+        "--review-domain", default=None, dest="review_domain",
+        help="fully managed debates only: the valid input/artifact boundary",
+    )
+    p_open.add_argument(
+        "--stop-rule", default=None, dest="stop_rule",
+        help="fully managed debates only: when this bounded review must stop",
+    )
+    p_open.add_argument(
+        "--review-mode", default="ordinary", choices=channel.REVIEW_MODES,
+        dest="review_mode",
+        help="fully managed debates only: bounded ordinary review (default) or exhaustive release gate",
     )
     p_open.add_argument(
         "--source-ref",
@@ -845,6 +943,22 @@ def main(argv: list[str] | None = None) -> int:
         "--config", type=Path, required=True, help="the fully managed debate's watcher config JSON"
     )
 
+    p_runtime = sub.add_parser(
+        "runtime",
+        help="inspect one exact managed channel runtime, or prune only regenerable invocation state",
+    )
+    p_runtime.add_argument("--root", type=Path, default=Path("."))
+    add_channel_flag(p_runtime)
+    p_runtime.add_argument(
+        "--config", type=Path, required=True, help="the exact channel's watcher config JSON"
+    )
+    p_runtime.add_argument(
+        "--prune", action="store_true", help="delete terminal invocation home/build/tmp trees"
+    )
+    p_runtime.add_argument(
+        "--yes", action="store_true", help="confirm --prune after inspecting the byte report"
+    )
+
     p_broker_open = sub.add_parser(
         "broker-open",
         help="snapshot and open a neutral review case for a fully managed debate; "
@@ -911,7 +1025,7 @@ def main(argv: list[str] | None = None) -> int:
         "--docket-out",
         type=Path,
         help="where to write this round's instruction sheet (default "
-        "var/debate/<channel>/delta-docket-<thread>-<n>.md); needs --delta-round",
+        "the loaded channel runtime as delta-docket-<thread>-<n>.md); needs --delta-round",
     )
 
     # Hidden on purpose: nobody types this. The channel-opening flow writes it
@@ -974,6 +1088,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "open" and args.brokered:
             registry = seats.load_registry()
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            product_thread_cap = opening.resolve_review_thread_cap(
+                args.review_mode, args.thread_cap
+            )
             if args.pair is None:
                 # The refusal stands -- this path never picks for the user --
                 # but it hands the skill the numbered list to show, sized by
@@ -1005,6 +1122,12 @@ def main(argv: list[str] | None = None) -> int:
                 if menu:
                     lines.append("seat one of these with --pair a,b:")
                     lines.extend(menu)
+                budget = opening.review_budget(product_thread_cap, (1, 1))
+                lines.append(
+                    f"review budget ({args.review_mode}): {budget.seat_turn_ceiling} "
+                    f"seat turns, at most {budget.nested_launch_ceiling} nested-seat "
+                    "launches; supervisor entries consume the same cap"
+                )
                 raise channel.ChannelError("\n".join(lines))
             parts = tuple(part.strip() for part in args.pair.split(","))
             if len(parts) != 2 or not all(parts):
@@ -1041,12 +1164,16 @@ def main(argv: list[str] | None = None) -> int:
                     source_ref=source_ref,
                     author_vendor=args.author_vendor,
                     supervisor=args.supervisor,
-                    thread_cap=args.thread_cap,
+                    thread_cap=product_thread_cap,
                     allow_identical_seats=args.allow_identical_seats,
                     allow_mismatched_pair=args.allow_mismatched_pair,
                     docket_files=tuple(args.docket_files),
                     quick_review_max_bytes=args.quick_review_max_bytes,
                     deliberation_input=args.deliberation_input,
+                    goal=args.goal or "",
+                    review_domain=args.review_domain or "",
+                    stop_rule=args.stop_rule or "",
+                    review_mode=args.review_mode,
                 ),
                 registry,
                 load_config_fn=_watcher_config,
@@ -1114,7 +1241,7 @@ def main(argv: list[str] | None = None) -> int:
                     label=args.label,
                     pair=pair,
                     supervisor=args.supervisor,
-                    thread_cap=args.thread_cap,
+                    thread_cap=args.thread_cap if args.thread_cap is not None else 12,
                     allow_identical_seats=args.allow_identical_seats,
                     assume_yes=args.assume_yes,
                     allow_mismatched_pair=args.allow_mismatched_pair,
@@ -1228,6 +1355,12 @@ def main(argv: list[str] | None = None) -> int:
                             if args.seats_add_no_persistence_argv is not None else None
                         ),
                         config_home=args.seats_add_config_home,
+                        verification_argv=(
+                            split_argv(args.seats_add_verification_argv)
+                            if args.seats_add_verification_argv is not None else None
+                        ),
+                        verification_declared=args.seats_add_verification_capable,
+                        result_schema_version=args.seats_add_result_schema_version,
                     )
                 elif "@" in args.seat_id:
                     seats.add_effort_seat(registry, args.seat_id)
@@ -1511,6 +1644,32 @@ def main(argv: list[str] | None = None) -> int:
                 raise channel.ChannelError("refused: adapter-doctor requires an 'adapters' configuration")
             for line in doctor_lines(config.broker):
                 print(line)
+        elif args.command == "runtime":
+            if name is None:
+                raise channel.ChannelError("refused: runtime inspection needs --channel")
+            config = _watcher_config(args.root, args.config, name)
+            before = runtime_state.inspect(config, name)
+            print(f"channel: {name}")
+            print(f"runtime root: {before.runtime_root}")
+            print(f"total bytes: {before.total_bytes}")
+            print(f"retained provenance bytes: {before.retained_bytes}")
+            print(f"regenerable invocation bytes: {before.regenerable_bytes}")
+            print(f"regenerable paths: {len(before.regenerable_paths)}")
+            if args.yes and not args.prune:
+                raise channel.ChannelError("refused: --yes has no effect without --prune")
+            if args.prune:
+                from debate import __version__
+
+                after = runtime_state.prune(
+                    channel_root=args.root,
+                    channel_name=name,
+                    config_path=args.config,
+                    load_config=_watcher_config,
+                    tool_version=__version__,
+                    confirmed=args.yes,
+                )
+                print(f"pruned bytes: {before.regenerable_bytes - after.regenerable_bytes}")
+                print(f"remaining total bytes: {after.total_bytes}")
         elif args.command == "broker-open":
             config = _watcher_config(args.root, args.config, name)
             if config.broker is None or name is None:

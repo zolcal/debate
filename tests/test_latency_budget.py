@@ -48,10 +48,13 @@ with open(log, "a", encoding="utf-8") as handle:
 print("I read the review material and ran the check it asks for.")
 print("```json")
 print(json.dumps({
-    "schema_version": 1,
+    "schema_version": 2,
     "entry_type": "verdict",
     "decision": answers[min(before, len(answers) - 1)],
     "body": "I ran the check the review material asks for; this is my position.",
+    "verification": {"status": "performed", "items": [{
+        "command": "python -c fixture-probe", "exit_status": 0, "output": "VALUE = 42"
+    }]},
 }))
 print("```")
 '''
@@ -75,6 +78,9 @@ def _seat_row(argv: list[str], *, vendor: str, submodel: str) -> dict[str, objec
         "isolation_argv": ["--no-config"],
         "no_persistence_argv": ["--no-history"],
         "config_home": None,
+        "verification_argv": [],
+        "verification_basis": "declared",
+        "result_schema_version": 1,
     }
 
 
@@ -171,6 +177,9 @@ def _open_case(world: World) -> tuple[Path, str, Path]:
             source_ref=world.head,
             author_vendor="claude",
             docket_files=("docket.md",),
+            goal="Establish whether the project module answers 42.",
+            review_domain="The pinned project module and docket.",
+            stop_rule="Stop after the project-local probe and a decisive verdict.",
         ),
         seats.load_registry(),
         load_config_fn=_watcher_config,

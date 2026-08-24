@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 import pytest
 
@@ -16,6 +16,8 @@ from debate.__main__ import _watcher_config, main
 def _registry_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "seats.json"
     monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(path))
+    # Legacy open retains its per-user state path; isolate that path too.
+    monkeypatch.setenv("HOME", str(tmp_path))
     # The basetemp lives INSIDE the checkout (pyproject pins .pytest-tmp), so
     # without a ceiling _derived_project resolves the enclosing repo and every
     # open writes its toplevel config into the real working tree.
@@ -29,6 +31,7 @@ def _seat(seat_id: str, argv: list[str], *, present: bool = True,
     return seats.Seat(
         seat_id=seat_id, vendor=vendor, submodel=submodel.split("@", 1)[0],
         effort=effort, commands=[argv], source="manual", present=present, smoke=smoke,
+        verification_basis="declared", result_schema_version=2,
     )
 
 
@@ -621,6 +624,11 @@ def test_open_provenance_carries_smoke_result(
 # --- Slice C5: prompt-style seats join a fully managed debate ---------------
 
 MANAGED_NOW = "2026-08-20T12:00:00+00:00"
+MANAGED_CONTRACT: dict[str, Any] = {
+    "goal": "Establish whether the fixture meets its recorded criteria.",
+    "review_domain": "The pinned fixture source and recorded docket files.",
+    "stop_rule": "Stop after the bounded checks and a decisive verdict.",
+}
 
 NINE_INHERITED_NAMES = [
     "PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR",
@@ -645,6 +653,9 @@ def _raw_seat(
     isolation_argv: list[str] | None = None,
     no_persistence_argv: list[str] | None = None,
     config_home: str | None = None,
+    verification_basis: str | None = "declared",
+    verification_argv: list[str] | None = None,
+    result_schema_version: int = 2,
 ) -> dict[str, object]:
     return {
         "vendor": vendor,
@@ -659,6 +670,9 @@ def _raw_seat(
         "isolation_argv": list(isolation_argv or []),
         "no_persistence_argv": list(no_persistence_argv or []),
         "config_home": config_home,
+        "verification_basis": verification_basis,
+        "verification_argv": list(verification_argv or []),
+        "result_schema_version": result_schema_version,
     }
 
 
@@ -736,6 +750,8 @@ def test_prompt_style_seat_is_wrapped_with_its_verified_flags(tmp_path: Path) ->
         isolation_argv=["--strict-mcp-config", "--settings", "{}"],
         no_persistence_argv=["--no-session-persistence"],
         config_home="CLAUDE_CONFIG_DIR=.claude",
+        verification_argv=["--tools", "Read,Grep,Glob,Bash"],
+        verification_basis="catalogued",
     )
     profile = opening._brokered_adapter(
         seat, tool_version="test", author_vendor="codex", real_home=tmp_path,
@@ -752,6 +768,9 @@ def test_prompt_style_seat_is_wrapped_with_its_verified_flags(tmp_path: Path) ->
     assert spec.argv == (str(tool), "-p", "{prompt}")
     assert spec.isolation_argv == ("--strict-mcp-config", "--settings", "{}")
     assert spec.no_persistence_argv == ("--no-session-persistence",)
+    assert spec.verification_argv == ("--tools", "Read,Grep,Glob,Bash")
+    assert spec.verification_basis == "catalogued"
+    assert spec.result_schema_version == 2
     assert spec.config_home == "CLAUDE_CONFIG_DIR=.claude"
     assert spec.isolation_flags_basis == "catalogued"
     assert profile["environment"] == {
@@ -772,6 +791,7 @@ def test_operator_declared_flags_are_recorded_as_declared(tmp_path: Path) -> Non
         seat_id="own/agent", vendor="own", submodel="agent", effort=None,
         commands=[[str(tool), "{prompt}"]], source="manual", present=True,
         smoke=None, isolation_argv=["--offline"], no_persistence_argv=["--forget"],
+        verification_basis="declared",
     )
     from debate import bridge
 
@@ -792,7 +812,7 @@ def test_hand_authored_adapter_seat_is_left_alone(tmp_path: Path) -> None:
     seat = seats.Seat(
         seat_id="own/adapter", vendor="own", submodel="adapter", effort=None,
         commands=[[str(tool), "{input_path}", "{result_path}"]], source="manual",
-        present=True, smoke=None,
+        present=True, smoke=None, verification_basis="declared", result_schema_version=2,
     )
     profile = opening._brokered_adapter(
         seat, tool_version="test", author_vendor="codex", real_home=tmp_path,
@@ -831,6 +851,7 @@ def test_seat_with_flags_and_no_configuration_folder_is_admitted(tmp_path: Path)
         seat_id="glm/glm-5.3", vendor="glm", submodel="glm-5.3", effort=None,
         commands=[[str(tool), "{prompt}"]], source="manual", present=True, smoke=None,
         isolation_argv=["--offline"], no_persistence_argv=["--forget"],
+        verification_basis="declared",
     )
     profile = opening._brokered_adapter(
         seat, tool_version="test", author_vendor="codex", real_home=tmp_path,
@@ -916,6 +937,7 @@ def test_managed_open_wraps_both_seats_end_to_end(
         opening.BrokeredOpenSpec(
             root=root, label="stub", pair=("claude/sonnet", "codex/gpt-5.6-sol"),
             source_ref=head, author_vendor="claude",
+            **MANAGED_CONTRACT,
         ),
         seats.load_registry(), load_config_fn=_watcher_config,
         now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
@@ -923,6 +945,17 @@ def test_managed_open_wraps_both_seats_end_to_end(
     loaded = _watcher_config(root, result.config_path, result.channel_name)
     assert loaded.managed_problem() is None
     assert loaded.broker is not None
+    assert result.config_path == (
+        project / ".debate" / "channels" / result.channel_name / "watcher.json"
+    )
+    assert loaded.broker.runtime_root == (
+        project / ".debate" / "runtime" / result.channel_name
+    )
+    assert loaded.broker.review_contract == {
+        **MANAGED_CONTRACT,
+        "review_mode": "ordinary",
+        "review_contract_basis": "recorded",
+    }
     lines = doctor_lines(loaded.broker)
     assert any(
         "configuration home OPERATOR (CLAUDE_CONFIG_DIR)" in line
@@ -934,10 +967,131 @@ def test_managed_open_wraps_both_seats_end_to_end(
         for line in lines
     )
     record = json.loads((root / f"{result.channel_name}.debate.json").read_text(encoding="utf-8"))
+    assert record["review_contract"] == {
+        **MANAGED_CONTRACT,
+        "review_mode": "ordinary",
+        "review_contract_basis": "recorded",
+        "thread_cap": 5,
+        "seat_turn_ceiling": 4,
+        "nested_launch_ceiling": 8,
+        "supervisor_entries_consume_cap": True,
+    }
     assert record["seats"]["claude"]["isolation_flags"] == "catalogued"
     assert record["seats"]["claude"]["configuration_home"] == "operator (CLAUDE_CONFIG_DIR)"
     assert record["seats"]["codex"]["isolation_flags"] == "declared"
     assert record["seats"]["codex"]["configuration_home"] == "sandbox"
+
+
+def test_review_mode_caps_and_engine_budget_are_single_source() -> None:
+    assert opening.resolve_review_thread_cap("ordinary", None) == 5
+    assert opening.resolve_review_thread_cap("ordinary", 5) == 5
+    with pytest.raises(channel.ChannelError, match="ordinary review uses thread cap 5"):
+        opening.resolve_review_thread_cap("ordinary", 12)
+    assert opening.resolve_review_thread_cap("release-gate", None) == 12
+    assert opening.resolve_review_thread_cap("release-gate", 9) == 9
+    assert opening.review_budget(5, (0, 1)) == opening.ReviewBudget(5, 4, 8)
+    assert opening.review_budget(12, (1, 0)) == opening.ReviewBudget(12, 11, 22)
+
+
+def test_ordinary_wrong_cap_refuses_before_target_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, head = _quick_pair_project(tmp_path, monkeypatch)
+    root = project / "collab"
+    with pytest.raises(channel.ChannelError, match="ordinary review uses thread cap 5"):
+        opening.open_debate_brokered(
+            opening.BrokeredOpenSpec(
+                root=root, label="wrong-cap", pair=("claude/haiku", "deepseek/flash"),
+                source_ref=head, author_vendor="claude", thread_cap=12,
+                **MANAGED_CONTRACT,
+            ),
+            seats.load_registry(), load_config_fn=_watcher_config,
+            now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
+        )
+    assert not root.exists()
+    assert not (project / ".debate").exists()
+
+
+def test_cli_release_gate_omission_resolves_to_cap_twelve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, _head = _quick_pair_project(tmp_path, monkeypatch)
+    monkeypatch.chdir(project)
+    assert main([
+        "open", "--brokered", "--root", str(project / "collab"),
+        "--label", "release", "--pair", "claude/opus,deepseek/pro",
+        "--author-vendor", "claude", "--review-mode", "release-gate",
+        "--goal", MANAGED_CONTRACT["goal"],
+        "--review-domain", MANAGED_CONTRACT["review_domain"],
+        "--stop-rule", MANAGED_CONTRACT["stop_rule"],
+        "--yes",
+    ]) == 0
+    names = sorted((project / "collab").glob("*.debate.json"))
+    assert len(names) == 1
+    record = json.loads(names[0].read_text(encoding="utf-8"))
+    assert record["thread_cap"] == 12
+    assert record["review_contract"]["nested_launch_ceiling"] == 22
+
+
+def test_new_product_open_adds_only_hidden_state_and_one_ignore_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _fake_tool(tmp_path, "agent-one")
+    second = _fake_tool(tmp_path, "agent-two")
+    project, head = managed_project(
+        tmp_path,
+        monkeypatch,
+        {
+            "alpha/one": _raw_seat(
+                [str(first), "{prompt}"], vendor="alpha", submodel="one",
+                isolation_argv=["--isolated"], no_persistence_argv=["--forget"],
+            ),
+            "beta/two": _raw_seat(
+                [str(second), "{prompt}"], vendor="beta", submodel="two",
+                isolation_argv=["--isolated"], no_persistence_argv=["--forget"],
+            ),
+        },
+        ["alpha/one", "beta/two"],
+    )
+    before = {path.name for path in project.iterdir()}
+    result = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=project / "collab", label="hidden", pair=("alpha/one", "beta/two"),
+            source_ref=head, author_vendor="alpha", **MANAGED_CONTRACT,
+        ),
+        seats.load_registry(), load_config_fn=_watcher_config,
+        now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
+    )
+    assert {path.name for path in project.iterdir()} - before == {".debate", "collab"}
+    assert [line for line in result.hints if line.startswith("ignore suggestion:")] == [
+        "ignore suggestion: add .debate/ to the project's .gitignore"
+    ]
+
+
+def test_new_product_open_refuses_a_visible_runtime_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, head = _quick_pair_project(tmp_path, monkeypatch)
+    root = project / "collab"
+    with pytest.raises(channel.ChannelError, match="owns its hidden"):
+        opening.open_debate_brokered(
+            opening.BrokeredOpenSpec(
+                root=root,
+                label="visible-runtime",
+                pair=("claude/haiku", "deepseek/flash"),
+                source_ref=head,
+                author_vendor="claude",
+                runtime_root=project / "var" / "debate" / "visible-runtime",
+                **MANAGED_CONTRACT,
+            ),
+            seats.load_registry(),
+            load_config_fn=_watcher_config,
+            now=MANAGED_NOW,
+            tool_version="test",
+            real_home=tmp_path,
+        )
+    assert not root.exists()
+    assert not (project / ".debate").exists()
 
 
 def test_hand_authored_adapter_pair_records_adapter_owned_isolation(
@@ -964,6 +1118,7 @@ def test_hand_authored_adapter_pair_records_adapter_owned_isolation(
         opening.BrokeredOpenSpec(
             root=root, label="stub", pair=("alpha/fake", "beta/fake"),
             source_ref=head, author_vendor="claude",
+            **MANAGED_CONTRACT,
         ),
         seats.load_registry(), load_config_fn=_watcher_config,
         now=MANAGED_NOW, tool_version="test",
@@ -1003,6 +1158,7 @@ def test_same_vendor_pair_with_different_models_is_admitted(
             root=project / "collab", label="stub",
             pair=("claude/sonnet", "claude/haiku"),
             source_ref=head, author_vendor="codex", allow_mismatched_pair=True,
+            **MANAGED_CONTRACT,
         ),
         seats.load_registry(), load_config_fn=_watcher_config,
         now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
@@ -1087,6 +1243,7 @@ def test_managed_open_records_the_small_review_limit(
             root=project / "collab", label="stub",
             pair=("claude/opus", "deepseek/pro"),
             source_ref=head, author_vendor="claude",
+            **MANAGED_CONTRACT,
         ),
         seats.load_registry(), load_config_fn=_watcher_config,
         now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
@@ -1107,6 +1264,7 @@ def test_the_small_review_limit_is_a_per_debate_setting(
             pair=("claude/opus", "deepseek/pro"),
             source_ref=head, author_vendor="claude",
             quick_review_max_bytes=4096,
+            **MANAGED_CONTRACT,
         ),
         seats.load_registry(), load_config_fn=_watcher_config,
         now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
@@ -1124,6 +1282,7 @@ def test_a_hand_edited_small_review_limit_refuses_instead_of_crashing(
             root=project / "collab", label="stub",
             pair=("claude/opus", "deepseek/pro"),
             source_ref=head, author_vendor="claude",
+            **MANAGED_CONTRACT,
         ),
         seats.load_registry(), load_config_fn=_watcher_config,
         now=MANAGED_NOW, tool_version="test", real_home=tmp_path,
@@ -1158,6 +1317,8 @@ def test_cli_managed_open_without_a_pair_offers_a_numbered_list(
     assert "1  claude/haiku + deepseek/flash" in printed
     assert "small review, quick pair" in printed
     assert "2  " in printed
+    assert "review budget (ordinary): 4 seat turns, at most 8 nested-seat launches" in printed
+    assert "supervisor entries consume the same cap" in printed
 
 
 def test_cli_managed_open_sizes_its_suggestion_by_the_review_material(

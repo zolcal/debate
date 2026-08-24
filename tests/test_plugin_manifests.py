@@ -62,3 +62,49 @@ def test_plugin_ships_everything_the_hook_and_skills_need() -> None:
         "src/debate/onboarding.py",
     ):
         assert (REPO / relative).is_file(), relative
+
+
+def test_installed_onboarding_skill_carries_the_field_fold_contract() -> None:
+    skill = (REPO / "skills/debate-onboarding/SKILL.md").read_text(encoding="utf-8")
+    for row in (
+        "| Subject |",
+        "| Exact artifact |",
+        "| Mode |",
+        "| Goal |",
+        "| Valid review domain |",
+        "| Acceptance criteria |",
+        "| Verification commands |",
+        "| Stop rule |",
+        "| Seats |",
+        "| Clean path |",
+        "| Enforced maximum |",
+    ):
+        assert row in skill
+    for contract in (
+        "Only the owner declares a change trivial",
+        "this creates one NEW channel",
+        "supervisor posts consume the same entry cap",
+        "seat-declared evidence",
+        "isolation remains advisory",
+        "--verification-capable --result-schema-version 2",
+        "historical verdict remains in the append-only record",
+        "fresh correction slug",
+    ):
+        assert contract in skill
+    assert "verified by the schema" not in skill.lower()
+
+
+def test_public_docs_name_upgrade_compatibility_and_safe_pruning() -> None:
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+    combined = readme + "\n" + changelog
+    for phrase in (
+        "result schema v2",
+        "legacy-absent",
+        "seat-declared",
+        ".debate/runtime/<channel>/",
+        "--prune --yes",
+        "invocation `home/build/tmp`",
+    ):
+        assert phrase in combined
+    assert "hostile-code safe" not in combined.lower()

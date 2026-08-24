@@ -661,6 +661,21 @@ def test_discover_fills_catalog_seat_declarations(
     ]
     assert claude_opus.no_persistence_argv == ["--no-session-persistence"]
     assert claude_opus.config_home == "CLAUDE_CONFIG_DIR=.claude"
+    assert claude_opus.verification_argv == [
+        "--permission-mode", "dontAsk",
+        "--tools", "Read,Grep,Glob,Bash",
+        "--allowedTools", "Read,Grep,Glob,Bash",
+    ]
+    assert claude_opus.verification_basis == "catalogued"
+
+    reg, _ = seats.discover(
+        reg,
+        which=_which_from({"codex-agent": "/x/codex-agent"}),
+        now="t2",
+    )
+    codex = reg.seats["codex/gpt-5.6-sol"]
+    assert codex.verification_argv == []
+    assert codex.verification_basis == "catalogued"
 
     deepseek = reg.seats["deepseek/deepseek-v4-flash"]
     assert deepseek.isolation_argv == []
@@ -681,6 +696,9 @@ def test_add_effort_seat_inherits_declarations(
     assert derived.isolation_argv == base.isolation_argv
     assert derived.no_persistence_argv == base.no_persistence_argv
     assert derived.config_home == base.config_home
+    assert derived.verification_argv == base.verification_argv
+    assert derived.verification_basis == base.verification_basis
+    assert derived.result_schema_version == base.result_schema_version
 
 
 # --- validate_config_home: the exact matrix ---------------------------------
@@ -749,6 +767,39 @@ def test_cli_seats_add_with_new_flags(
     assert seat.isolation_argv == ["--iso", "--flag"]
     assert seat.no_persistence_argv == ["--no-persist"]
     assert seat.config_home == "MYTOOL_HOME=.mytool"
+
+
+def test_cli_seats_add_records_explicit_verification_and_v2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from debate.__main__ import main
+
+    _registry_env(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    tool = Path(_real_tool(tmp_path))
+    assert main([
+        "seats", "add", "custom/verifier",
+        "--command", f"{tool} {{input_path}} {{result_path}}",
+        "--verification-capable",
+        "--verification-argv=--allow-read --allow-shell",
+        "--result-schema-version", "2",
+    ]) == 0
+    seat = seats.load_registry().seats["custom/verifier"]
+    assert seat.verification_basis == "declared"
+    assert seat.verification_argv == ["--allow-read", "--allow-shell"]
+    assert seat.result_schema_version == 2
+
+
+def test_v2_manual_adapter_needs_explicit_verification_declaration(tmp_path: Path) -> None:
+    tool = Path(_real_tool(tmp_path))
+    with pytest.raises(channel.ChannelError, match="verification-capable"):
+        seats.add_seat(
+            seats.Registry(),
+            "custom/verifier",
+            f"{tool} {{input_path}} {{result_path}}",
+            which=_which_from({str(tool): str(tool)}),
+            result_schema_version=2,
+        )
 
 
 def test_cli_seats_add_refuses_bad_config_home(

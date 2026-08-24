@@ -76,6 +76,10 @@ class CatalogEntry:
     # a session, respectively. Never guessed -- empty means nothing verified.
     isolation_argv: tuple[str, ...] = ()
     no_persistence_argv: tuple[str, ...] = ()
+    # VERIFIED arguments that let a headless review inspect files and run
+    # bounded checks. A capable wrapper may need no extra argv.
+    verification_argv: tuple[str, ...] = ()
+    verification_capable: bool = False
     # "VAR=relative/dir": the vendor's documented configuration-home
     # variable and its folder, relative to $HOME. None means undeclared.
     config_home: str | None = None
@@ -98,6 +102,12 @@ CATALOG: tuple[CatalogEntry, ...] = (
             "--disable-slash-commands",
         ),
         no_persistence_argv=("--no-session-persistence",),
+        verification_argv=(
+            "--permission-mode", "dontAsk",
+            "--tools", "Read,Grep,Glob,Bash",
+            "--allowedTools", "Read,Grep,Glob,Bash",
+        ),
+        verification_capable=True,
         config_home="CLAUDE_CONFIG_DIR=.claude",
     ),
     CatalogEntry(
@@ -113,6 +123,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         capability_classes={"gpt-5.6-sol": "frontier"},
         isolation_argv=("--ignore-user-config", "--ignore-rules"),
         no_persistence_argv=("--ephemeral",),
+        verification_capable=True,
         config_home="CODEX_HOME=.codex",
     ),
     CatalogEntry(

@@ -307,7 +307,8 @@ def test_a_delta_round_writes_the_docket_extends_the_docket_files_and_revises_on
 
     output = capsys.readouterr().out
     assert code == 0, output
-    docket = case.repo / "var" / "debate" / case.name / f"delta-docket-{THREAD}-1.md"
+    runtime_relative = case.runtime.relative_to(case.repo).as_posix()
+    docket = case.runtime / f"delta-docket-{THREAD}-1.md"
     assert docket.is_file()
     text = docket.read_text(encoding="utf-8")
     assert text.startswith("GOAL: verify that the round-1 folds resolve the round-1 findings\n")
@@ -326,7 +327,7 @@ def test_a_delta_round_writes_the_docket_extends_the_docket_files_and_revises_on
         CURRENT,
         "watcher.json",
         PRIOR,
-        f"var/debate/{case.name}/delta-docket-{THREAD}-1.md",
+        f"{runtime_relative}/delta-docket-{THREAD}-1.md",
     ]
     assert len(calls) == 1
     assert str(docket) in output
@@ -334,7 +335,7 @@ def test_a_delta_round_writes_the_docket_extends_the_docket_files_and_revises_on
     entries = channel.thread_entries(case.root, THREAD, case.name)
     assert entries[-1].entry_type == "info"
     assert "Controller-Revision-Provenance" in entries[-1].body
-    assert f"var/debate/{case.name}/delta-docket-{THREAD}-1.md" in entries[-1].body
+    assert f"{runtime_relative}/delta-docket-{THREAD}-1.md" in entries[-1].body
 
 
 def test_a_second_delta_round_takes_the_next_free_number_and_never_overwrites(
@@ -348,16 +349,17 @@ def test_a_second_delta_round_takes_the_next_free_number_and_never_overwrites(
     (case.repo / CURRENT).write_text("# Untracked plan revision\n\nnewer line\n", encoding="utf-8")
     assert main(delta_argv(case)) == 0
 
-    first = case.repo / "var" / "debate" / case.name / f"delta-docket-{THREAD}-1.md"
-    second = case.repo / "var" / "debate" / case.name / f"delta-docket-{THREAD}-2.md"
+    runtime_relative = case.runtime.relative_to(case.repo).as_posix()
+    first = case.runtime / f"delta-docket-{THREAD}-1.md"
+    second = case.runtime / f"delta-docket-{THREAD}-2.md"
     assert first.is_file() and second.is_file()
     assert "+new line" in first.read_text(encoding="utf-8")
     assert "+newer line" in second.read_text(encoding="utf-8")
     raw = json.loads(case.config_path.read_text(encoding="utf-8"))
     assert raw["docket_files"].count(PRIOR) == 1
     assert raw["docket_files"][-2:] == [
-        f"var/debate/{case.name}/delta-docket-{THREAD}-1.md",
-        f"var/debate/{case.name}/delta-docket-{THREAD}-2.md",
+        f"{runtime_relative}/delta-docket-{THREAD}-1.md",
+        f"{runtime_relative}/delta-docket-{THREAD}-2.md",
     ]
 
 

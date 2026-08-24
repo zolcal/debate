@@ -34,6 +34,7 @@ NOW = "2026-08-20T12:00:00+00:00"
 FAKE_VENDOR_CLI = '''\
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -43,13 +44,24 @@ record = {"argv": sys.argv[2:], "config_home": os.environ.get("MYTOOL_HOME")}
 (log / ("call-%d.json" % len(list(log.glob("call-*.json"))))).write_text(
     json.dumps(record), encoding="utf-8"
 )
-print("I read the review material and ran the check it asks for.")
+probe_text = "from project_module import VALUE; print(VALUE)"
+probe = subprocess.run(
+    [sys.executable, "-c", probe_text], capture_output=True, text=True, check=False
+)
+probe_output = (probe.stdout if probe.stdout else probe.stderr).strip()
+decision = "PASS" if probe.returncode == 0 and probe_output == "42" else "NO_PASS"
+print("I inspected the exported project and ran its local module probe.")
 print("```json")
 print(json.dumps({
-    "schema_version": 1,
+    "schema_version": 2,
     "entry_type": "verdict",
-    "decision": "PASS",
-    "body": "I ran the check the review material asks for and it passed.",
+    "decision": decision,
+    "body": "I ran the project-local module probe from the immutable export.",
+    "verification": {"status": "performed", "items": [{
+        "command": "python -c 'from project_module import VALUE; print(VALUE)'",
+        "exit_status": probe.returncode,
+        "output": probe_output,
+    }]},
 }))
 print("```")
 '''
@@ -77,6 +89,9 @@ def _seat_row(
         "isolation_argv": list(isolation_argv),
         "no_persistence_argv": list(no_persistence_argv),
         "config_home": config_home,
+        "verification_argv": [],
+        "verification_basis": "declared",
+        "result_schema_version": 1,
     }
 
 
@@ -184,6 +199,9 @@ def test_two_ordinary_cli_seats_debate_to_a_typed_close(world: World) -> None:
             source_ref=world.head,
             author_vendor="claude",
             docket_files=("docket.md",),
+            goal="Establish whether the project module answers 42.",
+            review_domain="The pinned project module and docket.",
+            stop_rule="Stop after the project-local probe and a decisive verdict.",
         ),
         seats.load_registry(),
         load_config_fn=_watcher_config,
@@ -215,18 +233,37 @@ def test_two_ordinary_cli_seats_debate_to_a_typed_close(world: World) -> None:
     closing = entries[-1]
     assert closing.entry_type == "close"
     assert "terminal-result: PASS" in closing.body
+    assert "Runtime size at close:" in closing.body
+    assert (
+        "debate runtime "
+        f"--root {root.resolve()} --channel {opened.channel_name} "
+        f"--config {opened.config_path.resolve()}"
+    ) in closing.body
 
     verdicts = {entry.sender: entry for entry in entries if entry.entry_type == "verdict"}
     assert sorted(verdicts) == ["mytool", "othertool"]
     for entry in verdicts.values():
         assert "- runtime-model-basis: declared" in entry.body
         assert "- isolation-flags: declared" in entry.body
+        assert "- verification-status: performed" in entry.body
+        assert "- verification-evidence-basis: seat-declared" in entry.body
+        assert "- seat-process-exit-status: 0" in entry.body
+        assert "- adapter-process-exit-status: 0" in entry.body
+        for stream in (
+            "seat-stdout-sha256",
+            "seat-stderr-sha256",
+            "adapter-stdout-sha256",
+            "adapter-stderr-sha256",
+        ):
+            marker = f"- {stream}: "
+            digest = entry.body.split(marker, 1)[1].splitlines()[0]
+            assert len(digest) == 64 and set(digest) <= set("0123456789abcdef")
     assert "- configuration-home: operator (MYTOOL_HOME)" in verdicts["mytool"].body
     assert "- configuration-home: sandbox" in verdicts["othertool"].body
 
     mytool_calls = _calls(logs["mytool"])
     othertool_calls = _calls(logs["othertool"])
-    assert mytool_calls and othertool_calls
+    assert len(mytool_calls) == len(othertool_calls) == 1
     for call in mytool_calls:
         assert call.argv[-2:] == ["--no-config", "--no-history"]
         assert call.config_home == str(home / ".mytool")
@@ -326,6 +363,9 @@ def test_a_canary_in_a_wrapped_seats_own_output_rejects_the_invocation(
             source_ref=head,
             author_vendor="claude",
             docket_files=("docket.md",),
+            goal="Establish whether the project module answers 42.",
+            review_domain="The pinned project module and docket.",
+            stop_rule="Stop after the project-local probe and a decisive verdict.",
         ),
         seats.load_registry(),
         load_config_fn=_watcher_config,

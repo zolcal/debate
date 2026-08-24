@@ -14,8 +14,36 @@ meant registry commands in a terminal. This release ships the engine INSIDE the 
 plugin, surfaces setup automatically at session start, makes seat approval an explicit
 in-UI act, and makes new product-created debates brokered (managed version 2) by
 default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
+The field fold was gated on `plan-v080-field-fold-14206` (PASS, MSG-20).
 
 ### Added
+
+- **Bounded review contracts and two explicit modes** — every new product open records
+  a non-empty goal, valid review domain, stop rule and `ordinary`/`release-gate` mode.
+  Ordinary reviews use cap 5 (four vote-producing seat turns, at most eight nested
+  launches with one retry); release gates retain the exhaustive stance and cap 12
+  default. Historical configurations remain release-gate with a `legacy-absent` basis.
+  Pair suggestion now falls back to another symmetric capability class and the numbered
+  menu remains populated whenever any admissible pair exists.
+- **Result schema v2 with falsifiable verification evidence** — bundled product seats
+  must return bounded `performed` command/status/output items or `unable` plus `NO_PASS`.
+  The bridge and controller independently validate the dependency-free shape and limits;
+  provenance labels it seat-declared, never “verified by the schema.” Claude receives its
+  catalogued read/search/shell arguments and Codex is recorded inherently capable. A
+  non-zero nested seat process writes bounded diagnostics, exits bridge status 3, may use
+  the configured bundled-bridge retry, and never votes. Legacy v1 custom adapters remain
+  runnable and explicitly evidence-absent.
+- **Quiet hidden runtime and exact-channel pruning** — new watcher configs live under
+  `.debate/channels/<channel>/` and runtime under `.debate/runtime/<channel>/`; `.debate/`
+  is excluded from source exports and suggested once for `.gitignore` without editing it.
+  `debate runtime` reports retained versus regenerable bytes. Terminal-only
+  `--prune --yes` holds the watcher lock, fsyncs intent/completion receipts, removes only
+  invocation `home/build/tmp`, and retains every record, input/result, stream, hash,
+  docket revision and source export.
+- **Installed correction and short-request flow** — the onboarding skill derives one
+  confirmation table from a short request, uses the engine-owned pair menu/budget, says
+  every re-review creates a fresh channel, leaves triviality to the owner, and documents
+  a supervisor-authorized append-only correction for a falsified terminal finding.
 
 - **Installation-driven onboarding** — a read-only, zero-model-call `SessionStart`
   hook (per-host manifests: `hooks/hooks.json` for Claude, `hooks/hooks-codex.json`

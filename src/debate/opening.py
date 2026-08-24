@@ -16,7 +16,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol, Sequence
+from typing import Callable, Protocol, Sequence, cast
 
 from . import channel
 from .seats import Registry, Seat, catalog_declares_isolation
@@ -28,6 +28,8 @@ _SLUG_KEEP = re.compile(r"[^a-z0-9-]+")
 # Below it a quick pair is enough; at or above it the strongest pair is worth
 # its cost. A per-debate setting: every open may say its own number.
 QUICK_REVIEW_MAX_BYTES = 16384
+ORDINARY_THREAD_CAP = 5
+RELEASE_GATE_THREAD_CAP = 12
 
 
 class _LoadedConfig(Protocol):
@@ -74,7 +76,7 @@ class BrokeredOpenSpec:
     author_vendor: str  # the interactive author's vendor (e.g. "claude", "codex")
     runtime_root: Path | None = None
     supervisor: str = "owner"
-    thread_cap: int = 12
+    thread_cap: int = ORDINARY_THREAD_CAP
     allow_identical_seats: bool = False
     allow_mismatched_pair: bool = False
     docket_files: tuple[str, ...] = ()  # project-relative review inputs for the seats
@@ -84,6 +86,61 @@ class BrokeredOpenSpec:
     # What a seat re-reads in the discussion round: just the two published
     # verdicts (the default) or the whole review material again.
     deliberation_input: str = "verdicts"
+    goal: str = ""
+    review_domain: str = ""
+    stop_rule: str = ""
+    review_mode: str = "ordinary"
+
+
+@dataclass(frozen=True)
+class ReviewBudget:
+    thread_cap: int
+    seat_turn_ceiling: int
+    nested_launch_ceiling: int
+
+
+def resolve_review_thread_cap(review_mode: str, requested: int | None) -> int:
+    if review_mode not in channel.REVIEW_MODES:
+        raise channel.ChannelError(
+            f"refused: review mode must be one of {channel.REVIEW_MODES}, got {review_mode!r}"
+        )
+    if review_mode == "ordinary":
+        if requested not in (None, ORDINARY_THREAD_CAP):
+            raise channel.ChannelError(
+                f"refused: ordinary review uses thread cap {ORDINARY_THREAD_CAP} exactly; "
+                f"got {requested}"
+            )
+        return ORDINARY_THREAD_CAP
+    return RELEASE_GATE_THREAD_CAP if requested is None else requested
+
+
+def review_budget(thread_cap: int, retry_limits: Sequence[int]) -> ReviewBudget:
+    if thread_cap < 2:
+        raise channel.ChannelError("refused: review thread cap must be at least 2")
+    if len(retry_limits) != 2 or any(limit not in (0, 1) for limit in retry_limits):
+        raise channel.ChannelError("refused: a review budget needs two retry limits, each 0 or 1")
+    turns = thread_cap - 1
+    launches = turns * (max(retry_limits) + 1)
+    return ReviewBudget(thread_cap, turns, launches)
+
+
+def _review_contract(spec: BrokeredOpenSpec) -> dict[str, str]:
+    if spec.review_mode not in channel.REVIEW_MODES:
+        raise channel.ChannelError(
+            f"refused: review mode must be one of {channel.REVIEW_MODES}, got {spec.review_mode!r}"
+        )
+    fields = {
+        "goal": spec.goal.strip(),
+        "review_domain": spec.review_domain.strip(),
+        "stop_rule": spec.stop_rule.strip(),
+    }
+    missing = [name for name, value in fields.items() if not value]
+    if missing:
+        raise channel.ChannelError(
+            "refused: a new product debate needs a non-empty review contract; "
+            f"missing {', '.join(missing)}"
+        )
+    return {**fields, "review_mode": spec.review_mode, "review_contract_basis": "recorded"}
 
 
 def slugify_seat_id(seat_id: str) -> str:
@@ -201,6 +258,10 @@ FULL_PAIR_REASON = "full review, strongest pair"
 REMEMBERED_PAIR_REASON = "the pair you picked last time"
 
 
+def _fallback_pair_reason(wanted: str, actual: str) -> str:
+    return f"no symmetric {wanted} pair is available; using a symmetric {actual} pair"
+
+
 def docket_byte_size(project: str | Path, docket_files: Sequence[str]) -> int:
     """How much review material this debate hands its seats, in bytes.
 
@@ -219,6 +280,21 @@ def docket_byte_size(project: str | Path, docket_files: Sequence[str]) -> int:
         except OSError:
             continue
     return total
+
+
+def _debate_ignore_hint(project: Path) -> str | None:
+    """Suggest one hidden runtime ignore; never edit the repository."""
+    import subprocess
+
+    probe = subprocess.run(
+        ["git", "-C", str(project), "check-ignore", "-q", ".debate/"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if probe.returncode == 0:
+        return None
+    return "ignore suggestion: add .debate/ to the project's .gitignore"
 
 
 def _wanted_class(docket_bytes: int, quick_review_max_bytes: int) -> str:
@@ -263,6 +339,18 @@ NO_CATALOGUED_ISOLATION_REFUSAL = (
     "--no-persistence-argv ...), or use a custom seat command"
 )
 
+NO_VERIFICATION_CAPABILITY_REFUSAL = (
+    "can't yet run a trustworthy product review: no catalogued or operator-declared "
+    "verification capability is recorded; re-discover a catalog seat or register a "
+    "manual seat with --verification-capable and any documented --verification-argv"
+)
+
+NO_V2_WRAPPER_REFUSAL = (
+    "speaks the file adapter protocol but is not declared for result schema v2; "
+    "register the wrapper with --verification-capable --result-schema-version 2 "
+    "and make its result include the mandatory verification object"
+)
+
 
 def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
     """Why a fully managed debate could not seat this one, in the words it
@@ -278,6 +366,10 @@ def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
     """
     argv = " ".join(seat.commands[0])
     if "{input_path}" in argv and "{result_path}" in argv:
+        if seat.verification_basis not in ("catalogued", "declared"):
+            return f"refused: seat {seat.seat_id!r} {NO_VERIFICATION_CAPABILITY_REFUSAL}"
+        if seat.result_schema_version != 2:
+            return f"refused: seat {seat.seat_id!r} {NO_V2_WRAPPER_REFUSAL}"
         return None
     if "{prompt}" not in argv:
         return f"refused: seat {seat.seat_id!r} {NO_QUESTION_MARKER_REFUSAL}"
@@ -296,6 +388,8 @@ def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
             validate_config_home(seat.config_home, home=real_home)
         except channel.ChannelError as error:
             return str(error)
+    if seat.verification_basis not in ("catalogued", "declared"):
+        return f"refused: seat {seat.seat_id!r} {NO_VERIFICATION_CAPABILITY_REFUSAL}"
     return None
 
 
@@ -413,24 +507,38 @@ def suggest_pair_with_reason(
     """
     wanted = _wanted_class(docket_bytes, quick_review_max_bytes)
     reason = QUICK_PAIR_REASON if wanted == "light" else FULL_PAIR_REASON
-    matched = [
-        seat
-        for seat in _offerable_seats(
-            registry, allowlist, _home(real_home), require_admissible
-        )
-        if seat.capability_class == wanted
-    ]
-    same_vendor: tuple[str, str] | None = None
-    for index, first in enumerate(matched):
-        for second in matched[index + 1:]:
-            if not _pairable(first, second):
-                continue
-            if first.vendor != second.vendor:
-                return PairSuggestion((first.seat_id, second.seat_id), reason)
-            if same_vendor is None:
-                same_vendor = (first.seat_id, second.seat_id)
-    if same_vendor is not None:
-        return PairSuggestion(same_vendor, reason)
+    offerable = _offerable_seats(
+        registry, allowlist, _home(real_home), require_admissible
+    )
+
+    def symmetric_pair(capability_class: str) -> tuple[str, str] | None:
+        matched = [
+            seat for seat in offerable if seat.capability_class == capability_class
+        ]
+        same_vendor: tuple[str, str] | None = None
+        for index, first in enumerate(matched):
+            for second in matched[index + 1:]:
+                if not _pairable(first, second):
+                    continue
+                if first.vendor != second.vendor:
+                    return first.seat_id, second.seat_id
+                if same_vendor is None:
+                    same_vendor = (first.seat_id, second.seat_id)
+        return same_vendor
+
+    preferred = symmetric_pair(wanted)
+    if preferred is not None:
+        return PairSuggestion(preferred, reason)
+    for alternate in sorted(
+        {
+            seat.capability_class
+            for seat in offerable
+            if seat.capability_class is not None and seat.capability_class != wanted
+        }
+    ):
+        fallback = symmetric_pair(alternate)
+        if fallback is not None:
+            return PairSuggestion(fallback, _fallback_pair_reason(wanted, alternate))
     return None if last_pair is None else PairSuggestion(last_pair, REMEMBERED_PAIR_REASON)
 
 
@@ -469,8 +577,6 @@ def pair_choices(
     matched pairs of the right strength first, then the other evenly matched
     ones, then the uneven ones.
     """
-    if suggestion is None:
-        return []
     wanted = _wanted_class(docket_bytes, quick_review_max_bytes)
     offerable = _offerable_seats(
         registry, allowlist, _home(real_home), require_admissible
@@ -480,7 +586,7 @@ def pair_choices(
         for second in offerable[index + 1:]:
             if not _pairable(first, second):
                 continue
-            if {first.seat_id, second.seat_id} == set(suggestion):
+            if suggestion is not None and {first.seat_id, second.seat_id} == set(suggestion):
                 continue
             kind = classify_pair(first, second)
             if kind == "symmetric" and first.capability_class == wanted:
@@ -490,7 +596,8 @@ def pair_choices(
             else:
                 rank = 2
             ranked.append((rank, first.seat_id, second.seat_id))
-    return [suggestion] + [(first, second) for _rank, first, second in sorted(ranked)]
+    choices = [(first, second) for _rank, first, second in sorted(ranked)]
+    return choices if suggestion is None else [suggestion, *choices]
 
 
 def pair_menu(
@@ -511,9 +618,12 @@ def pair_menu(
         docket_bytes=docket_bytes, quick_review_max_bytes=quick_review_max_bytes,
         real_home=real_home, require_admissible=require_admissible,
     )
-    if not choices or suggestion is None:
+    if not choices:
         return []
-    lines = [f"1  {choices[0][0]} + {choices[0][1]}  --  {suggestion.reason}"]
+    first_line = f"1  {choices[0][0]} + {choices[0][1]}"
+    if suggestion is not None:
+        first_line += f"  --  {suggestion.reason}"
+    lines = [first_line]
     for number, choice in enumerate(choices[1:limit], start=2):
         lines.append(f"{number}  {choice[0]} + {choice[1]}")
     left_out = len(choices) - limit
@@ -747,7 +857,9 @@ def open_debate(
     # The probe lives OUTSIDE every target path (setup.apply's own pattern),
     # and the in-memory record feeds the seam: a refusal here leaves the
     # target root byte-empty.
-    with tempfile.TemporaryDirectory(prefix="debate-open-") as scratch:
+    # Keep validation scratch project-local and inside the final path's
+    # filesystem and permission boundary.
+    with tempfile.TemporaryDirectory(prefix=".debate-open-", dir=Path(project)) as scratch:
         probe = Path(scratch) / config_path.name
         probe.write_text(json.dumps(config, indent=2), encoding="utf-8")
         loaded = load_config_fn(spec.root, probe, name, channel_config=in_memory)
@@ -839,6 +951,9 @@ def _brokered_adapter(
         if seat.vendor.strip().lower() == author_vendor
         else "author-independent"
     )
+    problem = admission_problem(seat, real_home=real_home)
+    if problem is not None:
+        raise channel.ChannelError(problem)
     if "{input_path}" in argv and "{result_path}" in argv:
         return {
             "command": list(seat.commands[0]),
@@ -860,10 +975,8 @@ def _brokered_adapter(
             "retry_limit": 1,
             "session_persistence": False,
             "isolation_mode": "advisory",
+            "result_schema_version": seat.result_schema_version,
         }
-    problem = admission_problem(seat, real_home=real_home)
-    if problem is not None:
-        raise channel.ChannelError(problem)
     from .bridge import SUBCOMMAND
 
     command = [
@@ -874,6 +987,9 @@ def _brokered_adapter(
         "--argv-json", json.dumps(seat.commands[0]),
         "--isolation-argv-json", json.dumps(seat.isolation_argv),
         "--no-persistence-argv-json", json.dumps(seat.no_persistence_argv),
+        "--verification-argv-json", json.dumps(seat.verification_argv),
+        "--verification-basis", str(seat.verification_basis),
+        "--result-schema-version", "2",
         "--deliberation-input", deliberation_input,
         "--isolation-flags-basis",
         "catalogued" if seat.source in ("catalog", "derived") else "declared",
@@ -911,6 +1027,7 @@ def _brokered_adapter(
         "retry_limit": 1,
         "session_persistence": False,
         "isolation_mode": "advisory",
+        "result_schema_version": 2,
     }
 
 
@@ -951,6 +1068,13 @@ def open_debate_brokered(
     from .seats import PROFILE_NAME, load_profile, screen_credentials
 
     home = Path.home() if real_home is None else real_home
+    contract = _review_contract(spec)
+    expected_cap = resolve_review_thread_cap(spec.review_mode, spec.thread_cap)
+    if spec.thread_cap != expected_cap:
+        raise channel.ChannelError(
+            f"refused: {spec.review_mode} review resolved to thread cap {expected_cap}, "
+            f"got {spec.thread_cap}"
+        )
     screen_credentials(registry)
     project = project_key(spec.root)
     profile = load_profile(project, registry)
@@ -1012,15 +1136,16 @@ def open_debate_brokered(
 
     name = channel.generate_channel_id(spec.root, label=spec.label)
     project_path = Path(project)
-    config_path, _v1_state_path = derive_paths(spec.root, name, project_path)
-    runtime_root = (
-        spec.runtime_root
-        if spec.runtime_root is not None
-        else project_path / "var" / "debate" / name
-    )
+    config_path = project_path / ".debate" / "channels" / name / "watcher.json"
+    if spec.runtime_root is not None:
+        raise channel.ChannelError(
+            "refused: a new product debate owns its hidden .debate/runtime/<channel> "
+            "path; runtime_root overrides are only supported when loading historical configs"
+        )
+    runtime_root = project_path / ".debate" / "runtime" / name
     # Brokered state lives BELOW the runtime root (watcher invariant), never
     # in the v1 ~/.local/state location.
-    state_path = runtime_root / f"{name}.state.json"
+    state_path = runtime_root / "watcher-state.json"
 
     from .bridge import DELIBERATION_INPUTS
 
@@ -1070,6 +1195,7 @@ def open_debate_brokered(
         "adapters": adapters,
         "docket_files": list(spec.docket_files),
         "contamination_canaries": {},
+        **contract,
     }
     project_resolved = project_path.resolve()
     for docket_file in spec.docket_files:
@@ -1099,8 +1225,13 @@ def open_debate_brokered(
         name=name,
         project=project,
         managed_version=channel.BROKERED_MANAGED_VERSION,
+        review_mode=spec.review_mode,
+        review_contract_basis="recorded",
+        goal=contract["goal"],
+        review_domain=contract["review_domain"],
+        stop_rule=contract["stop_rule"],
     )
-    with tempfile.TemporaryDirectory(prefix="debate-open-") as scratch:
+    with tempfile.TemporaryDirectory(prefix=".debate-open-", dir=project_path) as scratch:
         probe = Path(scratch) / config_path.name
         probe.write_text(json.dumps(config, indent=2), encoding="utf-8")
         loaded = load_config_fn(spec.root, probe, name, channel_config=in_memory)
@@ -1116,14 +1247,31 @@ def open_debate_brokered(
     channel.init_channel(
         spec.root, parties, spec.supervisor, spec.thread_cap,
         name=name, managed_version=channel.BROKERED_MANAGED_VERSION,
+        review_mode=spec.review_mode,
+        review_contract_basis="recorded",
+        goal=contract["goal"],
+        review_domain=contract["review_domain"],
+        stop_rule=contract["stop_rule"],
     )
     scaffold_protocol(spec.root, spec.thread_cap)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     runtime_root.mkdir(parents=True, exist_ok=True)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
 
     record_path = spec.root / f"{name}.debate.json"
     record = json.loads(record_path.read_text(encoding="utf-8"))
+    budget = review_budget(
+        spec.thread_cap,
+        [cast(int, adapters[party]["retry_limit"]) for party in parties],
+    )
+    record["review_contract"] = {
+        **contract,
+        "thread_cap": budget.thread_cap,
+        "seat_turn_ceiling": budget.seat_turn_ceiling,
+        "nested_launch_ceiling": budget.nested_launch_ceiling,
+        "supervisor_entries_consume_cap": True,
+    }
     record["seats"] = {
         "picked_at": now,
         "tool_version": tool_version,
@@ -1141,6 +1289,10 @@ def open_debate_brokered(
             "permission_policy": str(adapters[parties[0]]["permission_policy"]),
             "isolation_flags": first_isolation,
             "configuration_home": first_home,
+            "verification_capability": first.verification_basis,
+            "result_schema_version": cast(
+                int, adapters[parties[0]]["result_schema_version"]
+            ),
         },
         parties[1]: {
             "seat": second.seat_id,
@@ -1156,6 +1308,10 @@ def open_debate_brokered(
             "permission_policy": str(adapters[parties[1]]["permission_policy"]),
             "isolation_flags": second_isolation,
             "configuration_home": second_home,
+            "verification_capability": second.verification_basis,
+            "result_schema_version": cast(
+                int, adapters[parties[1]]["result_schema_version"]
+            ),
         },
     }
     record_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
@@ -1171,5 +1327,11 @@ def open_debate_brokered(
         f"--refs <branch@sha> --body-file <docket-request>",
         f"drive it: debate watch --root {spec.root} --channel {name} "
         f"--config {config_path} --until-close",
+        f"review budget: at most {budget.seat_turn_ceiling} seat turns and "
+        f"{budget.nested_launch_ceiling} nested-seat launches; supervisor entries "
+        "consume the same thread cap",
     ]
+    ignore_hint = _debate_ignore_hint(project_path)
+    if ignore_hint is not None:
+        hints.append(ignore_hint)
     return OpenResult(channel_name=name, config_path=config_path, hints=hints)
