@@ -328,6 +328,31 @@ def test_codex_quiet_attention_is_context_only_and_not_stopped(tmp_path: Path) -
     assert "offer_setup" in str(hso["additionalContext"])
 
 
+def test_codex_quiet_repair_required_is_context_only_and_not_stopped(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    registry = tmp_path / "reg" / "seats.json"
+    (project / "debate-profile.json").write_text(
+        json.dumps({"profile_version": 1, "allowlist": ["probe/fake"]}),
+        encoding="utf-8",
+    )
+
+    payload, _, _ = _run(
+        project,
+        registry,
+        extra_env={**CODEX_ENV, "DEBATE_ONBOARDING_QUIET": "1"},
+    )
+
+    assert "systemMessage" not in payload
+    assert "continue" not in payload
+    assert "stopReason" not in payload
+    hso = payload["hookSpecificOutput"]
+    assert isinstance(hso, dict)
+    assert "repair_required" in str(hso["additionalContext"])
+
+
 def test_claude_headless_entrypoint_suppresses_the_banner(tmp_path: Path) -> None:
     """CLAUDE_CODE_ENTRYPOINT=sdk-cli is the ATTESTED headless signal
     (HOOK-CONTRACT.md spike, 2026-08-19); interactive sessions carry "cli"

@@ -72,6 +72,8 @@ The field fold was gated on `plan-v080-field-fold-14206` (PASS, MSG-20).
   (`CLAUDE_CODE_ENTRYPOINT=sdk-cli`, spike-attested) get one context line, never a
   banner; for Codex automation the documented lever is `DEBATE_ONBOARDING_QUIET=1`
   (no headless signal is attestable there until a hook is trusted interactively).
+  Debate-managed Codex seats now receive that quiet signal automatically from the
+  controller bridge, while ordinary interactive Codex retains the first-turn stop.
 - **`debate onboarding status|inspect|approve`** — the product engine's JSON-first
   state machine. `inspect` scans in memory and returns a deterministic
   `candidate_revision`; `approve` verifies that revision, requires `--confirmed`, and

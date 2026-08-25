@@ -230,7 +230,11 @@ Which seats can take part in a fully managed debate:
   to inspect the export and run bounded checks. Claude receives
   `--permission-mode dontAsk`, `--tools Read,Grep,Glob,Bash`, and
   `--allowedTools Read,Grep,Glob,Bash`; the Codex wrapper is recorded as
-  inherently verification-capable.
+  inherently verification-capable. The managed Codex launcher also supplies the
+  documented `DEBATE_ONBOARDING_QUIET=1` automation signal, so the installed
+  onboarding hook cannot stop a controller-launched review. Ordinary interactive
+  Codex does not use that managed launcher and retains its visible unready first-turn
+  stop.
 - **Ox Alpha is an optional frontier seat when `claude-ox` is already installed.**
   Discovery records `stealth/ox-alpha` as an anonymous-provider, API-backed
   limited preview; it never classifies Ox as lightweight. Before project approval,

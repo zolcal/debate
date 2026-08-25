@@ -614,6 +614,8 @@ def seat_environment(spec: BridgeSpec) -> dict[str, str]:
     environment = {
         name: value for name, value in os.environ.items() if name not in OUR_OWN_ENV
     }
+    if spec.vendor == "codex":
+        environment["DEBATE_ONBOARDING_QUIET"] = "1"
     if spec.config_home is None:
         return environment
     if not real_home:

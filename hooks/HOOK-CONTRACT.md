@@ -56,8 +56,11 @@ Empirically attested by an env/stdin dump hook in an isolated HOME:
   headless distinction is attested. `PLUGIN_ROOT` identifies Codex, not whether its
   current session is interactive. `DEBATE_ONBOARDING_QUIET=1` is therefore the
   documented automation lever for Codex and suppresses both the warning and
-  interruption. This is an honest limitation, not a claim of automatic headless
-  detection.
+  interruption. Debate's managed `run-seat` bridge sets this signal automatically
+  for Codex seats, including seats without an operator configuration folder. It does
+  not set it for other vendors. Ordinary interactive Codex sessions do not pass
+  through that bridge and retain the visible first-turn stop. This is an honest
+  limitation, not a claim of automatic headless detection.
 
 ## Codex 0.149.1 lifecycle timing and interruption (2026-08-24)
 

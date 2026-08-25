@@ -36,6 +36,8 @@ record = {
     "home": os.environ.get("HOME"),
     "real_home": os.environ.get("DEBATE_BRIDGE_REAL_HOME"),
     "pythonpath": os.environ.get("PYTHONPATH"),
+    "codex_home": os.environ.get("CODEX_HOME"),
+    "onboarding_quiet": os.environ.get("DEBATE_ONBOARDING_QUIET"),
 }
 with open(os.environ["FAKE_SEAT_LOG"], "a", encoding="utf-8") as handle:
     handle.write(json.dumps(record) + "\\n")
@@ -183,6 +185,7 @@ def _argv(
     case: Case,
     seat: FakeSeat,
     *,
+    vendor: str = "claude",
     isolation: list[str] | None = None,
     no_persistence: list[str] | None = None,
     extra: list[str] | None = None,
@@ -192,7 +195,7 @@ def _argv(
         "--seat-id",
         "claude:haiku",
         "--vendor",
-        "claude",
+        vendor,
         "--submodel",
         "haiku",
         "--argv-json",
@@ -762,6 +765,7 @@ def test_a_catalogued_basis_is_echoed_as_catalogued(tmp_path: Path, seat: FakeSe
 def _real_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "operator-home"
     (home / ".claude").mkdir(parents=True)
+    (home / ".codex").mkdir()
     monkeypatch.setenv("DEBATE_BRIDGE_REAL_HOME", str(home))
     return home
 
@@ -786,6 +790,64 @@ def test_without_a_pointer_the_seat_sees_no_vendor_variable(
     call = seat.calls()[0]
     assert call["config_dir"] is None
     assert call["home"] == str(tmp_path / "sandbox-home")
+
+
+def test_managed_codex_seat_gets_quiet_onboarding_with_config_home(
+    tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = _real_home(tmp_path, monkeypatch)
+    monkeypatch.delenv("DEBATE_ONBOARDING_QUIET", raising=False)
+    case = _make_case(tmp_path)
+
+    assert main(
+        _argv(
+            case,
+            seat,
+            vendor="codex",
+            extra=["--config-home", "CODEX_HOME=.codex"],
+        )
+    ) == 0
+
+    call = seat.calls()[0]
+    assert call["codex_home"] == str(home / ".codex")
+    assert call["onboarding_quiet"] == "1"
+
+
+def test_managed_codex_seat_gets_quiet_onboarding_without_config_home(
+    tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DEBATE_ONBOARDING_QUIET", raising=False)
+    case = _make_case(tmp_path)
+
+    assert main(_argv(case, seat, vendor="codex")) == 0
+
+    assert seat.calls()[0]["onboarding_quiet"] == "1"
+
+
+@pytest.mark.parametrize("vendor", ["claude", "ox"])
+def test_non_codex_seat_does_not_gain_quiet_onboarding(
+    tmp_path: Path,
+    seat: FakeSeat,
+    monkeypatch: pytest.MonkeyPatch,
+    vendor: str,
+) -> None:
+    monkeypatch.delenv("DEBATE_ONBOARDING_QUIET", raising=False)
+    case = _make_case(tmp_path)
+
+    assert main(_argv(case, seat, vendor=vendor)) == 0
+
+    assert seat.calls()[0]["onboarding_quiet"] is None
+
+
+def test_non_codex_seat_preserves_an_ambient_quiet_value(
+    tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DEBATE_ONBOARDING_QUIET", "operator-value")
+    case = _make_case(tmp_path)
+
+    assert main(_argv(case, seat, vendor="claude")) == 0
+
+    assert seat.calls()[0]["onboarding_quiet"] == "operator-value"
 
 
 @pytest.mark.parametrize("pointer", ["HOME=.config", "CLAUDE_CONFIG_DIR=../elsewhere"])
