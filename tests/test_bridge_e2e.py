@@ -53,7 +53,7 @@ decision = "PASS" if probe.returncode == 0 and probe_output == "42" else "NO_PAS
 print("I inspected the exported project and ran its local module probe.")
 print("```json")
 print(json.dumps({
-    "schema_version": 2,
+    "schema_version": 3,
     "entry_type": "verdict",
     "decision": decision,
     "body": "I ran the project-local module probe from the immutable export.",

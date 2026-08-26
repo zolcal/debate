@@ -670,11 +670,21 @@ def test_discover_fills_catalog_seat_declarations(
 
     reg, _ = seats.discover(
         reg,
-        which=_which_from({"codex-agent": "/x/codex-agent"}),
+        which=_which_from({"codex": "/x/codex"}),
         now="t2",
     )
     codex = reg.seats["codex/gpt-5.6-sol"]
-    assert codex.verification_argv == []
+    assert codex.commands == [[
+        "/x/codex", "exec", "-c", 'model_reasoning_effort="xhigh"',
+        "{prompt}", "--model", "gpt-5.6-sol",
+    ]]
+    assert codex.isolation_argv == ["--ignore-user-config", "--ignore-rules"]
+    assert codex.no_persistence_argv == ["--ephemeral"]
+    assert codex.verification_argv == [
+        "--skip-git-repo-check",
+        "--sandbox", "workspace-write",
+        "--approve-for-me",
+    ]
     assert codex.verification_basis == "catalogued"
 
     deepseek = reg.seats["deepseek/deepseek-v4-flash"]

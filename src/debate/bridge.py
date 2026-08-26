@@ -29,11 +29,12 @@ import os
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn, Sequence
 
-from . import channel, seats
+from . import channel, result_contract, seats, telemetry
 
 
 # The one place in a recorded seat argv where the question text goes.
@@ -68,20 +69,13 @@ MATERIAL_TOO_LARGE_REFUSAL = (
 # runaway seat must not fill the disk either.
 OUTPUT_LIMIT_BYTES = 1024 * 1024
 
-LEGACY_RESULT_SCHEMA_VERSION = 1
-RESULT_SCHEMA_VERSION = 2
+LEGACY_RESULT_SCHEMA_VERSION = result_contract.LEGACY_RESULT_SCHEMA_VERSION
+RESULT_SCHEMA_VERSION = result_contract.EVIDENCE_RESULT_SCHEMA_VERSION
+CONTRACT_SAFE_RESULT_SCHEMA_VERSION = result_contract.CONTRACT_SAFE_RESULT_SCHEMA_VERSION
 DECISIONS = ("PASS", "NO_PASS")
 DELIBERATION_INPUTS = ("verdicts", "full")
 ISOLATION_FLAG_BASES = ("catalogued", "declared")
 VERIFICATION_BASES = ("catalogued", "declared")
-VERIFICATION_ITEM_LIMIT = 16
-VERIFICATION_COMMAND_SCALARS = 1024
-VERIFICATION_COMMAND_BYTES = 4096
-VERIFICATION_OUTPUT_SCALARS = 8192
-VERIFICATION_OUTPUT_BYTES = 32768
-VERIFICATION_REASON_SCALARS = 1024
-VERIFICATION_REASON_BYTES = 4096
-VERIFICATION_OBJECT_BYTES = 262144
 
 # The passes that come after the first, sealed one. Only these record what the
 # seat was given to read; the first pass always reads everything.
@@ -181,6 +175,33 @@ commands count as performed. This evidence is your declaration, not proof suppli
 by the schema. Put no other keys in that block -- not a sender, not a name,
 nothing."""
 
+CONTRACT_SAFE_ANSWER_RULES = f"""End your reply with one fenced json code block and nothing after
+it. The block must hold exactly this object, with your own decision and body:
+
+```json
+{{
+  "schema_version": 3,
+  "entry_type": "verdict",
+  "decision": "PASS",
+  "body": "your concise review, as markdown; never empty",
+  "verification": {{
+    "status": "performed",
+    "items": [
+      {{"command": "the exact command", "exit_status": 0, "output": "bounded output excerpt"}}
+    ]
+  }}
+}}
+```
+
+Use "PASS" only when your own inspection and your own fresh command output satisfy
+every criterion in the review material; otherwise use "NO_PASS" and name the
+blocking evidence. Summarize verification in the body; keep exact commands and
+output in the verification object. If you genuinely cannot execute verification,
+use exactly `{{"status":"unable","reason":"..."}}` and decide NO_PASS. Read-only
+inspection commands count as performed. This evidence is your declaration, not
+proof supplied by the schema. {result_contract.contract_rule_lines(3)} Put no
+other keys in that block -- not a sender, not a name, nothing."""
+
 
 class Refusal(Exception):
     """A fail-closed stop: one plain line on standard error, exit status 2."""
@@ -251,7 +272,11 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         "--result-schema-version",
         type=int,
         default=LEGACY_RESULT_SCHEMA_VERSION,
-        choices=(LEGACY_RESULT_SCHEMA_VERSION, RESULT_SCHEMA_VERSION),
+        choices=(
+            LEGACY_RESULT_SCHEMA_VERSION,
+            RESULT_SCHEMA_VERSION,
+            CONTRACT_SAFE_RESULT_SCHEMA_VERSION,
+        ),
         help="the result contract this recorded bridge command speaks",
     )
     parser.add_argument(
@@ -430,9 +455,15 @@ def _instruction_block(payload: dict[str, Any]) -> str:
         raise Refusal("refused: this pass has an invalid review-contract basis")
     result = _mapping(payload, "result")
     schema_version = result.get("schema_version", LEGACY_RESULT_SCHEMA_VERSION)
-    if schema_version not in (LEGACY_RESULT_SCHEMA_VERSION, RESULT_SCHEMA_VERSION):
+    if schema_version not in result_contract.SUPPORTED_RESULT_SCHEMA_VERSIONS:
         raise Refusal(f"refused: this pass requests unknown result schema {schema_version!r}")
-    answer_rules = ANSWER_RULES if schema_version == RESULT_SCHEMA_VERSION else LEGACY_ANSWER_RULES
+    answer_rules = {
+        LEGACY_RESULT_SCHEMA_VERSION: LEGACY_ANSWER_RULES,
+        RESULT_SCHEMA_VERSION: ANSWER_RULES,
+        CONTRACT_SAFE_RESULT_SCHEMA_VERSION: CONTRACT_SAFE_ANSWER_RULES,
+    }.get(schema_version)
+    if answer_rules is None:
+        raise Refusal(f"refused: unsupported result schema version {schema_version}")
     return "\n\n".join(
         [INSTRUCTION_HEADER, who, contract_text, ISOLATION_RULES, answer_rules]
     )
@@ -800,110 +831,16 @@ def _answer_object(output: str) -> Any:
     raise Refusal("refused: the seat did not end its reply with an answer block")
 
 
-def _bounded_text(
-    value: object,
-    *,
-    field_name: str,
-    scalar_limit: int,
-    byte_limit: int,
-) -> str:
-    if not isinstance(value, str) or not value:
-        raise Refusal(f"refused: verification {field_name} must be non-empty text")
-    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
-        raise Refusal(f"refused: verification {field_name} contains an isolated surrogate")
-    if len(value) > scalar_limit:
-        raise Refusal(
-            f"refused: verification {field_name} exceeds {scalar_limit} Unicode scalar values"
-        )
+def _validated_verification(
+    value: object, *, decision: str, schema_version: int = RESULT_SCHEMA_VERSION
+) -> dict[str, Any]:
+    """Apply the shared versioned evidence contract at the seat boundary."""
     try:
-        encoded = value.encode("utf-8")
-    except UnicodeEncodeError as error:  # defensive; surrogates are named above
-        raise Refusal(f"refused: verification {field_name} is not valid UTF-8") from error
-    if len(encoded) > byte_limit:
-        raise Refusal(f"refused: verification {field_name} exceeds {byte_limit} UTF-8 bytes")
-    return value
-
-
-def _validated_verification(value: object, *, decision: str) -> dict[str, Any]:
-    """Validate v2 evidence without a schema dependency.
-
-    This is deliberately duplicated at the controller boundary. The bridge
-    checks what the seat said; the controller independently checks what it is
-    about to publish.
-    """
-    if not isinstance(value, dict):
-        raise Refusal("refused: the seat's verification must be an object")
-    status = value.get("status")
-    if status == "performed":
-        if set(value) != {"status", "items"}:
-            raise Refusal(
-                "refused: performed verification must contain exactly status and items"
-            )
-        items = value.get("items")
-        if not isinstance(items, list) or not 1 <= len(items) <= VERIFICATION_ITEM_LIMIT:
-            raise Refusal(
-                f"refused: performed verification needs 1 to {VERIFICATION_ITEM_LIMIT} items"
-            )
-        normalized_items: list[dict[str, Any]] = []
-        for index, item in enumerate(items, start=1):
-            if not isinstance(item, dict) or set(item) != {
-                "command",
-                "exit_status",
-                "output",
-            }:
-                raise Refusal(
-                    f"refused: verification item {index} must contain exactly command, "
-                    "exit_status and output"
-                )
-            exit_status = item.get("exit_status")
-            if isinstance(exit_status, bool) or not isinstance(exit_status, int):
-                raise Refusal(
-                    f"refused: verification item {index} exit_status must be an integer"
-                )
-            normalized_items.append(
-                {
-                    "command": _bounded_text(
-                        item.get("command"),
-                        field_name=f"item {index} command",
-                        scalar_limit=VERIFICATION_COMMAND_SCALARS,
-                        byte_limit=VERIFICATION_COMMAND_BYTES,
-                    ),
-                    "exit_status": exit_status,
-                    "output": _bounded_text(
-                        item.get("output"),
-                        field_name=f"item {index} output",
-                        scalar_limit=VERIFICATION_OUTPUT_SCALARS,
-                        byte_limit=VERIFICATION_OUTPUT_BYTES,
-                    ),
-                }
-            )
-        normalized: dict[str, Any] = {"status": "performed", "items": normalized_items}
-    elif status == "unable":
-        if set(value) != {"status", "reason"}:
-            raise Refusal(
-                "refused: unable verification must contain exactly status and reason"
-            )
-        if decision != "NO_PASS":
-            raise Refusal("refused: a seat unable to verify must decide NO_PASS")
-        normalized = {
-            "status": "unable",
-            "reason": _bounded_text(
-                value.get("reason"),
-                field_name="unable reason",
-                scalar_limit=VERIFICATION_REASON_SCALARS,
-                byte_limit=VERIFICATION_REASON_BYTES,
-            ),
-        }
-    else:
-        raise Refusal("refused: verification status must be performed or unable")
-    encoded = json.dumps(
-        normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
-    if len(encoded) > VERIFICATION_OBJECT_BYTES:
-        raise Refusal(
-            f"refused: canonical verification JSON exceeds {VERIFICATION_OBJECT_BYTES} UTF-8 bytes"
+        return result_contract.validate_verification(
+            value, decision=decision, schema_version=schema_version
         )
-    return normalized
+    except result_contract.VerificationContractError as error:
+        raise Refusal(f"refused: {error}") from error
 
 
 def parse_answer_with_verification(
@@ -913,7 +850,9 @@ def parse_answer_with_verification(
     value = _answer_object(output)
     if not isinstance(value, dict):
         raise Refusal("refused: the seat's answer block is not a single object")
-    allowed_keys = ANSWER_KEYS if schema_version == RESULT_SCHEMA_VERSION else LEGACY_ANSWER_KEYS
+    allowed_keys = (
+        ANSWER_KEYS if result_contract.has_verification(schema_version) else LEGACY_ANSWER_KEYS
+    )
     extra = sorted(str(key) for key in value if key not in allowed_keys)
     if extra:
         raise Refusal(f"refused: the seat's answer block carries keys that are not its own: {', '.join(extra)}")
@@ -928,8 +867,12 @@ def parse_answer_with_verification(
     if not isinstance(body, str) or not body.strip():
         raise Refusal("refused: the seat's answer has no review text in it")
     verification = (
-        _validated_verification(value.get("verification"), decision=str(decision))
-        if schema_version == RESULT_SCHEMA_VERSION
+        _validated_verification(
+            value.get("verification"),
+            decision=str(decision),
+            schema_version=schema_version,
+        )
+        if result_contract.has_verification(schema_version)
         else None
     )
     return str(decision), body.strip(), verification
@@ -967,7 +910,7 @@ def write_result(
         "configuration_home": configuration_home,
         "isolation_flags": isolation_flags_basis,
     }
-    if spec.result_schema_version == RESULT_SCHEMA_VERSION:
+    if result_contract.has_verification(spec.result_schema_version):
         result["verification"] = verification
         result["verification_basis"] = spec.verification_basis
     if phase in LATER_PHASES:
@@ -992,24 +935,44 @@ def _read_payload(input_path: Path) -> dict[str, Any]:
 
 
 def _run(args: argparse.Namespace) -> int:
+    started_ns = time.monotonic_ns()
     spec = spec_from_arguments(args)
     if not spec.isolation_argv or not spec.no_persistence_argv:
         raise Refusal(
             "refused: this seat may only review with its verified isolation and no-history "
             "settings, and this run was given neither in full"
         )
-    if spec.result_schema_version == RESULT_SCHEMA_VERSION and spec.verification_basis is None:
+    if result_contract.has_verification(spec.result_schema_version) and spec.verification_basis is None:
         raise Refusal(
-            "refused: result schema v2 needs a catalogued or declared verification capability"
+            "refused: evidence result schemas need a catalogued or declared verification capability"
         )
     result_path = Path(str(args.result_path))
+    phase_telemetry = telemetry.PhaseTelemetry(
+        result_path.parent / "bridge-telemetry.jsonl",
+        component="bridge",
+        started_ns=started_ns,
+    )
     payload = _read_payload(Path(str(args.input_path)))
     environment = seat_environment(spec)
     phase = str(payload.get("phase", ""))
     prompt = build_prompt(payload, deliberation_input=spec.deliberation_input)
     argv = seat_argv(spec, prompt)
     source = _mapping(payload, "source")
+    phase_telemetry.emit(
+        "seat_started",
+        seat_id=spec.seat_id,
+        phase=phase,
+        schema_version=spec.result_schema_version,
+    )
+    seat_started_ns = time.monotonic_ns()
     completed = run_seat(argv, cwd=str(source.get("root", "")), environment=environment)
+    phase_telemetry.emit(
+        "seat_finished",
+        seat_id=spec.seat_id,
+        phase=phase,
+        returncode=completed.returncode,
+        duration_ms=round((time.monotonic_ns() - seat_started_ns) / 1_000_000, 3),
+    )
     completed = redact_seat_output(
         completed, credential_env=spec.credential_env, environment=environment
     )
@@ -1028,8 +991,15 @@ def _run(args: argparse.Namespace) -> int:
         raise NestedSeatFailure(
             f"nested seat process exited {completed.returncode}; see {sidecar}"
         )
+    parse_started_ns = time.monotonic_ns()
     decision, body, verification = parse_answer_with_verification(
         completed.stdout, schema_version=spec.result_schema_version
+    )
+    phase_telemetry.emit(
+        "result_parsed",
+        seat_id=spec.seat_id,
+        phase=phase,
+        duration_ms=round((time.monotonic_ns() - parse_started_ns) / 1_000_000, 3),
     )
     write_result(
         result_path,
@@ -1039,6 +1009,15 @@ def _run(args: argparse.Namespace) -> int:
         verification=verification,
         isolation_flags_basis=spec.isolation_flags_basis,
         phase=phase,
+    )
+    retained = telemetry.storage_metrics(result_path.parent)
+    phase_telemetry.emit(
+        "bridge_complete",
+        seat_id=spec.seat_id,
+        phase=phase,
+        file_count=retained.file_count,
+        apparent_bytes=retained.apparent_bytes,
+        allocated_bytes=retained.allocated_bytes,
     )
     return 0
 

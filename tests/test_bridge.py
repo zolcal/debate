@@ -462,6 +462,7 @@ def test_nothing_is_written_outside_the_invocation_folder(
     assert main(_argv(case, seat, extra=["--deliberation-input", "verdicts"])) == 0
 
     assert _listing(case.result_path.parent) == [
+        "bridge-telemetry.jsonl",
         "input.json",
         "result.json",
         "seat-stderr.txt",

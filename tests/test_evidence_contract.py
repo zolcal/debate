@@ -42,7 +42,7 @@ def _result(
         "body": "Fresh bounded review.",
         "runtime_model": "fixture-model",
     }
-    if version == 2:
+    if version in (2, 3):
         payload["verification"] = (
             {
                 "status": "performed",
@@ -265,3 +265,32 @@ def test_prompt_never_claims_schema_authenticates_truth() -> None:
     assert "not proof supplied" in bridge.ANSWER_RULES
     assert "by the schema" in bridge.ANSWER_RULES
     assert "verified by the schema" not in bridge.ANSWER_RULES.lower()
+
+
+def test_v3_accepts_realistic_long_command_while_v2_stays_frozen(tmp_path: Path) -> None:
+    command = "python -m pytest " + "tests/test_contract.py::case " * 70
+    assert len(command) > 1024
+    verification = {
+        "status": "performed",
+        "items": [{"command": command, "exit_status": 0, "output": "1 passed"}],
+    }
+    with pytest.raises(AdapterError, match="exceeds 1024 Unicode scalar values"):
+        _parse(tmp_path, _result(verification=verification), version=2)
+
+    result = _parse(
+        tmp_path,
+        _result(verification=verification, version=3),
+        version=3,
+    )
+    assert result.verification == verification
+    decision, _body, seat_verification = bridge.parse_answer_with_verification(
+        _seat_answer(_seat_payload(_result(verification=verification, version=3))),
+        schema_version=3,
+    )
+    assert decision == "PASS"
+    assert seat_verification == verification
+
+
+def test_v3_prompt_discloses_the_enforced_command_limit() -> None:
+    assert "65536 Unicode scalars / 262144 UTF-8 bytes" in bridge.CONTRACT_SAFE_ANSWER_RULES
+    assert '"schema_version": 3' in bridge.CONTRACT_SAFE_ANSWER_RULES

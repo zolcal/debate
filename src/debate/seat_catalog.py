@@ -8,9 +8,12 @@ proven production invocation, never from memory (plan rule, "no guessing"):
 - claude: ``--model``/``--effort`` flags read from ``claude --help`` on this
   machine 2026-08-16; the alias and effort values are the ones the
   repository's own brokered opus seat has run in production since 2026-08-06.
-- codex: the ``codex-agent`` wrapper defers model AND effort to
-  ``~/.codex/config.toml`` (pin gpt-5.6-sol verified 2026-08-15) -- the
-  single-seat rule applies.
+- codex: the native ``codex exec`` command selects the model explicitly and
+  pins reasoning effort through a command-line config override.  Its
+  ``--ignore-user-config``, ``--ignore-rules`` and ``--ephemeral`` flags were
+  read from ``codex exec --help`` and parser-checked together on 2026-08-26.
+  The old one-argument ``codex-agent`` wrapper was removed from the catalog:
+  it discarded every isolation flag Debate appended after the prompt.
 - glm: the ``glm-agent`` wrapper env-pins glm-5.3 (verified 2026-08-15) --
   single-seat rule.
 - kimi: DECLARED DEVIATION from the plan's wrapper-first seed order, under
@@ -35,9 +38,9 @@ lists EXACTLY the one submodel its binary verifiably pins; discovery seeds
 one seat per submodel ONLY for entries that can select one via argv.
 
 ``isolation_argv``/``no_persistence_argv`` are VERIFIED strings too: claude's
-and codex's are the production bridges' flags, run on every gate since
-2026-08-06; kimi, glm and deepseek carry NEITHER (nothing verified for them
-yet), so both fields are empty for those three entries.
+are production bridge flags and codex's come from the native CLI help and a
+zero-call parser check; kimi, glm and deepseek carry NEITHER (nothing verified
+for them yet), so both fields are empty for those three entries.
 """
 
 from __future__ import annotations
@@ -165,17 +168,27 @@ CATALOG: tuple[CatalogEntry, ...] = (
     ),
     CatalogEntry(
         vendor="codex",
-        binaries=("codex-agent",),
+        binaries=("codex",),
         submodels=("gpt-5.6-sol",),
         known_efforts=("xhigh",),
-        invocation=("{binary}", "{prompt}"),
-        submodel_argv=(),
+        invocation=(
+            "{binary}", "exec", "-c", 'model_reasoning_effort="xhigh"', "{prompt}",
+        ),
+        submodel_argv=("--model", "{submodel}"),
         effort_argv=(),
-        notes="wrapper defers model and effort to ~/.codex/config.toml (pin verified 2026-08-15)",
-        sibling_pattern="codex*-agent",
+        notes=(
+            "native codex exec pins model and xhigh effort on argv; isolation/no-history "
+            "flags read from codex exec --help and parser-checked 2026-08-26"
+        ),
+        sibling_pattern=None,
         capability_classes={"gpt-5.6-sol": "frontier"},
         isolation_argv=("--ignore-user-config", "--ignore-rules"),
         no_persistence_argv=("--ephemeral",),
+        verification_argv=(
+            "--skip-git-repo-check",
+            "--sandbox", "workspace-write",
+            "--approve-for-me",
+        ),
         verification_capable=True,
         config_home="CODEX_HOME=.codex",
     ),

@@ -59,7 +59,7 @@ with open(log, "a", encoding="utf-8") as handle:
     handle.write(json.dumps({"call": before + 1}) + "\\n")
 print("```json")
 print(json.dumps({
-    "schema_version": 2,
+    "schema_version": 3,
     "entry_type": "verdict",
     "decision": answers[min(before, len(answers) - 1)],
     "body": "%s",
@@ -475,6 +475,13 @@ ALLOWED_GOLDEN_DIFFERENCES = (
     "- seat-process-exit-status: ",
     # the recorded adapter manifests -- different commands, by construction
     "- sanitized-profile-manifests: ",
+    # Schema v3 keeps exact built-in evidence private and publishes only its
+    # digest/count; the hand-authored compatibility adapter intentionally
+    # remains on frozen schema v2 and publishes the historical inline field.
+    "- seat-declared-evidence: ",
+    "- seat-declared-evidence-sha256: ",
+    "- seat-declared-item-count: ",
+    "- exact-evidence: ",
 )
 
 

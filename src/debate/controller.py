@@ -24,14 +24,16 @@ import signal
 import stat
 import subprocess
 import tarfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
-from debate import channel
+from debate import channel, result_contract, telemetry
 
-LEGACY_RESULT_SCHEMA_VERSION = 1
-PRODUCT_RESULT_SCHEMA_VERSION = 2
+LEGACY_RESULT_SCHEMA_VERSION = result_contract.LEGACY_RESULT_SCHEMA_VERSION
+PRODUCT_RESULT_SCHEMA_VERSION = result_contract.EVIDENCE_RESULT_SCHEMA_VERSION
+CONTRACT_SAFE_RESULT_SCHEMA_VERSION = result_contract.CONTRACT_SAFE_RESULT_SCHEMA_VERSION
 AUTHOR_RELATIONSHIPS = ("author-affiliated", "author-independent")
 SEAT_DECISIONS = ("PASS", "NO_PASS")
 SEALED_CONCURRENCY_MODES = ("concurrent", "sequential")
@@ -41,14 +43,6 @@ RECORDED_DELIBERATION_INPUTS = ("verdicts-only", "full-docket")
 LATER_PHASES = ("open", "deliberation")
 COST_MODES = ("subscription", "api", "local", "unknown")
 ISOLATION_MODES = ("advisory", "os-enforced")
-VERIFICATION_ITEM_LIMIT = 16
-VERIFICATION_COMMAND_SCALARS = 1024
-VERIFICATION_COMMAND_BYTES = 4096
-VERIFICATION_OUTPUT_SCALARS = 8192
-VERIFICATION_OUTPUT_BYTES = 32768
-VERIFICATION_REASON_SCALARS = 1024
-VERIFICATION_REASON_BYTES = 4096
-VERIFICATION_OBJECT_BYTES = 262144
 _PINNED_REF = re.compile(r"^[0-9a-f]{40}$")
 _TOOL_CACHE_NAMES = {".pytest_cache", ".pytest-tmp", ".mypy_cache", ".ruff_cache", "__pycache__"}
 _RESERVED_ENV = {
@@ -179,10 +173,11 @@ class AdapterProfile:
             or self.result_schema_version not in (
                 LEGACY_RESULT_SCHEMA_VERSION,
                 PRODUCT_RESULT_SCHEMA_VERSION,
+                CONTRACT_SAFE_RESULT_SCHEMA_VERSION,
             )
         ):
             raise channel.ChannelError(
-                f"refused: result_schema_version for {self.party!r} must be 1 or 2"
+                f"refused: result_schema_version for {self.party!r} must be 1, 2 or 3"
             )
         if self.session_persistence:
             raise channel.ChannelError(
@@ -495,12 +490,12 @@ class BrokerConfig:
             legacy = sorted(
                 profile.party
                 for profile in self.profiles.values()
-                if profile.result_schema_version != PRODUCT_RESULT_SCHEMA_VERSION
+                if not result_contract.has_verification(profile.result_schema_version)
             )
             if legacy:
                 raise channel.ChannelError(
-                    "refused: a new product debate requires result schema v2 from both "
-                    f"adapters; v1: {', '.join(legacy)}"
+                    "refused: a new product debate requires evidence result schema v2 or v3 "
+                    f"from both adapters; legacy: {', '.join(legacy)}"
                 )
 
     @property
@@ -961,133 +956,16 @@ def _redact_result_file(
             discard()
 
 
-def _bounded_verification_text(
-    value: object,
-    *,
-    party: str,
-    field_name: str,
-    scalar_limit: int,
-    byte_limit: int,
-) -> str:
-    if not isinstance(value, str) or not value:
-        raise AdapterError(
-            f"refused: adapter {party!r} verification {field_name} must be non-empty text"
-        )
-    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
-        raise AdapterError(
-            f"refused: adapter {party!r} verification {field_name} contains an isolated surrogate"
-        )
-    if len(value) > scalar_limit:
-        raise AdapterError(
-            f"refused: adapter {party!r} verification {field_name} exceeds "
-            f"{scalar_limit} Unicode scalar values"
-        )
-    try:
-        encoded = value.encode("utf-8")
-    except UnicodeEncodeError as error:  # defensive; surrogates are named above
-        raise AdapterError(
-            f"refused: adapter {party!r} verification {field_name} is not valid UTF-8"
-        ) from error
-    if len(encoded) > byte_limit:
-        raise AdapterError(
-            f"refused: adapter {party!r} verification {field_name} exceeds "
-            f"{byte_limit} UTF-8 bytes"
-        )
-    return value
-
-
 def _validated_result_verification(
-    value: object, *, party: str, decision: str | None
+    value: object, *, party: str, decision: str | None, schema_version: int
 ) -> dict[str, object]:
-    """Independently validate v2 seat-declared evidence before publication."""
-    if not isinstance(value, dict):
-        raise AdapterError(f"refused: adapter {party!r} verification must be an object")
-    status = value.get("status")
-    if status == "performed":
-        if set(value) != {"status", "items"}:
-            raise AdapterError(
-                f"refused: adapter {party!r} performed verification must contain "
-                "exactly status and items"
-            )
-        items = value.get("items")
-        if not isinstance(items, list) or not 1 <= len(items) <= VERIFICATION_ITEM_LIMIT:
-            raise AdapterError(
-                f"refused: adapter {party!r} performed verification needs 1 to "
-                f"{VERIFICATION_ITEM_LIMIT} items"
-            )
-        normalized_items: list[dict[str, object]] = []
-        for index, item in enumerate(items, start=1):
-            if not isinstance(item, dict) or set(item) != {
-                "command",
-                "exit_status",
-                "output",
-            }:
-                raise AdapterError(
-                    f"refused: adapter {party!r} verification item {index} must contain "
-                    "exactly command, exit_status and output"
-                )
-            exit_status = item.get("exit_status")
-            if isinstance(exit_status, bool) or not isinstance(exit_status, int):
-                raise AdapterError(
-                    f"refused: adapter {party!r} verification item {index} "
-                    "exit_status must be an integer"
-                )
-            normalized_items.append(
-                {
-                    "command": _bounded_verification_text(
-                        item.get("command"),
-                        party=party,
-                        field_name=f"item {index} command",
-                        scalar_limit=VERIFICATION_COMMAND_SCALARS,
-                        byte_limit=VERIFICATION_COMMAND_BYTES,
-                    ),
-                    "exit_status": exit_status,
-                    "output": _bounded_verification_text(
-                        item.get("output"),
-                        party=party,
-                        field_name=f"item {index} output",
-                        scalar_limit=VERIFICATION_OUTPUT_SCALARS,
-                        byte_limit=VERIFICATION_OUTPUT_BYTES,
-                    ),
-                }
-            )
-        normalized: dict[str, object] = {
-            "status": "performed",
-            "items": normalized_items,
-        }
-    elif status == "unable":
-        if set(value) != {"status", "reason"}:
-            raise AdapterError(
-                f"refused: adapter {party!r} unable verification must contain "
-                "exactly status and reason"
-            )
-        if decision != "NO_PASS":
-            raise AdapterError(
-                f"refused: adapter {party!r} unable to verify must decide NO_PASS"
-            )
-        normalized = {
-            "status": "unable",
-            "reason": _bounded_verification_text(
-                value.get("reason"),
-                party=party,
-                field_name="unable reason",
-                scalar_limit=VERIFICATION_REASON_SCALARS,
-                byte_limit=VERIFICATION_REASON_BYTES,
-            ),
-        }
-    else:
-        raise AdapterError(
-            f"refused: adapter {party!r} verification status must be performed or unable"
+    """Apply the shared versioned evidence contract at publication boundary."""
+    try:
+        return result_contract.validate_verification(
+            value, decision=decision, schema_version=schema_version
         )
-    encoded = json.dumps(
-        normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
-    if len(encoded) > VERIFICATION_OBJECT_BYTES:
-        raise AdapterError(
-            f"refused: adapter {party!r} canonical verification JSON exceeds "
-            f"{VERIFICATION_OBJECT_BYTES} UTF-8 bytes"
-        )
-    return normalized
+    except result_contract.VerificationContractError as error:
+        raise AdapterError(f"refused: adapter {party!r} {error}") from error
 
 
 def _parse_result(
@@ -1154,9 +1032,12 @@ def _parse_result(
     verification: dict[str, object] | None = None
     verification_status = "absent"
     verification_evidence_basis = "absent"
-    if profile.result_schema_version == PRODUCT_RESULT_SCHEMA_VERSION:
+    if result_contract.has_verification(profile.result_schema_version):
         verification = _validated_result_verification(
-            raw.get("verification"), party=party, decision=str(decision) if decision else None
+            raw.get("verification"),
+            party=party,
+            decision=str(decision) if decision else None,
+            schema_version=profile.result_schema_version,
         )
         verification_status = str(verification["status"])
         verification_evidence_basis = "seat-declared"
@@ -1369,7 +1250,7 @@ class BrokerController:
                             "verification ({status: performed, items: [...]} or "
                             "{status: unable, reason: ...})"
                         ]
-                        if profile.result_schema_version == PRODUCT_RESULT_SCHEMA_VERSION
+                        if result_contract.has_verification(profile.result_schema_version)
                         else []
                     ),
                 ],
@@ -1550,6 +1431,7 @@ class BrokerController:
         attempt: int,
         transcript: list[dict[str, str]] | None,
     ) -> tuple[AdapterResult, dict[str, str | Path]]:
+        invocation_started_ns = time.monotonic_ns()
         if party not in self.config.profiles:
             raise channel.ChannelError(f"refused: no adapter profile bound to party {party!r}")
         exports, docket, deadline = self._prepare_case(thread)
@@ -1564,6 +1446,18 @@ class BrokerController:
         if invocation_root.exists():
             raise AdapterError(f"refused: invocation path already exists: {invocation_root}")
         invocation_root.mkdir(parents=True)
+        phase_telemetry = telemetry.PhaseTelemetry(
+            invocation_root / "controller-telemetry.jsonl",
+            component="controller",
+            started_ns=invocation_started_ns,
+        )
+        phase_telemetry.emit(
+            "case_prepared",
+            party=party,
+            phase=phase,
+            sequence=sequence,
+            attempt=attempt,
+        )
         result_path = invocation_root / "result.json"
         input_path = invocation_root / "input.json"
         source = exports[party]
@@ -1579,6 +1473,13 @@ class BrokerController:
         input_bytes = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
         input_path.write_bytes(input_bytes)
         input_path.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        phase_telemetry.emit(
+            "input_written",
+            party=party,
+            phase=phase,
+            sequence=sequence,
+            attempt=attempt,
+        )
         replacements = {
             "{input_path}": str(input_path),
             "{result_path}": str(result_path),
@@ -1593,6 +1494,7 @@ class BrokerController:
             argv.append(expanded)
         environment = _adapter_environment(self.config, profile, invocation_root)
         timeout = min(profile.timeout_seconds, remaining)
+        adapter_started_ns = time.monotonic_ns()
         try:
             # A session of its own, so a timeout can reach the adapter's own
             # children too (see _kill_adapter_tree). Windows has no sessions,
@@ -1609,7 +1511,21 @@ class BrokerController:
                 start_new_session=(os.name != "nt"),
             )
         except (OSError, ValueError) as error:
+            phase_telemetry.emit(
+                "adapter_launch_failed",
+                party=party,
+                phase=phase,
+                sequence=sequence,
+                attempt=attempt,
+            )
             raise AdapterError(f"refused: cannot launch adapter {party!r}: {error}") from error
+        phase_telemetry.emit(
+            "adapter_started",
+            party=party,
+            phase=phase,
+            sequence=sequence,
+            attempt=attempt,
+        )
         with process:
             try:
                 stdout, stderr = process.communicate(timeout=timeout)
@@ -1620,6 +1536,16 @@ class BrokerController:
                 except subprocess.TimeoutExpired:  # pragma: no cover - SIGKILL is final
                     pass
                 _redact_result_file(result_path, profile, environment)
+                phase_telemetry.emit(
+                    "adapter_timed_out",
+                    party=party,
+                    phase=phase,
+                    sequence=sequence,
+                    attempt=attempt,
+                    duration_ms=round(
+                        (time.monotonic_ns() - adapter_started_ns) / 1_000_000, 3
+                    ),
+                )
                 deadline_limited = timeout >= remaining
                 raise AdapterError(
                     f"adapter {party!r} timed out after {timeout:g}s within the whole-case budget",
@@ -1637,6 +1563,17 @@ class BrokerController:
                 _redact_result_file(result_path, profile, environment)
                 raise
             returncode = process.returncode
+        phase_telemetry.emit(
+            "adapter_finished",
+            party=party,
+            phase=phase,
+            sequence=sequence,
+            attempt=attempt,
+            returncode=returncode,
+            duration_ms=round(
+                (time.monotonic_ns() - adapter_started_ns) / 1_000_000, 3
+            ),
+        )
         stdout = _redact_credential_material(stdout, profile, environment)
         stderr = _redact_credential_material(stderr, profile, environment)
         _redact_result_file(result_path, profile, environment)
@@ -1718,7 +1655,18 @@ class BrokerController:
             )
         if _tree_files(source.root) != source.files:
             raise AdapterError(f"refused: adapter {party!r} modified its immutable source export")
+        validation_started_ns = time.monotonic_ns()
         result = _parse_result(result_path, party, profile, phase=phase)
+        phase_telemetry.emit(
+            "result_validated",
+            party=party,
+            phase=phase,
+            sequence=sequence,
+            attempt=attempt,
+            duration_ms=round(
+                (time.monotonic_ns() - validation_started_ns) / 1_000_000, 3
+            ),
+        )
         if bridge_spec is None:
             seat_process_exit_status = "not-separate"
             seat_stdout_sha256 = adapter_stdout_sha256
@@ -1733,6 +1681,17 @@ class BrokerController:
                 )
             seat_stdout_sha256 = _file_hash(seat_stdout_path)
             seat_stderr_sha256 = _file_hash(seat_stderr_path)
+        retained = telemetry.storage_metrics(invocation_root)
+        phase_telemetry.emit(
+            "invocation_complete",
+            party=party,
+            phase=phase,
+            sequence=sequence,
+            attempt=attempt,
+            file_count=retained.file_count,
+            apparent_bytes=retained.apparent_bytes,
+            allocated_bytes=retained.allocated_bytes,
+        )
         return result, {
             "input_sha256": _bytes_hash(input_bytes),
             "source_manifest_sha256": source.manifest_sha256,
@@ -1744,6 +1703,7 @@ class BrokerController:
             "seat_stderr_sha256": seat_stderr_sha256,
             "adapter_stdout_sha256": adapter_stdout_sha256,
             "adapter_stderr_sha256": adapter_stderr_sha256,
+            "phase_telemetry_sha256": _file_hash(phase_telemetry.path),
         }
 
     def _published_body(
@@ -1765,18 +1725,37 @@ class BrokerController:
             if reveal_id is not None
             else ""
         )
-        verification = (
-            "\n\nController-Verification:\n"
-            f"- verification-status: {result.verification_status}\n"
-            f"- verification-evidence-basis: {result.verification_evidence_basis}\n"
-            f"- seat-declared-evidence: {json.dumps(result.verification, sort_keys=True)}"
-            if result.verification is not None
-            else (
+        if result.verification is None:
+            verification = (
                 "\n\nController-Verification:\n"
                 "- verification-status: absent\n"
                 "- verification-evidence-basis: absent"
             )
-        )
+        elif profile.result_schema_version == CONTRACT_SAFE_RESULT_SCHEMA_VERSION:
+            canonical_verification = json.dumps(
+                result.verification,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+            items = result.verification.get("items", [])
+            item_count = len(items) if isinstance(items, list) else 0
+            verification = (
+                "\n\nController-Verification:\n"
+                f"- verification-status: {result.verification_status}\n"
+                f"- verification-evidence-basis: {result.verification_evidence_basis}\n"
+                f"- seat-declared-evidence-sha256: {_bytes_hash(canonical_verification)}\n"
+                f"- seat-declared-item-count: {item_count}\n"
+                "- exact-evidence: retained in the private invocation result"
+            )
+        else:
+            # Schema v2 publication is frozen for historical compatibility.
+            verification = (
+                "\n\nController-Verification:\n"
+                f"- verification-status: {result.verification_status}\n"
+                f"- verification-evidence-basis: {result.verification_evidence_basis}\n"
+                f"- seat-declared-evidence: {json.dumps(result.verification, sort_keys=True)}"
+            )
         provenance = (
             "\n\nController-Provenance:\n"
             f"- phase: {phase}\n"
@@ -1807,6 +1786,8 @@ class BrokerController:
             f"{evidence.get('adapter_stdout_sha256', 'legacy-absent')}"
             f"\n- adapter-stderr-sha256: "
             f"{evidence.get('adapter_stderr_sha256', 'legacy-absent')}"
+            f"\n- phase-telemetry-sha256: "
+            f"{evidence.get('phase_telemetry_sha256', 'legacy-absent')}"
             f"\n- verification-status: {result.verification_status}"
             f"\n- verification-evidence-basis: {result.verification_evidence_basis}"
         )

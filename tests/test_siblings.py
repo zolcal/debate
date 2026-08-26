@@ -116,15 +116,13 @@ def test_non_executable_file_is_ignored(tmp_path: Path) -> None:
 def test_rows_sanitized_and_sorted(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    codex = bin_dir / "codex-agent"
     deepseek_flash = bin_dir / "deepseek-flash-agent"
     codex_sibling = bin_dir / "codex-two-agent"
     deepseek_sibling = bin_dir / "deepseek-pro-agent"
-    for path in (codex, deepseek_flash, codex_sibling, deepseek_sibling):
+    for path in (deepseek_flash, codex_sibling, deepseek_sibling):
         _make_executable(path)
     candidates = seats.scan_siblings(
         which=_which_from({
-            "codex-agent": str(codex),
             "deepseek-flash-agent": str(deepseek_flash),
         }),
         path_entries=lambda: [str(bin_dir)],
@@ -132,7 +130,6 @@ def test_rows_sanitized_and_sorted(tmp_path: Path) -> None:
     seat_ids = [c.seat_id for c in candidates]
     assert seat_ids == sorted(seat_ids)
     assert seat_ids == [
-        "codex/wrapper:codex-two-agent",
         "deepseek/wrapper:deepseek-pro-agent",
     ]
 

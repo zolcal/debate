@@ -770,7 +770,8 @@ def test_prompt_style_seat_is_wrapped_with_its_verified_flags(tmp_path: Path) ->
     assert spec.no_persistence_argv == ("--no-session-persistence",)
     assert spec.verification_argv == ("--tools", "Read,Grep,Glob,Bash")
     assert spec.verification_basis == "catalogued"
-    assert spec.result_schema_version == 2
+    assert spec.result_schema_version == 3
+    assert profile["result_schema_version"] == 3
     assert spec.config_home == "CLAUDE_CONFIG_DIR=.claude"
     assert spec.isolation_flags_basis == "catalogued"
     assert profile["environment"] == {
@@ -950,6 +951,9 @@ def test_managed_open_wraps_both_seats_end_to_end(
     )
     assert loaded.broker.runtime_root == (
         project / ".debate" / "runtime" / result.channel_name
+    )
+    assert loaded.state_path == (
+        loaded.broker.runtime_root / f"{result.channel_name}.watcher-state.json"
     )
     assert loaded.broker.review_contract == {
         **MANAGED_CONTRACT,

@@ -48,7 +48,7 @@ with open(log, "a", encoding="utf-8") as handle:
 print("I read the review material and ran the check it asks for.")
 print("```json")
 print(json.dumps({
-    "schema_version": 2,
+    "schema_version": 3,
     "entry_type": "verdict",
     "decision": answers[min(before, len(answers) - 1)],
     "body": "I ran the check the review material asks for; this is my position.",

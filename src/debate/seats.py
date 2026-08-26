@@ -291,9 +291,9 @@ def _seat_from_raw(seat_id: str, raw: object) -> Seat:
             f"refused: registry seat {seat_id!r} verification_basis must be catalogued or declared"
         )
     result_schema_version = raw.get("result_schema_version", 1)
-    if isinstance(result_schema_version, bool) or result_schema_version not in (1, 2):
+    if isinstance(result_schema_version, bool) or result_schema_version not in (1, 2, 3):
         raise channel.ChannelError(
-            f"refused: registry seat {seat_id!r} result_schema_version must be 1 or 2"
+            f"refused: registry seat {seat_id!r} result_schema_version must be 1, 2 or 3"
         )
     credential_env_raw = raw.get("credential_env", [])
     if not isinstance(credential_env_raw, list) or not all(
@@ -894,8 +894,8 @@ def add_seat(
         )
     if config_home is not None:
         validate_config_home(config_home, home=home if home is not None else Path.home())
-    if result_schema_version not in (None, 1, 2):
-        raise channel.ChannelError("refused: result_schema_version must be 1 or 2")
+    if result_schema_version not in (None, 1, 2, 3):
+        raise channel.ChannelError("refused: result_schema_version must be 1, 2 or 3")
     validate_credential_env(list(credential_env or []))
     if verification_argv and not verification_declared:
         raise channel.ChannelError(
@@ -929,7 +929,7 @@ def add_seat(
                 "refused: command looks credential-shaped; credentials belong in a "
                 "code-known --credential-env declaration, never registry argv"
             )
-    if bridge_style and result_schema_version == 2 and not verification_declared:
+    if bridge_style and result_schema_version in (2, 3) and not verification_declared:
         raise channel.ChannelError(
             "refused: a result-schema-v2 wrapper needs --verification-capable"
         )

@@ -364,9 +364,9 @@ NO_VERIFICATION_CAPABILITY_REFUSAL = (
     "manual seat with --verification-capable and any documented --verification-argv"
 )
 
-NO_V2_WRAPPER_REFUSAL = (
-    "speaks the file adapter protocol but is not declared for result schema v2; "
-    "register the wrapper with --verification-capable --result-schema-version 2 "
+NO_EVIDENCE_WRAPPER_REFUSAL = (
+    "speaks the file adapter protocol but is not declared for result schema v2 or v3; "
+    "register the wrapper with --verification-capable --result-schema-version 3 "
     "and make its result include the mandatory verification object"
 )
 
@@ -387,8 +387,8 @@ def admission_problem(seat: Seat, *, real_home: Path) -> str | None:
     if "{input_path}" in argv and "{result_path}" in argv:
         if seat.verification_basis not in ("catalogued", "declared"):
             return f"refused: seat {seat.seat_id!r} {NO_VERIFICATION_CAPABILITY_REFUSAL}"
-        if seat.result_schema_version != 2:
-            return f"refused: seat {seat.seat_id!r} {NO_V2_WRAPPER_REFUSAL}"
+        if seat.result_schema_version not in (2, 3):
+            return f"refused: seat {seat.seat_id!r} {NO_EVIDENCE_WRAPPER_REFUSAL}"
         return None
     if "{prompt}" not in argv:
         return f"refused: seat {seat.seat_id!r} {NO_QUESTION_MARKER_REFUSAL}"
@@ -1030,7 +1030,7 @@ def _brokered_adapter(
         "--no-persistence-argv-json", json.dumps(seat.no_persistence_argv),
         "--verification-argv-json", json.dumps(seat.verification_argv),
         "--verification-basis", str(seat.verification_basis),
-        "--result-schema-version", "2",
+        "--result-schema-version", "3",
         *(
             ["--credential-env-json", json.dumps(seat.credential_env)]
             if seat.credential_env
@@ -1077,7 +1077,7 @@ def _brokered_adapter(
         "retry_limit": 1,
         "session_persistence": False,
         "isolation_mode": "advisory",
-        "result_schema_version": 2,
+        "result_schema_version": 3,
     }
 
 
@@ -1523,7 +1523,10 @@ def open_debate_brokered(
     runtime_root = project_path / ".debate" / "runtime" / name
     # Brokered state lives BELOW the runtime root (watcher invariant), never
     # in the v1 ~/.local/state location.
-    state_path = runtime_root / "watcher-state.json"
+    # The state filename is channel-qualified as well as the directory.  This
+    # keeps status/log identity unambiguous when an operator compares multiple
+    # watcher records or moves a retained runtime tree for inspection.
+    state_path = runtime_root / f"{name}.watcher-state.json"
 
     from .bridge import DELIBERATION_INPUTS
 

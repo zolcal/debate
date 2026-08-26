@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -1033,6 +1034,47 @@ def test_published_body_shows_default_and_extended_provenance_lines(tmp_path: Pa
     assert "- runtime-model-basis: declared" in extended_body
     assert "- configuration-home: operator (CLAUDE_CONFIG_DIR)" in extended_body
     assert "- isolation-flags: catalogued" in extended_body
+
+
+def test_v3_publication_keeps_exact_verification_private(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    base = make_broker(repo, sha)
+    v3_bob = replace(base.profiles["bob"], result_schema_version=3)
+    controller = BrokerController(broker_with_profile(base, "bob", v3_bob))
+    verification = {
+        "status": "performed",
+        "items": [
+            {"command": "private exact command", "exit_status": 0, "output": "private output"}
+        ],
+    }
+    result = AdapterResult(
+        "verdict",
+        "public summary",
+        "",
+        "",
+        "bob-runtime-1",
+        "PASS",
+        verification=verification,
+        verification_status="performed",
+        verification_evidence_basis="seat-declared",
+    )
+    body = controller._published_body(
+        party="bob",
+        result=result,
+        evidence={
+            "source_manifest_sha256": "source-sha",
+            "docket_revision_sha256": "docket-sha",
+            "input_sha256": "input-sha",
+        },
+        phase="sealed",
+    )
+    canonical = json.dumps(
+        verification, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    assert hashlib.sha256(canonical).hexdigest() in body
+    assert "seat-declared-item-count: 1" in body
+    assert "private exact command" not in body
+    assert "private output" not in body
 
 
 def test_published_body_names_what_a_later_pass_read_and_stays_silent_on_a_sealed_one(
