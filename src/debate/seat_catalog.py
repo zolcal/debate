@@ -172,13 +172,17 @@ CATALOG: tuple[CatalogEntry, ...] = (
         submodels=("gpt-5.6-sol",),
         known_efforts=("xhigh",),
         invocation=(
-            "{binary}", "exec", "-c", 'model_reasoning_effort="xhigh"', "{prompt}",
+            "{binary}", "exec", "--skip-git-repo-check", "-c",
+            'model_reasoning_effort="xhigh"', "{prompt}",
         ),
         submodel_argv=("--model", "{submodel}"),
         effort_argv=(),
         notes=(
             "native codex exec pins model and xhigh effort on argv; isolation/no-history "
-            "flags read from codex exec --help and parser-checked 2026-08-26"
+            "flags read from codex exec --help and parser-checked 2026-08-26; "
+            "--skip-git-repo-check is load-bearing in the base invocation too, because "
+            "seat smoke scratch dirs and controller source exports are not git repositories "
+            "and codex exec refuses any untrusted non-repo CWD without it (field finding F7)"
         ),
         sibling_pattern=None,
         capability_classes={"gpt-5.6-sol": "frontier"},
