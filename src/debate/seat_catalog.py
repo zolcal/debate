@@ -196,8 +196,9 @@ CATALOG: tuple[CatalogEntry, ...] = (
         isolation_argv=("--ignore-user-config", "--ignore-rules"),
         no_persistence_argv=("--ephemeral",),
         verification_argv=(
-            "--skip-git-repo-check",
-            "--sandbox", "workspace-write",
+            # --skip-git-repo-check and --sandbox live in the base invocation;
+            # codex's parser refuses a repeated flag, and the managed bridge
+            # composes both layers into one argv (field finding F13).
             "--approve-for-me",
         ),
         verification_capable=True,

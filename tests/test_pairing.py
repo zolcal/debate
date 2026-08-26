@@ -442,6 +442,25 @@ def test_a_large_docket_suggests_the_strongest_symmetric_pair(tmp_path: Path) ->
     ) == ("claude/opus", "deepseek/pro")
 
 
+def test_a_smoke_failed_seat_is_never_suggested(tmp_path: Path) -> None:
+    """The retry field debate seated the smoke-FAILED sol over its smoke-passed
+    terra sibling (field finding F12): the offerable filter never looked at
+    smoke state and sol sorts first. The interactive pick already refuses a
+    smoke-failed seat; the suggestion path must not offer one either. A
+    never-smoked seat stays offerable -- smoke is opt-in, never a toll."""
+    registry = seats.Registry()
+    for seat_id in ("claude/opus", "codex/gpt-5.6-sol", "codex/gpt-5.6-terra"):
+        registry.seats[seat_id] = _admissible(
+            seat_id, _fake_tool(tmp_path, seat_id.replace("/", "-")),
+            capability_class="frontier",
+        )
+    registry.seats["codex/gpt-5.6-sol"].smoke = seats.SmokeStatus(at=NOW, result="fail")
+    assert opening.suggest_pair(
+        registry, allowlist=None, docket_bytes=10,
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES, last_pair=None,
+    ) == ("claude/opus", "codex/gpt-5.6-terra")
+
+
 def test_without_a_matching_pair_the_remembered_one_stands(tmp_path: Path) -> None:
     registry = _suggestion_registry(
         tmp_path, claude__opus="frontier", deepseek__pro="frontier",

@@ -682,11 +682,7 @@ def test_discover_fills_catalog_seat_declarations(
     ]]
     assert codex.isolation_argv == ["--ignore-user-config", "--ignore-rules"]
     assert codex.no_persistence_argv == ["--ephemeral"]
-    assert codex.verification_argv == [
-        "--skip-git-repo-check",
-        "--sandbox", "workspace-write",
-        "--approve-for-me",
-    ]
+    assert codex.verification_argv == ["--approve-for-me"]
     assert codex.verification_basis == "catalogued"
 
     deepseek = reg.seats["deepseek/deepseek-v4-flash"]
@@ -1125,3 +1121,18 @@ def test_a_stored_config_home_of_the_wrong_shape_still_refuses_at_load(
     _registry_with_stored_config_home(path, value)
     with pytest.raises(channel.ChannelError, match="refused"):
         seats.load_registry()
+
+
+def test_no_catalog_entry_repeats_a_flag_across_its_argv_layers() -> None:
+    """The managed bridge composes invocation + submodel + effort + isolation
+    + no-persistence + verification argv into ONE command line, and codex's
+    parser refuses a repeated flag (field finding F13: --skip-git-repo-check
+    lived in two layers and every managed codex turn died on it)."""
+    for entry in CATALOG:
+        composed = [
+            *entry.invocation, *entry.submodel_argv, *entry.effort_argv,
+            *entry.isolation_argv, *entry.no_persistence_argv,
+            *entry.verification_argv,
+        ]
+        flags = [part for part in composed if part.startswith("--")]
+        assert len(flags) == len(set(flags)), (entry.vendor, sorted(flags))

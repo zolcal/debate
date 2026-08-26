@@ -458,7 +458,11 @@ def _offerable_seats(
 
     The admission rule exists because Debate's own runner needs the seat's
     settings; the older open never uses that runner, so it asks for presence
-    and approval only (`require_admissible=False`).
+    and approval only (`require_admissible=False`). A seat whose last smoke
+    FAILED is never offered: the interactive pick refuses it with "fix the
+    seat or re-smoke it first", and the suggestion path offering it anyway
+    seated a broken model over its smoke-passed sibling (field finding F12).
+    Never-smoked seats stay offerable -- smoke is opt-in, never a toll.
     """
     from .seats import head_resolves
 
@@ -467,6 +471,7 @@ def _offerable_seats(
         for seat_id, seat in sorted(registry.seats.items())
         if seat.present
         and (allowlist is None or seat_id in allowlist)
+        and (seat.smoke is None or seat.smoke.result == "pass")
         and head_resolves(seat.commands[0][0])
         and (not require_admissible or admission_problem(seat, real_home=real_home) is None)
     ]
