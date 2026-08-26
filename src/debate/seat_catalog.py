@@ -196,10 +196,13 @@ CATALOG: tuple[CatalogEntry, ...] = (
         isolation_argv=("--ignore-user-config", "--ignore-rules"),
         no_persistence_argv=("--ephemeral",),
         verification_argv=(
-            # --skip-git-repo-check and --sandbox live in the base invocation;
-            # codex's parser refuses a repeated flag, and the managed bridge
-            # composes both layers into one argv (field finding F13).
-            "--approve-for-me",
+            # Empty on purpose. --skip-git-repo-check and --sandbox live in
+            # the base invocation; codex's parser refuses a repeated flag
+            # (field finding F13) and refuses --approve-for-me COMBINED with
+            # an explicit --sandbox (field finding F17 -- a clap conflict
+            # rule that a `--help` parser probe cannot catch, because --help
+            # short-circuits before conflict validation). exec mode has no
+            # interactive approvals, so nothing is lost.
         ),
         verification_capable=True,
         config_home="CODEX_HOME=.codex",

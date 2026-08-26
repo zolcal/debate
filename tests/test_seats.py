@@ -723,7 +723,7 @@ def test_discover_fills_catalog_seat_declarations(
     ]]
     assert codex.isolation_argv == ["--ignore-user-config", "--ignore-rules"]
     assert codex.no_persistence_argv == ["--ephemeral"]
-    assert codex.verification_argv == ["--approve-for-me"]
+    assert codex.verification_argv == []
     assert codex.verification_basis == "catalogued"
 
     deepseek = reg.seats["deepseek/deepseek-v4-flash"]
