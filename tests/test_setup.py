@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -285,6 +286,35 @@ def test_smoke_passes_with_a_wellformed_fake_seat(tmp_path: Path) -> None:
     assert any("ONE model call" in line for line in lines), "spend printed before spending"
     assert any("NOT consistency" in line for line in lines), "limits stated plainly"
     assert not list(tmp_path.glob("debate-smoke-*")), "scratch removed"
+
+
+def path_resolving_seat(tmp_path: Path, party: str = "alpha") -> list[str]:
+    """A fake seat resolving bare `debate` from PATH like a real CLI seat.
+    It refuses any resolution outside the smoke scratch, so it proves the
+    shim (field finding F9: plugin-only hosts have no engine on PATH, and a
+    pip host may resolve a different engine than the one under smoke)."""
+    script = tmp_path / f"path-reply-{party}.py"
+    script.write_text(f"""import json, os, re, shutil, subprocess, sys
+prompt = sys.argv[1]
+root = re.search(r"--root (\\S+)", prompt).group(1)
+chan = re.search(r"--channel ([A-Za-z0-9-]+)", prompt).group(1)
+sig = json.load(open(os.path.join(root, chan + ".signal.json"), encoding="utf-8"))
+resolved = shutil.which("debate")
+assert resolved and "debate-smoke-" in resolved, resolved
+subprocess.run(["debate", "post", "--root", root,
+                "--channel", chan, "--from", {party!r}, "--type", "info",
+                "--thread", sig["thread"], "--body", "pong"], check=True)
+""")
+    return [sys.executable, str(script), "{prompt}"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="the smoke PATH shim is POSIX-only")
+def test_smoke_puts_this_engine_on_the_seats_path(tmp_path: Path) -> None:
+    root, name = make_channel(tmp_path)
+    argv = path_resolving_seat(tmp_path)
+    spec = smoke_spec(root, name, tmp_path, {"alpha": argv, "beta": None})
+    failures = setup.smoke(spec, scratch_base=tmp_path, emit=lambda _line: None)
+    assert failures == []
 
 
 def test_smoke_fails_loudly_for_prose_echo_and_silent_seats(tmp_path: Path) -> None:

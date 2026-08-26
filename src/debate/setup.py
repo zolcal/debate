@@ -18,6 +18,7 @@ import os
 import re
 import shlex
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from importlib import resources
@@ -336,9 +337,29 @@ def smoke(spec: SetupSpec, *, scratch_base: Path | None = None,
                       .replace("{channel_root}", str(scratch.resolve()))
                       .replace("{channel_name}", sid))
             expanded = [part.replace("{prompt}", prompt) for part in argv]
+            # The pinned prompt says bare `debate ...`, but a plugin-only host
+            # has no PATH-installed engine at all, and a pip host may resolve a
+            # DIFFERENT engine than the one running this smoke (field finding
+            # F9, 2026-08-26 Mac preflight). POSIX hosts therefore get a
+            # scratch shim pinning THIS interpreter and THIS package first on
+            # the seat's PATH; the seat contract itself stays bare `debate`.
+            env = None
+            if os.name == "posix":
+                shim_dir = scratch / "bin"
+                shim_dir.mkdir()
+                src_root = Path(channel.__file__).resolve().parent.parent
+                shim = shim_dir / "debate"
+                shim.write_text(
+                    "#!/bin/sh\n"
+                    f'PYTHONPATH="{src_root}${{PYTHONPATH:+:$PYTHONPATH}}" '
+                    f'exec "{sys.executable}" -m debate "$@"\n'
+                )
+                shim.chmod(0o755)
+                env = dict(os.environ)
+                env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
             try:
                 proc = subprocess.run(expanded, stdin=subprocess.DEVNULL,
-                                      capture_output=True, text=True,
+                                      capture_output=True, text=True, env=env,
                                       timeout=spec.timeout_seconds, check=False)
             except (OSError, subprocess.SubprocessError) as error:
                 failures.append(f"{party}: seat command failed to run: {error}")
