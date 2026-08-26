@@ -659,6 +659,15 @@ def seat_environment(spec: BridgeSpec) -> dict[str, str]:
     except channel.ChannelError as error:
         raise Refusal(str(error)) from error
     environment[variable] = str(folder)
+    if sys.platform == "darwin":
+        # macOS keeps the operator's vendor credential in the login Keychain,
+        # and the OS resolves that keychain through HOME -- under the
+        # controller's sandbox home an operator-configured seat can only print
+        # "Not logged in" (field finding F11, 2026-08-26 Mac pass). The
+        # config-home authorization directly above already grants this seat
+        # the operator's own configuration, so the real HOME widens nothing
+        # the profile did not intend.
+        environment["HOME"] = real_home
     return environment
 
 

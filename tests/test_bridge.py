@@ -793,6 +793,34 @@ def test_without_a_pointer_the_seat_sees_no_vendor_variable(
     assert call["home"] == str(tmp_path / "sandbox-home")
 
 
+def test_darwin_restores_the_real_home_for_an_operator_configured_seat(
+    tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """macOS resolves the login Keychain through HOME, so an operator-
+    configured seat under the sandbox home can only print "Not logged in"
+    (field finding F11). The config-home authorization already grants the
+    operator's configuration; the real HOME widens nothing beyond it."""
+    home = _real_home(tmp_path, monkeypatch)
+    monkeypatch.setenv("HOME", str(tmp_path / "sandbox-home"))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    case = _make_case(tmp_path)
+    assert main(_argv(case, seat, extra=["--config-home", "CLAUDE_CONFIG_DIR=.claude"])) == 0
+    call = seat.calls()[0]
+    assert call["home"] == str(home)
+    assert call["config_dir"] == str(home / ".claude")
+
+
+def test_darwin_keeps_the_sandbox_home_without_a_config_pointer(
+    tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "sandbox-home"))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    case = _make_case(tmp_path)
+    assert main(_argv(case, seat)) == 0
+    assert seat.calls()[0]["home"] == str(tmp_path / "sandbox-home")
+
+
 def test_managed_codex_seat_gets_quiet_onboarding_with_config_home(
     tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch
 ) -> None:
