@@ -1041,7 +1041,7 @@ def test_v3_publication_keeps_exact_verification_private(tmp_path: Path) -> None
     base = make_broker(repo, sha)
     v3_bob = replace(base.profiles["bob"], result_schema_version=3)
     controller = BrokerController(broker_with_profile(base, "bob", v3_bob))
-    verification = {
+    verification: dict[str, object] = {
         "status": "performed",
         "items": [
             {"command": "private exact command", "exit_status": 0, "output": "private output"}
