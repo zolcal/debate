@@ -368,6 +368,47 @@ def test_smoke_seat_records_result(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert reg.seats["fake/one"].smoke.at == "2026-08-16T02:00:00+00:00"
 
 
+def test_smoke_composes_the_full_seat_recipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Field finding F16: a bare-argv smoke under-equips the seat -- a
+    headless claude authenticated, read the thread, and correctly refused to
+    post, because the permission flags live in the layers the bridge composes
+    for every managed turn. The smoke must run that same composition."""
+    from debate import setup as setup_module
+
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg.seats["fake/one"] = seats.Seat(
+        seat_id="fake/one", vendor="fake", submodel="one", effort=None,
+        commands=[["/bin/false", "{prompt}"]], source="manual", present=True,
+        smoke=None,
+    )
+    seat = reg.seats["fake/one"]
+    seat.isolation_argv = ["--iso"]
+    seat.no_persistence_argv = ["--no-save"]
+    seat.verification_argv = ["--verify"]
+    captured: list[list[str] | None] = []
+
+    def fake_smoke(
+        spec: setup_module.SetupSpec, *,
+        scratch_base: Path | None = None,
+        emit: Callable[[str], None] = print,
+    ) -> list[str]:
+        captured.append(spec.commands["fake"])
+        return []
+
+    monkeypatch.setattr(setup_module, "smoke", fake_smoke)
+    result = seats.smoke_seat(
+        reg, "fake/one", scratch_base=tmp_path / "scratch",
+        now="t", assume_yes=True,
+    )
+    assert result == "pass"
+    assert captured == [[
+        "/bin/false", "{prompt}", "--iso", "--no-save", "--verify",
+    ]]
+
+
 def test_cli_seats_check_exit_codes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

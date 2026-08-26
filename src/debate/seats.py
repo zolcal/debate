@@ -1118,11 +1118,23 @@ def smoke_seat(
     party = slug(seat.vendor)
     if party == "probe":
         party = "seatprobe"
+    # The bridge composes invocation + isolation + no-persistence +
+    # verification argv into one command line for every managed turn; a smoke
+    # of the bare base argv proves a different animal. Field finding F16: a
+    # headless claude with no permission flags authenticated, read the
+    # thread, and correctly refused to post -- the seat obeyed its contract
+    # against an under-equipped harness. Smoke runs the full composition.
+    composed = (
+        list(seat.commands[0])
+        + list(seat.isolation_argv)
+        + list(seat.no_persistence_argv)
+        + list(seat.verification_argv)
+    )
     spec = SetupSpec(
         channel_root=Path("."),
         channel_name=f"smoke-{party}",
         parties=(party, "probe"),
-        commands={party: list(seat.commands[0]), "probe": None},
+        commands={party: composed, "probe": None},
         config_path=Path("unused-config.json"),
         state_path=Path("unused-state.json"),
         thread_cap=12,
