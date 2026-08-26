@@ -47,3 +47,18 @@ var/
 # unpublished benchmark results and host paths. Kept as local history, never published.
 # It is append-only by design and so could not be cleaned in place.
 collab-retired-*/
+
+# Runtime/state roots of the installed v0.8 product and release acceptance.
+# They hold full checkouts, controller runtime and credential-named local files;
+# the worktrees comment above applies verbatim — an absent-minded `git add -A`
+# must never publish them. The product's own onboarding probe suggests exactly
+# this .debate/ ignore to every project it inspects.
+.debate/
+.worktrees/
+.release-acceptance/
+
+# Machine-scoped seat approvals and data-policy acceptances (EULA consent) are
+# host-specific live config — same rule as watcher.json above: local, never
+# the published record. A sanitized copy without acceptances may be committed
+# deliberately, never swept.
+debate-profile.json
