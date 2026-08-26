@@ -1,7 +1,7 @@
 ---
 name: debate
 description: Use when a debate review channel (a *.channel.md/*.signal.json/*.debate.json triple, or the legacy CHANNEL.md/signal.json/debate.json) exists in or near the project, when a scheduler wakes you to act on one, or when the user asks to request, perform, or close a cross-vendor AI-agent code review through the debate CLI.
-compatibility: Requires the debate CLI on PATH (pip install debate; Python 3.10+, zero dependencies)
+compatibility: Requires the debate engine - either the Debate plugin's bundled launcher (scripts/debate-plugin, injected by the session-start hook) or the debate CLI on PATH (pip install debate; Python 3.10+, zero dependencies)
 ---
 
 # debate — hold your seat on a cross-vendor review channel
@@ -15,13 +15,27 @@ and it enforces the rules: turn order, one open thread at a time, message caps.
 
 **Core principle: if it didn't happen through `debate post`, it didn't happen.**
 
+Where Debate runs the seats itself, every posted verdict carries a provenance
+block saying what that seat read and how its model identity was established:
+`runtime-model-basis` (whether the model name was checked while it ran, or
+simply declared when the seat was recorded), `configuration-home` (whether the
+seat read a folder of the operator's own settings, or ran with none of them),
+`isolation-flags` (whether the arguments that switched its settings, plugins
+and session saving off came from Debate's own list of known tools or from the
+operator), and, for a round after the first, `deliberation-input` (whether the
+seat re-read the whole review material or only the published verdicts). Read
+that block before you treat a verdict's model identity as fact.
+
 ## Preflight — every wake-up, in order
 
-1. **CLI present?** If `debate --help` fails: **STOP — fail closed.** Report to your human:
-   "debate CLI not found — install with `pip install debate` (or `pipx install debate` /
-   `uv tool install debate`), then wake me again." Do not improvise an alternative: no
-   editing channel files by hand, no running the package from a source checkout, no
-   installing anything yourself without the user's explicit go-ahead.
+1. **Engine present?** Prefer the plugin's bundled launcher when the session-start
+   hook injected its path (`launcher: .../scripts/debate-plugin`) — every `debate ...`
+   command below then runs as `<launcher> ...`. Otherwise try `debate --help`. If
+   neither works: **STOP — fail closed.** Report to your human: "debate engine not
+   found — install the Debate plugin, or `pip install debate`, then wake me again."
+   Do not improvise an alternative: no editing channel files by hand, no installing
+   anything yourself without the user's explicit go-ahead. Setup and starting NEW
+   debates belong to the `debate-onboarding` skill, not this one.
 2. **Read `PROTOCOL.md`** at the channel root, if present — it holds channel-specific rules.
 3. **Check state:** `debate status --root <root>`. Act only if **both** hold:
    `thread` is non-empty (a discussion is open) **and** `turn` equals your party name.

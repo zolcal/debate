@@ -42,7 +42,7 @@ your audit trail).
 - **`<channel>.channel.md`** is the conversation. Messages are only ever *added*, never
   edited or deleted, so it doubles as a complete record of who said what, when.
 - **`<channel>.signal.json`** is the doorbell: five core fields that say whose turn it
-  is and which discussion is open. Brokered cases also persist their phase, absolute
+  is and which discussion is open. Fully managed cases also persist their phase, absolute
   deadline, and typed terminal result there.
 
 `<channel>` is the channel's own name — `debate init` generates it once, as
@@ -63,10 +63,10 @@ deprecated since 0.5; `debate migrate` renames one in place, byte-identically.)
 </p>
 
 One channel writer is the only code that writes to either file — whether called by the
-legacy `debate post` surface or the brokered controller — and it *enforces* the rules
-instead of politely asking: you can't post out of turn, you can't open
-a second discussion while one is open, and a runaway back-and-forth gets cut off by a
-message cap. A small scheduled job wakes whichever agent the doorbell points at. No server,
+legacy `debate post` surface or the controller that runs a fully managed debate — and it
+*enforces* the rules instead of politely asking: you can't post out of turn, you can't
+open a second discussion while one is open, and a runaway back-and-forth gets cut off by
+a message cap. A small scheduled job wakes whichever agent the doorbell points at. No server,
 no message broker, no API keys, no framework to adopt.
 
 ## What a review looks like
@@ -96,7 +96,60 @@ branch-and-commit it talks about, so claims are checkable. Note the reviewer *re
 tests itself* and said so. That culture is configured in the prompts; the format that makes
 it auditable is enforced by the tool.
 
-## Try it
+## Install it as a plugin (the product path, new in 0.8)
+
+Debate installs as a native plugin in Codex or Claude Code and carries its own engine —
+no `pip install`, no PATH setup, no second terminal:
+
+```bash
+# Claude Code
+claude plugin marketplace add zolcal/debate
+claude plugin install debate@debate
+
+# Codex
+codex plugin marketplace add https://github.com/zolcal/debate
+codex plugin add debate@debate
+```
+
+When an unready project opens in Claude Code, Debate shows a short setup notice on the
+next launch. Codex 0.149.1 keeps prompt-free startup silent; on the first submitted
+prompt it shows the notice and stops that turn before inference. Codex does not send
+or replay the stopped prompt: repeat it to continue normally, or reply **"set up
+Debate"**. Codex asks you to trust the hook first; until you do, automatic onboarding
+stays off and setup still works by asking for it. The hook only reads local onboarding
+status and makes zero model calls.
+
+After **"set up Debate"**, approve in your agent's own UI which locally detected
+agents this project may seat. Detection is evidence, not approval: nothing found on
+PATH, in an old registry, or in a previous project's remembered pair is ever approved
+silently, and discovery makes zero model calls. Then say **"start a debate"**.
+Every new channel start shows the exact project's current approved pair menu before
+creating anything. If the previous project pair is still valid, Enter explicitly keeps
+it; choose a number to change it, or cancel with no channel write or Debate seat call.
+The selected pair becomes the next default only after the channel and registry save
+succeed. Debate then creates a fresh
+fully managed channel — the agent you are talking to stays outside both seats, and you
+are the supervisor. A short request is enough: the installed skill derives and shows the
+artifact, bounded goal/domain, acceptance criteria, verification commands, stop rule,
+seat pair, cap 12, and that pair's engine-produced clean and retry-inclusive budget once
+before asking you to confirm. In a plan with several debate checkpoints, each checkpoint
+starts a fresh menu and confirmation; authorization never carries to the next channel,
+and `NO_PASS`, `ERROR`, cancellation, cap exhaustion, or an invalid ref stops the
+sequence. Every subject or changed-artifact re-review creates a new channel. When
+everything is healthy, session start is silent in both hosts.
+
+A plugin installed or repaired in a running Codex or Claude process is available after
+starting a fresh host process; same-process behavior is not an installation test.
+
+Uninstalling the plugin removes the host integration only: your registry
+(`~/.config/debate/seats.json`), project profiles (`debate-profile.json`), and channel
+records are user data and are never deleted.
+
+## Try it from the shell (manual and automation path)
+
+The PyPI package is the standalone CLI for scripts, schedulers, and people who like
+terminals. Installing it does NOT register the Codex/Claude integration — that is what
+the plugin install above is for.
 
 ```bash
 pip install debate        # Python 3.10+, stdlib only — or just vendor the two modules
@@ -163,26 +216,95 @@ debate seats doctor
 # always answers WHICH glm, through WHICH pipe.
 debate open --root ./collab --label market-research \
     --pair codex/gpt-5.6-sol,glm/glm-5.3 --yes
+
+# The 0.8 product default: start a FULLY MANAGED debate instead.
+# Requires project approval (a debate-profile.json written by the onboarding
+# flow), seats Debate can run (see the bullets below), and --author-vendor:
+# the interactive author's vendor, declared so a same-vendor seat is recorded
+# author-affiliated instead of guessed. The plain form above keeps minting
+# version-1 channels for compatibility.
+debate open --brokered --root ./collab --label market-research \
+    --pair alpha/fake,beta/fake --author-vendor claude \
+    --goal "Establish whether the documented behavior holds" \
+    --review-domain "README.md at the pinned source ref" \
+    --stop-rule "Stop after the documented checks and one decisive verdict" \
+    --review-mode ordinary \
+    --docket-file README.md
 ```
+
+Which seats can take part in a fully managed debate:
+
+- **Claude and Codex seats need no extra setup.** The packaged catalog already
+  records, for each of them, the arguments that turn their own settings,
+  plugins and session saving off while they review and the verified capability
+  to inspect the export and run bounded checks. Claude receives
+  `--permission-mode dontAsk`, `--tools Read,Grep,Glob,Bash`, and
+  `--allowedTools Read,Grep,Glob,Bash`; the Codex wrapper is recorded as
+  inherently verification-capable. The managed Codex launcher also supplies the
+  documented `DEBATE_ONBOARDING_QUIET=1` automation signal, so the installed
+  onboarding hook cannot stop a controller-launched review. Ordinary interactive
+  Codex does not use that managed launcher and retains its visible unready first-turn
+  stop.
+- **Ox Alpha is an optional frontier seat when `claude-ox` is already installed.**
+  Discovery records `stealth/ox-alpha` as an anonymous-provider, API-backed
+  limited preview; it never classifies Ox as lightweight. Before project approval,
+  onboarding displays the exact revisioned Stealth data-use notice and requires a
+  matching explicit acceptance. The binding
+  [Stealth terms](https://openrouter.ai/terms/stealth) permit retention, sharing,
+  training and a broad content license, so use only non-sensitive material. At the
+  owner's direction this setup inherits the existing `OPENROUTER_API_KEY` by name
+  only at process launch. The value is never written to the registry, project
+  profile, watcher configuration, channel record or diagnostics, but it is visible
+  to the Ox process and potentially its tools; every route and allowance available
+  to that generic key is therefore in the blast radius. If a seat echoes the raw
+  value or its SHA-256, Debate redacts it before retaining output or diagnostics.
+  This includes a result file written before an adapter times out. A missing key
+  refuses before smoke confirmation, scratch creation or model launch, and the
+  standalone launcher refuses explicit settings, model/fallback, agent and effort
+  overrides so callers cannot escape the declared Ox/max route.
+  Current `$0/M` pricing is time-sensitive; declare this seat's cost mode as `api`,
+  never local or subscription.
+- **Any other tool joins once you tell Debate how it turns those off:**
+  `debate seats add mytool/big --command '/path/to/mytool -p {prompt}'
+  --isolation-argv=--no-config --no-persistence-argv=--no-history
+  --verification-capable [--verification-argv=<documented args>]
+  [--config-home MYTOOL_HOME=.mytool]`. Until that is on record the seat is
+  refused, with the two ways forward named: declare those arguments, or record
+  a seat command of your own that reads a request file and writes a version-2
+  answer file. A hand-authored file adapter also needs the explicit
+  `--result-schema-version 2` declaration; older v1 adapters keep working on
+  historical configurations but are evidence-absent and cannot enter a new
+  product review.
+- **Launcher scripts next to a tool Debate knows are detected**, listed as
+  candidates with their model unverified, and offered for exactly that
+  declaration — detection alone never registers or approves one.
+- **An uneven pair is never seated quietly:** pairing a lightweight model
+  against a frontier model warns, and takes `--allow-mismatched-pair` to go
+  ahead — such pairs often produce a one-sided verdict and cost an extra
+  deliberation round.
 
 A seat is `vendor/submodel`, optionally `vendor/submodel@effort` — two
 efforts of one model are two pickable seats, but they remain ONE model to the
 identity guard: seating the same weights on both sides of a debate is refused
 unless you say `--allow-identical-seats`, and two seats running the identical
 command are refused always. A committable `debate-profile.json` at the repo
-toplevel can restrict which registry seats may debate in that project (no
-file, no restriction). Wrapper seats whose model is pinned inside the wrapper
+toplevel records which registry seats may debate in that project. The two
+surfaces read its ABSENCE differently, on purpose: the direct CLI keeps the
+0.7 meaning (no file, no restriction), while the plugin product path treats a
+missing profile as NOT APPROVED and offers setup instead of starting — the
+installed product never turns detection into approval. Wrapper seats whose
+model is pinned inside the wrapper
 (a `glm-agent`-style script) appear as exactly one seat named by their
 verified pin — the registry never claims a selection the pipe cannot make.
 
 ## Running it unattended
 
-There are two recorded managed versions. **Version 2 is the brokered path for new isolated
-gates.** Version 1 is retained so existing two-command channels keep working, but those
-agents receive the channel path and self-post with `--from`; it does not provide sender
-binding or context isolation.
+A channel records which of two arrangements it was born with. **The fully managed one is
+the path for new isolated gates**: Debate runs both seats itself. The older one is retained
+so existing two-command channels keep working, but those agents receive the channel path
+and self-post with `--from`; it does not provide sender binding or context isolation.
 
-### Brokered managed version 2
+### Fully managed: Debate runs both seats (recorded `managed_version` 2)
 
 <p align="center">
   <picture>
@@ -191,7 +313,7 @@ binding or context isolation.
   </picture>
 </p>
 
-Initialize the channel explicitly as brokered, then fill in
+Initialize the channel explicitly as fully managed, then fill in
 [`watcher.brokered.example.json`](watcher.brokered.example.json). Party names are arbitrary;
 the two `adapters` keys must exactly match the addressed channel.
 
@@ -245,7 +367,8 @@ When omitted, Debate still records the returned runtime identity but cannot refu
 model substitution; configure it whenever the adapter can report a falsifiable exact ID.
 
 Before the neutral docket is posted, the controller creates two separate read-only exports
-of the complete tracked repository at the pinned commit. `collab/`, `var/` and `.git` are
+of the complete tracked repository at the pinned commit. `collab/`, `var/`, `.debate/`
+and `.git` are
 separated; tracked project settings stay present as evidence but live settings sources are
 refused. Each seat gets a clean project-local HOME/cache/temp area, an allowlisted
 environment, a Git discovery ceiling, the immutable docket revision, and a controller-owned
@@ -256,17 +379,33 @@ JSON, may not contain `sender`, and is posted under the bound seat by the contro
 revision was only half-recorded; verdict provenance therefore never points only at a mutable
 gitignored filename.
 
-Every `verdict` result also carries a typed `decision` of `PASS` or `NO_PASS`:
+Every new product `verdict` uses result schema v2 and carries a typed `decision`
+plus bounded structured verification:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "entry_type": "verdict",
   "decision": "PASS",
   "body": "APPROVE - fresh export run: 412 passed.",
-  "runtime_model": "resolved-model-id"
+  "runtime_model": "resolved-model-id",
+  "verification": {
+    "status": "performed",
+    "items": [
+      {"command": "python -m pytest -q", "exit_status": 0, "output": "412 passed"}
+    ]
+  }
 }
 ```
+
+If a seat genuinely cannot execute verification it instead returns
+`{"status":"unable","reason":"..."}` and must decide `NO_PASS`. Read-only
+inspection commands count as performed. The controller validates the shape and limits
+again before publication, but the command/output is still **seat-declared evidence**,
+not truth authenticated or “verified by the schema.” The record separately carries
+controller-observed adapter/seat exit statuses and stdout/stderr hashes. A non-zero
+nested seat process never votes: the bundled adapter's status 3 may use the one configured
+retry; deterministic/schema status 2 and arbitrary custom-adapter status 3 do not.
 
 The case state advances through `docket` -> `sealed` -> `reveal` -> `deliberation` ->
 `terminal`. Both initial results are kept outside the shared record until they exist, then
@@ -281,27 +420,57 @@ The typed-close intent is persisted before its mailbox write, so the recurring s
 can likewise distinguish and repair a close whose signal update was interrupted; unrelated
 mailbox-ahead anomalies still follow the normal fail-closed escalation path.
 
-The runtime lives below `<project>/var/debate/<channel>/`, never `.pytest_cache` or another
-tool cache. `adapter-doctor` prints the unconstrained schedule estimate and the enforced
+New product watcher configuration lives at
+`<project>/.debate/channels/<channel>/watcher.json` and runtime at
+`<project>/.debate/runtime/<channel>/`; existing explicit
+`<project>/var/debate/<channel>/` configurations remain accepted. Debate suggests adding
+`.debate/` to `.gitignore` when needed but never edits the file. `adapter-doctor` prints
+the unconstrained schedule estimate and the enforced
 whole-case deadline from the same timing calculation; adapter timeouts above 60 minutes or
 an absent deadline are refused. It also prints `cost_mode` before any future smoke can spend
 money. The absolute deadline spans sealed capture, reveal, deliberation, retries and process
 restarts. Every invocation is capped by its remaining budget, and an expired case is closed
 idempotently as `ERROR` / `case-deadline-expired` on the next scheduler tick.
 
-Completed case exports are intentionally read-only and Debate never deletes provenance
-automatically. Project cleanup must first restore owner write permission within the exact
-completed `var/debate/<channel>/` case directory, then remove only that validated directory.
+Debate never deletes provenance automatically. Inspect one exact channel with
+`debate runtime --root <collab> --channel <id> --config <watcher.json>`. After terminal
+close, `--prune --yes` non-blockingly takes the same watcher lock and deletes only each
+invocation's regenerable `home/`, `build/`, and `tmp/` trees. It retains channel and case
+state, docket revisions, source exports/manifests, inputs/results, raw streams, hashes and
+fsynced prune receipts. An open case, held lock, wrong config/channel, or symlink target
+refuses without deletion.
+
+New product reviews record one of two modes. `ordinary` is criteria-bound;
+`release-gate` keeps the exhaustive adversarial stance. Both create channels with the
+standard cap 12. The engine reports the selected pair's clean and retry-inclusive
+launch budget from its actual adapter retry policy instead of deriving a separate review
+or launch ceiling from the cap. Supervisor messages consume the same entry cap. A race
+after invocation can retain diagnostics, but cannot publish a vote or spend a retry; it
+closes `NO_PASS / thread-cap-race`. Existing persisted channels retain their recorded
+cap, and historical configs lacking the mode remain release-gate/adversarial with an
+honest `legacy-absent` contract basis.
+
+This is a pre-release CLI break for new product opens: `open --brokered` now requires
+`--goal`, `--review-domain`, `--stop-rule`, and `--review-mode` (the installed skill
+normally derives them). Re-run `debate seats discover` to refresh catalogued
+verification capability with zero model calls. Manual prompt seats need an explicit
+verification declaration; hand-authored file adapters need that declaration plus result
+schema v2.
+
+If fresh evidence later falsifies a terminal finding, history stays append-only. The
+supervisor may add a `close`-typed correction under a fresh slug, citing the original
+message and exact new command/output. That correction does not rewrite the old verdict or
+terminal outcome and speaks in the supervisor's seat only with their authorization.
 
 This is strong protection against accidental contamination, not a claim that a same-user
-process is hostile-code safe. Read-only permissions, a clean environment, Git ceiling and
+process is safe against hostile code. Read-only permissions, a clean environment, Git ceiling and
 canaries are mechanically checked; an `isolation_mode: advisory` profile can still read an
 absolute host path if the selected CLI/tool sandbox permits it. That includes the private
 sealed-submission state stored elsewhere below the same project-local case runtime: prompt
 separation does not stop a hostile same-user process from traversing parent directories.
 Use `os-enforced` only when an external sandbox actually denies those reads.
 
-### Managed version 1 compatibility
+### Compatibility with the older arrangement (recorded `managed_version` 1)
 
 `debate watch-once` is one tick of a deliberately simple watcher. Put it on a schedule
 (cron, every minute): it checks the doorbell, prints any new messages to stdout —
@@ -325,7 +494,7 @@ config file:
 }
 ```
 
-Prompts may address their channel through two placeholders instead of hardcoded
+Prompts may address their channel through two markers instead of hardcoded
 paths: `{channel_root}` expands to the resolved absolute channel folder and
 `{channel_name}` to the channel id, both in one fixed pass before `{prompt}` is
 substituted into the argv. A prompt carrying `--root {channel_root} --channel
@@ -353,13 +522,13 @@ Agents run in the watcher's own working directory — `cd` to your project root 
 "Start in" explicitly, or relative paths in your pinned prompts will resolve somewhere
 surprising.
 
-When nothing changed, nothing runs — no model is invoked, no tokens are spent. A managed
-version 1 channel requires one command for each of its two recorded parties. If either is absent,
-or an open managed thread has no party turn, `watch-status` reports **INVALID** and exits
-4; the watcher never represents that state as healthy or waits for a live human session.
+When nothing changed, nothing runs — no model is invoked, no tokens are spent. A channel on
+the older arrangement requires one command for each of its two recorded parties. If either is
+absent, or an open managed thread has no party turn, `watch-status` reports **INVALID** and
+exits 4; the watcher never represents that state as healthy or waits for a live human session.
 Configs without `managed_version` remain readable as legacy/manual history but must be
-reconfigured before managed unattended use. Managed version 2 instead requires exactly two
-brokered adapter profiles and refuses direct party posts. Headless seats normally use zero
+reconfigured before managed unattended use. A fully managed channel instead requires exactly
+two seat profiles for the controller to run, and refuses direct party posts. Headless seats normally use zero
 debounce.
 
 ### Running to completion
@@ -454,7 +623,7 @@ Be precise about what this tool guarantees, especially before running agents una
   (the mailbox entry always lands before the doorbell rings, so a watcher can never read a
   half-written message). An agent that breaks these rules gets its post *refused*, not a
   warning.
-- **Broker-enforced for managed version 2:** exact party/profile binding, at least one
+- **Enforced by the controller in a fully managed debate:** exact party/profile binding, at least one
   author-independent seat, a full pinned source export with no reachable parent Git store,
   immutable docket/profile/config hashes, clean environment and project-local runtime,
   controller-owned sender, schema-validated typed results, sealed paired reveal, deadline
@@ -488,7 +657,7 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
    never breaks the agents' alternation.
 6. **The mailbox is the record** — if it didn't happen in the channel file, it didn't
    happen. Corrections are new messages, never edits.
-7. **A brokered seat never self-posts** — it receives no live channel path; the controller
+7. **A seat in a fully managed debate never self-posts** — it receives no live channel path; the controller
    validates its result file and derives the sender from the configured seat.
 8. **Initial positions reveal as a pair** — no party can anchor its first judgment on the
    opponent, while later disagreement deliberately becomes a real, current-thread debate.

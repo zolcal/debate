@@ -6,6 +6,195 @@ Every release from v0.2.0 onward went through this project's own review channel 
 record is under [`collab/`](collab/), and the message numbers cited below are entries in
 it.
 
+## v0.8.0 — unreleased
+
+**Debate becomes an installed product inside Codex and Claude Code.** Until now the
+plugin was metadata plus a reactive skill wrapped around a pip-installed CLI; setup
+meant registry commands in a terminal. This release ships the engine INSIDE the native
+plugin, surfaces setup automatically at session start, makes seat approval an explicit
+in-UI act, and makes new product-created debates brokered (managed version 2) by
+default. Plan gated on channel `plan-v080-onboarding-59142` (PASS, MSG-13).
+The field fold was gated on `plan-v080-field-fold-14206` (PASS, MSG-20).
+
+### Added
+
+- **Optional Ox Alpha frontier seat** — a pre-existing `claude-ox` launcher is
+  discovered as `stealth/ox-alpha`, pinned at max effort, isolated in
+  `~/.claude-ox`, and admitted only as frontier/API-backed. Approval displays and
+  records the exact Stealth-policy revision; a changed revision returns onboarding
+  to attention and blocks a product open. The notice uses the binding EULA's strict
+  retention/sharing/training terms rather than the model page's softer summary. The
+  launcher refuses explicit settings, model/fallback, agent and effort overrides
+  rather than allowing a caller to escape the declared Ox/max route.
+- **Code-known credential-name transport** — a catalog or manual seat may declare
+  `--credential-env` only for a source-controlled name (initially
+  `OPENROUTER_API_KEY`). The controller copies its current value directly into that
+  seat's child environment at launch, refuses a missing variable before smoke
+  confirmation/scratch/model launch or before writing a channel, and never serializes
+  the value or a digest. Raw values and SHA-256 digests echoed by a seat are redacted
+  before output or diagnostics are retained, including a result written before an
+  adapter timeout. The Ox notice states plainly that its process/tools can see the
+  owner-selected generic key and its complete usable OpenRouter scope is in the blast
+  radius.
+- **Automatic start preparation and standard cap 12** — every new product open records
+  a non-empty goal, valid review domain, stop rule and `ordinary`/`release-gate` mode.
+  Both modes create a cap-12 channel. Before any write or Debate seat call, the engine
+  returns the exact project's stable pair menu, marks its last valid project pair as the
+  explicit Enter default, and reports each pair's clean and retry-inclusive budget from
+  its actual adapter policy. A preparation revision makes a changed profile, seat, menu,
+  or budget refuse before open. Multi-checkpoint plans repeat this choice at every fresh
+  channel and stop on failure or cancellation. Existing persisted caps and historical
+  configurations remain readable; mode-absent history keeps its `legacy-absent` basis.
+- **Result schema v2 with falsifiable verification evidence** — bundled product seats
+  must return bounded `performed` command/status/output items or `unable` plus `NO_PASS`.
+  The bridge and controller independently validate the dependency-free shape and limits;
+  provenance labels it seat-declared, never “verified by the schema.” Claude receives its
+  catalogued read/search/shell arguments and Codex is recorded inherently capable. A
+  non-zero nested seat process writes bounded diagnostics, exits bridge status 3, may use
+  the configured bundled-bridge retry, and never votes. Legacy v1 custom adapters remain
+  runnable and explicitly evidence-absent.
+- **Quiet hidden runtime and exact-channel pruning** — new watcher configs live under
+  `.debate/channels/<channel>/` and runtime under `.debate/runtime/<channel>/`; `.debate/`
+  is excluded from source exports and suggested once for `.gitignore` without editing it.
+  `debate runtime` reports retained versus regenerable bytes. Terminal-only
+  `--prune --yes` holds the watcher lock, fsyncs intent/completion receipts, removes only
+  invocation `home/build/tmp`, and retains every record, input/result, stream, hash,
+  docket revision and source export.
+- **Installed correction and short-request flow** — the onboarding skill derives one
+  confirmation table from a short request, uses the engine-owned pair menu/budget, says
+  every re-review creates a fresh channel, leaves triviality to the owner, and documents
+  a supervisor-authorized append-only correction for a falsified terminal finding.
+
+- **Installation-driven onboarding** — a read-only, zero-model-call `SessionStart`
+  hook (per-host manifests: `hooks/hooks.json` for Claude, `hooks/hooks-codex.json`
+  for Codex, field-identical documents) shows an unready Claude project's setup
+  notice at prompt-free launch. Codex 0.149.1 remains silent until the first submitted
+  turn, then visibly stops that turn before inference and asks the user to repeat it
+  or request setup. Ready projects stay silent. Headless Claude sessions
+  (`CLAUDE_CODE_ENTRYPOINT=sdk-cli`, spike-attested) get one context line, never a
+  banner; for Codex automation the documented lever is `DEBATE_ONBOARDING_QUIET=1`
+  (no headless signal is attestable there until a hook is trusted interactively).
+  Debate-managed Codex seats now receive that quiet signal automatically from the
+  controller bridge, while ordinary interactive Codex retains the first-turn stop.
+- **`debate onboarding status|inspect|approve`** — the product engine's JSON-first
+  state machine. `inspect` scans in memory and returns a deterministic
+  `candidate_revision`; `approve` verifies that revision, requires `--confirmed`, and
+  writes the machine registry plus the project's committable `debate-profile.json`
+  transactionally (any preparation failure leaves both prior files byte-identical).
+  Detection is never approval; a previous `last_pair` is never approval; zero selected
+  seats writes nothing.
+- **`debate open --brokered`** — mints a managed-version-2 channel from two approved
+  registry seats: full loader plus adapter-doctor validation before the first target
+  write, provenance (provider, model, effort, command, authentication mode, cost mode,
+  permission policy, author relationship) recorded in the channel's `.debate.json`,
+  the interactive host outside both seats, the human as supervisor.
+- **Native plugin artifacts** — `.codex-plugin/plugin.json`, a repo-local Codex
+  marketplace (`.agents/plugins/marketplace.json`), amended Claude manifests, a
+  bundled-engine launcher (`scripts/debate-plugin`) that never depends on a
+  PATH-installed `debate`, and the `debate-onboarding` skill (setup + start-a-debate
+  UI flows).
+- **Manual bridge seats** — `debate seats add` accepts `{input_path}`/`{result_path}`
+  commands (brokered bridges), alongside the v1 `{prompt}` style, and a
+  `--cost-mode` declaration (subscription, api, local; default unknown).
+- **Declared cost and authorship, never guessed** — every seat carries a
+  `cost_mode` declaration (default "unknown" = undeclared, reported as such and
+  treated as potentially metered) shown in the approval table, in
+  `onboarding status`, and before any smoke spend. Declare or correct it any
+  time — for catalog, derived, and manual seats alike — with
+  `debate seats set-cost-mode SEAT MODE`; discovery never touches the
+  declaration. `open --brokered` requires `--author-vendor` (normalized,
+  validated against known vendors — a typo refuses instead of silently
+  degrading), and a seat sharing the interactive author's vendor is recorded
+  author-affiliated in the adapter config and channel provenance.
+- **Any tool can hold a seat in a fully managed debate** — a seat whose command
+  takes the question text is now run through Debate's own runner, carrying the
+  arguments that turn that tool's settings, plugins and session saving off while it
+  reviews. Claude and Codex seats carry those arguments from the packaged catalog and
+  need nothing declared; for any other tool they are declared once. Nothing waives the
+  rule: a seat without them is refused in plain words, naming the two ways forward
+  (declare the arguments, or record a seat command of your own). Because an ordinary
+  tool never reports which model actually answered, every entry such a seat posts
+  states that its model identity is declared rather than verified
+  (`runtime-model-basis: declared`), which configuration folder it read
+  (`configuration-home`), and where its isolation arguments came from
+  (`isolation-flags`). Gated on `plan-v080-part2-63227` (PASS, MSG-38).
+- **The discussion round re-sends only the two published verdicts** — after the sealed
+  pass a seat is handed the two verdicts already in the thread, its task, and the
+  pointer to the pinned code export, instead of the whole review material a second
+  time; `debate open --deliberation-input full` sends the material again for debates
+  that want it. Every entry from a discussion round says which it read
+  (`deliberation-input: verdicts-only` or `full-docket`); the sealed pass is untouched
+  and always reads everything. Nothing is resumed: each pass is a fresh process whose
+  only continuity is the public record. The field pass records the measured times.
+- **Detected launcher scripts** — `onboarding inspect` lists a launcher script found
+  next to a tool Debate already knows as a candidate of its own, with its model
+  unverified; `approve` refuses such a row outright and points at the declaration that
+  turns it into a real seat. Detection stays evidence, never approval. Gated on
+  `plan-v080-part2-63227` (PASS, MSG-38).
+- **Declared capability classes and the uneven-pair warning** — a seat can say how
+  capable it is (frontier or lightweight; the packaged catalog declares it for the
+  tools it knows). Pairing a lightweight model against a frontier model is warned
+  about and confirmed, never seated quietly: interactively it is a numbered choice,
+  and where nobody can answer it is refused until `--allow-mismatched-pair` says so
+  deliberately — `--yes` never answers it. Gated on `plan-v080-part2-63227`
+  (PASS, MSG-38).
+- **`debate seats add` declaration flags** — `--capability-class`, `--isolation-argv`,
+  `--no-persistence-argv` and `--config-home VAR=dir`, so one command records
+  everything a tool needs to take part. The configuration folder is validated: a
+  documented or well-formed variable name, and a folder strictly inside your home
+  directory. Gated on `plan-v080-part2-63227` (PASS, MSG-38).
+- **Cache-friendly prompt order** — the seat adapter sends the review material first
+  and the round-specific part last, so a provider that caches a shared prefix can
+  reuse it across a debate's calls. This is a cost saving only; no speed change is
+  claimed or measured. Gated on `plan-v080-part2-63227` (PASS, MSG-38).
+- **Both sealed positions are captured at the same time** — the two seats answer the
+  first, sealed round without seeing each other, so nothing forced them to queue; they
+  now run at once, and a debate waits for the slower of the two rather than for their
+  sum. Recording is unchanged and still happens in party order, one at a time, so the
+  case state and the record come out exactly as they did one-at-a-time. A host that
+  cannot run two tools at once sets `sealed_concurrency: "sequential"` in the channel's
+  configuration and gets the old behaviour back. One thing to read correctly: each
+  entry's `captured-at` is the moment its answer was RECORDED, not the moment the seat
+  was called, so the first seat's stamp can fall after the slower seat returned. Gated
+  on `plan-v080-part2-63227` (PASS, MSG-38).
+- **The pair Debate suggests follows the size of the review** — opening a debate now
+  leads with a pair chosen for how much there is to read: two evenly matched
+  lightweight seats for a small review, two evenly matched frontier seats for a large
+  one, different vendors preferred over the same vendor twice. The choices come as a
+  numbered list you answer with one keystroke, the first line carrying the reason it
+  leads; any other pair is still pickable by name. Where the line between a small and a
+  full review falls is per debate: `--quick-review-max-bytes` (default 16 KiB). Gated
+  on `plan-v080-part2-63227` (PASS, MSG-38).
+- **`debate broker-revise --delta-round`** — composes the next review round's
+  instruction sheet from the round that just ended: the version the seats reviewed, the
+  verdicts they published, and the real difference between that version and the current
+  one. The seats therefore re-read what actually changed instead of the whole material
+  again. If recording the new round is refused, the instruction sheet and the channel's
+  configuration are rolled back to exactly what they were. Gated on
+  `plan-v080-part2-63227` (PASS, MSG-38).
+
+### Changed
+
+- The plugin bundles the engine; `pip install debate` remains the standalone
+  CLI/automation distribution and does not register any host integration.
+- The product path reads a MISSING `debate-profile.json` as "not approved" and offers
+  setup; the direct CLI keeps the 0.7 "no file, no restriction" reading.
+- `onboarding status` explains vanished binaries, failed and stale smoke, stale
+  registries, and duplicate approved commands before they bite at open time.
+- Uninstalling the plugin removes host integration only; registries, profiles, and
+  channel records are user data and are never deleted.
+- **Field-test fixes (owner acceptance pass, 2026-08-20):** the seat registry is
+  written atomically and smoke results apply through a locked read-modify-write
+  (two concurrent smokes no longer lose a result); smoke scratch channels live
+  under the registry's own directory, never the system temp dir; `debate watch`'s
+  `--interval` now defaults from a brokered config's `scheduler_interval_seconds`
+  (the product open writes 5s; cron deployments pin `--interval` explicitly —
+  previously the loop idled on a 180s default regardless of config);
+  `watch-status` reports a brokered seat invocation as in flight while its own
+  invocation age is within the largest adapter budget, instead of STALE; a
+  post-open registry bookkeeping failure warns instead of crashing and orphaning
+  the freshly created channel.
+
 ## v0.7.0 — 2026-08-18
 
 **The machine's models become seats you can pick from.** Until now the pair

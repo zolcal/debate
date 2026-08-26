@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Debate session-start hook: read-only onboarding notice (plan Slice 1A).
+
+Contract (see HOOK-CONTRACT.md): JSON on stdin (uses `cwd`), JSON on stdout
+(`systemMessage` visible notice + `hookSpecificOutput.additionalContext`
+model context), diagnostics on stderr, exit 0 always -- a hook must never
+break a host session. Zero writes, zero discovery, zero model calls: the
+only engine surface it touches is `onboarding.status`, which is read-only
+by construction.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def _plugin_root() -> Path:
+    for name in ("CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT"):
+        value = os.environ.get(name)
+        if value:
+            return Path(value)
+    return Path(__file__).resolve().parent.parent
+
+
+def _emit(payload: dict) -> None:
+    sys.stdout.write(json.dumps(payload) + "\n")
+
+
+def _out(
+    system_message: str | None,
+    context: str,
+    *,
+    stop_before_model: bool = False,
+) -> dict:
+    payload: dict = {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": context,
+        }
+    }
+    if system_message is not None:
+        payload["systemMessage"] = system_message
+    if stop_before_model:
+        payload["continue"] = False
+        payload["stopReason"] = (
+            "Debate setup attention stopped this first Codex prompt before model inference."
+        )
+    return payload
+
+
+def main() -> int:
+    # Non-interactive suppression, on ATTESTED signals only (HOOK-CONTRACT.md):
+    # Claude Code sets CLAUDE_CODE_ENTRYPOINT="sdk-cli" for headless -p runs
+    # ("cli" when interactive; spike-verified 2026-08-19). Codex exposes
+    # PLUGIN_ROOT as a host-specific signal. It exposes no attested
+    # interactive/headless distinction, so DEBATE_ONBOARDING_QUIET=1 remains
+    # the documented automation lever there.
+    entrypoint = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
+    quiet = (
+        os.environ.get("DEBATE_ONBOARDING_QUIET") == "1"
+        or entrypoint == "sdk-cli"
+        or entrypoint.startswith("sdk-")
+    )
+    raw = sys.stdin.read()
+    try:
+        event = json.loads(raw) if raw.strip() else {}
+        if not isinstance(event, dict):
+            raise ValueError("hook input must be a JSON object")
+    except ValueError as error:
+        print(f"debate session-start: malformed hook input: {error}", file=sys.stderr)
+        _emit(_out(
+            None if quiet else "Debate: session-start hook received malformed input; "
+            "run 'debate onboarding status' manually if setup seems wrong.",
+            "Debate hook input was malformed; onboarding state unknown.",
+        ))
+        return 0
+    root = _plugin_root()
+    launcher = root / "scripts" / "debate-plugin"
+    engine = root / "src"
+    if not (engine / "debate" / "__init__.py").is_file():
+        print(f"debate session-start: bundled engine missing under {engine}", file=sys.stderr)
+        _emit(_out(
+            None if quiet else "Debate: the plugin's bundled engine is missing or broken; "
+            "reinstall the Debate plugin.",
+            f"Debate plugin engine missing under {engine}; onboarding unavailable.",
+        ))
+        return 0
+    sys.path.insert(0, str(engine))
+    try:
+        from debate import onboarding  # noqa: E402
+    except Exception as error:  # engine present but unimportable = broken bundle
+        print(f"debate session-start: engine import failed: {error}", file=sys.stderr)
+        _emit(_out(
+            None if quiet else "Debate: the plugin's bundled engine failed to load; "
+            "reinstall the Debate plugin.",
+            f"Debate plugin engine failed to import: {error}",
+        ))
+        return 0
+
+    project = str(event.get("cwd") or os.getcwd())
+    if not Path(project).is_absolute():
+        project = os.getcwd()
+    try:
+        report = onboarding.status(project)
+    except Exception as error:
+        print(f"debate session-start: status failed: {error}", file=sys.stderr)
+        _emit(_out(
+            None if quiet else f"Debate: onboarding status failed: {error}",
+            f"Debate onboarding status failed: {error}",
+        ))
+        return 0
+
+    attention = report["attention"]
+    seat_count = len(report["approved_seats"]) if isinstance(report["approved_seats"], list) else 0
+    codex_interactive = bool(os.environ.get("PLUGIN_ROOT")) and not quiet
+    base_context = (
+        f"Debate onboarding state: {json.dumps(report)} | launcher: {launcher} | "
+        "Use the debate-onboarding skill for every direct request to start a new "
+        "debate or debate checkpoint; it prepares the current-project pair menu "
+        "before opening. Discovery, approval, and start preparation make zero Debate "
+        "seat calls. A plugin installed or repaired in this process requires a fresh "
+        "host process before this routing is available."
+    )
+    if attention == "ready":
+        _emit(_out(
+            None,
+            f"Debate is installed and this project is ready ({seat_count} approved "
+            f"seat(s)). The debate-onboarding skill handles every new channel start. "
+            f"launcher: {launcher}",
+        ))
+        return 0
+    if attention == "offer_setup":
+        if codex_interactive:
+            notice = (
+                "Debate is installed and this project needs setup. Codex stopped this "
+                "first prompt before it reached the model; repeat it to continue normally "
+                'or reply "set up Debate". Detection makes no model calls.'
+            )
+        else:
+            notice = (
+                'Debate is installed. No agents are approved for this project yet. Reply '
+                '"set up Debate" to review locally detected agents. Detection makes no '
+                "model calls."
+            )
+    elif attention == "offer_refresh":
+        if codex_interactive:
+            notice = (
+                "Debate needs to refresh this project's agent approvals. Codex stopped "
+                "this first prompt before it reached the model; repeat it to continue "
+                'normally or reply "set up Debate". Refresh makes no model calls.'
+            )
+        else:
+            notice = (
+                "Debate: this project's agent approvals need a refresh (details via "
+                "'set up Debate'). Refresh makes no model calls."
+            )
+    else:  # repair_required
+        first = ""
+        reasons = report.get("reasons")
+        if isinstance(reasons, list) and reasons:
+            first = f" ({reasons[0]})"
+        if codex_interactive:
+            notice = (
+                f"Debate setup needs repair{first}. Codex stopped this first prompt before "
+                "it reached the model; repeat it to continue normally or reply "
+                '"set up Debate".'
+            )
+        else:
+            notice = f"Debate: setup needs repair{first}. Reply \"set up Debate\" to fix it."
+    _emit(_out(
+        None if quiet else notice,
+        base_context,
+        stop_before_model=codex_interactive,
+    ))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

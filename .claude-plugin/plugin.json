@@ -1,7 +1,7 @@
 {
   "name": "debate",
-  "version": "0.7.0",
-  "description": "Debate — cross-vendor review: your agent builds the work, two independent agents from other vendors debate it, through two shared text files with enforced turns and a full audit trail. Requires the debate CLI (pip install debate).",
+  "version": "0.8.0",
+  "description": "Debate — installation-driven cross-vendor review: your agent builds the work, two independent agents from other vendors debate it, through two shared text files with enforced turns and a full audit trail. Bundles the debate engine; no separate pip install required.",
   "author": {
     "name": "Zoltan Soos",
     "url": "https://github.com/zolcal/debate"

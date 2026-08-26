@@ -1,0 +1,19 @@
+{
+  "name": "debate",
+  "version": "0.8.0",
+  "description": "Debate — installation-driven cross-vendor code review: two independent AI agents debate your work through two shared text files with enforced turns and a full audit trail. Bundles the debate engine; no separate pip install required.",
+  "author": {
+    "name": "Zoltan Soos",
+    "url": "https://github.com/zolcal/debate"
+  },
+  "homepage": "https://github.com/zolcal/debate",
+  "license": "MIT",
+  "keywords": ["code-review", "multi-agent", "cross-vendor", "governance", "audit-trail"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Debate",
+    "shortDescription": "Cross-vendor AI code review with enforced turns and an audit trail.",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"]
+  }
+}

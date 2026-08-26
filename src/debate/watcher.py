@@ -55,14 +55,16 @@ _LOCK_BYTE_OFFSET = 1 << 16  # 65536 - orders of magnitude past a 3-line note
 
 @dataclass(frozen=True)
 class WatcherConfig:
-    """Per-party direct commands or a brokered controller, plus timing knobs.
+    """Per-party commands, or the controller that runs a debate itself, plus
+    timing knobs.
 
-    ``commands`` maps party name -> argv list. The placeholder ``{prompt}``
-    in any argv element is replaced with that party's pinned prompt from
-    ``prompts``. Legacy channels may omit a command for a human-driven party.
-    Managed version 1 requires commands for both recorded parties. Managed
-    version 2 requires exactly two brokered profiles. Both report an invalid
-    configuration instead of silently waiting for a live session.
+    ``commands`` maps party name -> argv list; ``{prompt}`` in any argv element
+    is replaced with that party's pinned prompt from ``prompts``. Legacy
+    channels may omit a command for a human-driven party. A channel whose
+    ``managed_version`` is 1 requires commands for both recorded parties; one
+    whose ``managed_version`` is 2 requires exactly two adapter profiles under
+    ``broker``. Both report an invalid configuration instead of silently
+    waiting for a live session.
     """
 
     channel_root: Path
@@ -117,20 +119,24 @@ class WatcherConfig:
             raise ChannelError("refused: a managed watcher must be bound to exactly two channel parties")
         if self.broker is not None:
             if self.managed_version != BROKERED_MANAGED_VERSION or self.channel_name is None or self.parties is None:
-                raise ChannelError("refused: brokered adapters require a named managed-version 2 channel")
+                raise ChannelError(
+                    "refused: the seat adapters of a fully managed debate need a named "
+                    "managed-version 2 channel"
+                )
             if set(self.broker.profiles) != set(self.parties):
                 raise ChannelError(
-                    "refused: brokered adapter names must exactly match the two channel parties"
+                    "refused: the seat adapter names must exactly match the two channel parties"
                 )
             if self.commands:
                 raise ChannelError(
-                    "refused: do not mix direct commands with brokered adapter profiles"
+                    "refused: do not mix direct commands with seat adapter profiles"
                 )
             runtime = self.broker.runtime_root.resolve()
             state = self.state_path.resolve()
             if not state.is_relative_to(runtime):
                 raise ChannelError(
-                    f"refused: brokered watcher state {state} must live below runtime_root {runtime}"
+                    f"refused: a fully managed debate's watcher state {state} must live "
+                    f"below runtime_root {runtime}"
                 )
 
     def managed_problem(self) -> str | None:
@@ -144,14 +150,14 @@ class WatcherConfig:
         assert self.parties is not None
         expected = set(self.parties)
         if self.managed_version == BROKERED_MANAGED_VERSION and self.broker is None:
-            return "managed-version 2 requires two brokered adapter profiles"
+            return "managed-version 2 requires two seat adapter profiles"
         if self.broker is not None:
             configured_profiles = set(self.broker.profiles)
             if configured_profiles != expected:
                 missing = sorted(expected - configured_profiles)
                 extra = sorted(configured_profiles - expected)
                 return (
-                    "brokered adapter bindings do not match channel parties "
+                    "seat adapter bindings do not match channel parties "
                     f"(missing={missing}, extra={extra})"
                 )
             return None
@@ -250,7 +256,8 @@ def decide(
         if deadline is None:
             return Decision(
                 None,
-                f"invalid managed channel: open brokered thread {thread!r} has no absolute deadline",
+                f"invalid managed channel: the open fully managed thread {thread!r} has no "
+                f"absolute deadline",
                 "invalid managed deadline",
             )
         if now >= deadline:
@@ -362,17 +369,43 @@ def status(
         if deadline is None:
             return WatchStatus(
                 "INVALID",
-                f"brokered thread {thread!r} has no readable absolute deadline{holder}",
+                f"the fully managed thread {thread!r} has no readable absolute deadline{holder}",
             )
         if now >= deadline:
             return WatchStatus(
                 "STALE",
-                f"brokered thread {thread!r} passed its whole-case deadline; "
+                f"the fully managed thread {thread!r} passed its whole-case deadline; "
                 f"the next recurring tick must close ERROR{holder}",
             )
 
     record = dict(dict(state.get("invocations", {})).get(str(seq), {}))
     count = int(record.get("count", 0))
+
+    # A brokered seat call legitimately runs for minutes while the tick lock
+    # is held; crying STALE mid-invocation baits operators into intervening
+    # (field finding, 2026-08-20; round-10 gate finding: the check must cover
+    # BOTH stale arms -- the invoked-past-retry arm is the one a live
+    # invocation actually reaches). While the holder is inside the largest
+    # adapter budget, this is work in flight, not staleness.
+    def _in_flight(age_seconds: int, measured_from: str) -> WatchStatus | None:
+        # Round-11 gate finding: measure the ARM'S OWN age (invocation stamp
+        # or doorbell stamp), never the lock stamp -- the foreground `watch`
+        # loop holds the lock for its whole process lifetime, so lock age is
+        # watcher uptime: a signal that both masks dead adapters and
+        # re-trips the false STALE on a fuse.
+        if config.broker is None or not lock.held:
+            return None
+        budget = max(
+            profile.timeout_seconds for profile in config.broker.profiles.values()
+        )
+        if age_seconds > budget:
+            return None
+        return WatchStatus(
+            "DRIVING",
+            f"a seat call of this fully managed debate is in flight: {measured_from} "
+            f"{age_seconds}s ago, "
+            f"within the {budget}s seat budget; tick lock held by pid {lock.pid}",
+        )
 
     if count:
         last_at = _parse_stamp(str(record.get("last_at", "")))
@@ -384,6 +417,9 @@ def status(
                 "INVOKED",
                 f"seq {seq} invoked {count}x, awaiting reply for {age}s of {config.retry_seconds}s{holder}",
             )
+        in_flight = _in_flight(age, f"seq {seq} invoked")
+        if in_flight is not None:
+            return in_flight
         return WatchStatus(
             "STALE",
             f"seq {seq} invoked {count}x, {age}s ago - past the {config.retry_seconds}s retry window, "
@@ -399,6 +435,9 @@ def status(
     due = int(config.debounce_seconds.get(turn, 0)) + grace_seconds
     if age < due:
         return WatchStatus("DRIVING", f"seq {seq} posted {age}s ago, not yet due ({due}s debounce+grace){holder}")
+    in_flight = _in_flight(age, f"seq {seq} posted")
+    if in_flight is not None:
+        return in_flight
     return WatchStatus(
         "STALE",
         f"seq {seq} uninvoked for {age}s, past its {due}s debounce+grace - nothing is driving {thread!r}{holder}",
@@ -971,12 +1010,13 @@ def _run_once_locked(config: WatcherConfig) -> list[str]:
                     channel_name=config.channel_name,
                     thread=thread,
                     close_reason=error.close_reason,
+                    detail=str(error),
                 )
                 output.append(f"broker terminal ERROR for {thread!r}: {terminal.detail}")
         except ChannelError as error:
             output.append(f"broker refused {decision.invoke} for seq {seq}: {error}")
             output.append(
-                f"ESCALATE: brokered case for {decision.invoke!r} cannot proceed on "
+                f"ESCALATE: the fully managed case for {decision.invoke!r} cannot proceed on "
                 f"thread {signal.get('thread')!r}"
             )
             state = record_escalation(state, str(signal.get("thread", "")), seq)

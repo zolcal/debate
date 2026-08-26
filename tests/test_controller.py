@@ -1,24 +1,30 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import pytest
 
-from debate import channel
+from debate import channel, opening, seats
 from debate.controller import (
     AdapterError,
     AdapterProfile,
     AdapterResult,
     BrokerConfig,
     BrokerController,
+    DriveOutcome,
     TimingPolicy,
     _baseline_environment,
+    _parse_result,
     create_source_export,
     doctor_lines,
     materialize_docket,
@@ -28,18 +34,44 @@ from debate.watcher import WatcherConfig, read_status, run_once
 
 
 FAKE_ADAPTER = r"""
+import hashlib
 import json
 import os
 from pathlib import Path
 import sys
+import time
 
+started = time.time()
 input_path = Path(sys.argv[1])
 result_path = Path(sys.argv[2])
 payload = json.loads(input_path.read_text(encoding="utf-8"))
 mode = os.environ.get("FAKE_MODE", "good")
 if mode == "timeout":
-    import time
     time.sleep(2)
+if mode == "credential-timeout":
+    credential = os.environ["OPENROUTER_API_KEY"]
+    result_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entry_type": "verdict",
+                "decision": "PASS",
+                "body": credential + " " + hashlib.sha256(credential.encode()).hexdigest(),
+                "runtime_model": os.environ.get("RUNTIME_MODEL", "fake-model-1"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    time.sleep(2)
+if mode == "orphan":
+    import subprocess
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    Path(os.environ["FAKE_PIDS_PATH"]).write_text(
+        json.dumps({"adapter": os.getpid(), "child": child.pid}), encoding="utf-8"
+    )
+    time.sleep(120)
+if mode == "slow":
+    time.sleep(float(os.environ.get("FAKE_SLEEP", "1.5")))
 if mode == "malformed":
     result_path.write_text("{ broken", encoding="utf-8")
     raise SystemExit(0)
@@ -61,7 +93,16 @@ if mode == "wrong-sender":
     result["sender"] = "intruder"
 if mode == "missing-decision":
     result.pop("decision")
+if os.environ.get("FAKE_EXTRA_PROVENANCE") == "1":
+    result["runtime_model_basis"] = os.environ.get("FAKE_RUNTIME_MODEL_BASIS", "declared")
+    result["configuration_home"] = os.environ.get("FAKE_CONFIGURATION_HOME", "operator (CLAUDE_CONFIG_DIR)")
+    result["isolation_flags"] = os.environ.get("FAKE_ISOLATION_FLAGS", "catalogued")
 result_path.write_text(json.dumps(result), encoding="utf-8")
+log_path = os.environ.get("FAKE_LOG_PATH")
+if log_path:
+    entry = {"party": payload["seat"]["party"], "start": started, "end": time.time()}
+    with open(log_path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry) + "\n")
 """
 
 
@@ -143,7 +184,9 @@ def make_broker(
     *,
     alice_relationship: str = "author-affiliated",
     bob_relationship: str = "author-independent",
+    alice_mode: str = "good",
     bob_mode: str = "good",
+    alice_additions: dict[str, str] | None = None,
     bob_additions: dict[str, str] | None = None,
     alice_timeout: int = 30,
     bob_timeout: int = 30,
@@ -155,11 +198,14 @@ def make_broker(
     config_sha256: str = "a" * 64,
     thread_cap: int = 12,
     whole_case_timeout_seconds: int = 900,
+    sealed_concurrency: str = "concurrent",
 ) -> BrokerConfig:
     profiles = {
         "alice": make_profile(
             "alice",
             alice_relationship,
+            mode=alice_mode,
+            additions=alice_additions,
             timeout=alice_timeout,
             sealed_decision=alice_sealed_decision,
             deliberation_decision=alice_deliberation_decision,
@@ -190,6 +236,88 @@ def make_broker(
         config_sha256=config_sha256,
         docket_files=("docs/plans/superseded.md", "watcher.json"),
         contamination_canaries=canaries or {},
+        sealed_concurrency=sealed_concurrency,
+    )
+
+
+NESTED_SEAT = r"""
+import json
+import os
+import sys
+
+mode = os.environ.get("NESTED_MODE", "success")
+if mode == "malformed":
+    print("this is not a structured answer")
+else:
+    print("```json")
+    print(json.dumps({
+        "schema_version": 2,
+        "entry_type": "verdict",
+        "decision": "PASS",
+        "body": "fresh nested-seat review",
+        "verification": {"status": "performed", "items": [{
+            "command": "python -m pytest -q",
+            "exit_status": 0,
+            "output": "fixture passed",
+        }]},
+    }))
+    print("```")
+if mode == "exit-101":
+    raise SystemExit(101)
+"""
+
+
+def bundled_profile(tmp_path: Path, party: str, mode: str) -> AdapterProfile:
+    script = tmp_path / f"nested-{party}.py"
+    script.write_text(NESTED_SEAT, encoding="utf-8")
+    seat = seats.Seat(
+        seat_id=f"nested/{party}",
+        vendor="nested",
+        submodel=party,
+        effort=None,
+        commands=[[sys.executable, str(script), "{prompt}"]],
+        source="manual",
+        present=True,
+        smoke=None,
+        cost_mode="local",
+        isolation_argv=["--isolated"],
+        no_persistence_argv=["--forget"],
+        verification_basis="declared",
+    )
+    mapping = opening._brokered_adapter(
+        seat,
+        tool_version="test",
+        author_vendor="author",
+        real_home=tmp_path,
+    )
+    raw_environment = mapping["environment"]
+    assert isinstance(raw_environment, dict)
+    environment = {str(key): str(value) for key, value in raw_environment.items()}
+    environment["NESTED_MODE"] = mode
+    mapping["environment"] = environment
+    return AdapterProfile.from_mapping(party, mapping)
+
+
+def broker_with_profile(
+    base: BrokerConfig, party: str, profile: AdapterProfile
+) -> BrokerConfig:
+    profiles = {**base.profiles, party: profile}
+    return BrokerConfig(
+        repository_root=base.repository_root,
+        runtime_root=base.runtime_root,
+        source_ref=base.source_ref,
+        profiles=profiles,
+        timing=TimingPolicy(
+            thread_cap=base.timing.thread_cap,
+            scheduler_interval_seconds=base.timing.scheduler_interval_seconds,
+            retry_seconds=base.timing.retry_seconds,
+            whole_case_timeout_seconds=base.timing.whole_case_timeout_seconds,
+            profiles=(profiles["alice"], profiles["bob"]),
+        ),
+        config_sha256=base.config_sha256,
+        docket_files=base.docket_files,
+        contamination_canaries=base.contamination_canaries,
+        sealed_concurrency=base.sealed_concurrency,
     )
 
 
@@ -339,7 +467,7 @@ def test_broker_open_snapshots_before_supervisor_docket_and_assigns_first_seat(
     )
 
     assert code == 0
-    assert "opened brokered case as MSG-1" in capsys.readouterr().out
+    assert "opened the case as MSG-1" in capsys.readouterr().out
     entry = channel.read_entries(root, name)[0]
     signal = channel.read_signal(root, name)
     assert entry.sender == "owner"
@@ -418,6 +546,91 @@ def test_malformed_or_sender_asserting_result_is_refused_without_mailbox_write(
     assert len(channel.read_entries(root, name)) == 1
 
 
+def test_nested_nonzero_retries_once_then_closes_with_exact_status(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = broker_with_profile(
+        make_broker(repo, sha), "bob", bundled_profile(tmp_path, "bob", "exit-101")
+    )
+    open_brokered_thread(root, name, broker)
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+        retry_seconds=0,
+    )
+
+    first = run_once(config)
+    assert any("nested seat process" in line and "exited 101" in line for line in first)
+    assert channel.read_signal(root, name)["phase"] != "terminal"
+    assert [entry.entry_type for entry in channel.read_entries(root, name)] == [
+        "review-request"
+    ]
+
+    run_once(config)
+    signal = channel.read_signal(root, name)
+    assert signal["terminal_result"] == "ERROR"
+    closing = channel.read_entries(root, name)[-1]
+    assert closing.entry_type == "close"
+    assert "nested seat process" in closing.body
+    assert "exited 101" in closing.body
+    bob_invocations = sorted(
+        (broker.runtime_root / "cases" / "review-one" / "invocations").glob("*-bob-*")
+    )
+    assert len(bob_invocations) == 2
+    for invocation in bob_invocations:
+        assert not (invocation / "result.json").exists()
+        nested = json.loads((invocation / "seat-failure.json").read_text(encoding="utf-8"))
+        outer = json.loads((invocation / "failure.json").read_text(encoding="utf-8"))
+        assert nested["seat_process_exit_status"] == 101
+        assert outer["seat_process_exit_status"] == 101
+        assert outer["adapter_process_exit_status"] == 3
+
+
+def test_bundled_status_two_and_custom_status_three_are_not_retryable(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    malformed = broker_with_profile(
+        make_broker(repo, sha), "bob", bundled_profile(tmp_path, "bob", "malformed")
+    )
+    with pytest.raises(AdapterError, match="exited 2") as bundled:
+        BrokerController(malformed)._invoke(
+            party="bob",
+            phase="sealed",
+            thread="malformed-answer",
+            sequence=1,
+            attempt=1,
+            transcript=None,
+        )
+    assert bundled.value.retryable is False
+
+    custom_script = tmp_path / "custom-exit-three.py"
+    custom_script.write_text("raise SystemExit(3)\n", encoding="utf-8")
+    base = make_broker(repo, sha, sealed_concurrency="sequential")
+    custom = AdapterProfile(
+        **{
+            **base.profiles["bob"].__dict__,
+            "command": (
+                sys.executable,
+                str(custom_script),
+                "{input_path}",
+                "{result_path}",
+            ),
+        }
+    )
+    custom_broker = broker_with_profile(base, "bob", custom)
+    with pytest.raises(AdapterError, match="exited 3") as arbitrary:
+        BrokerController(custom_broker)._invoke(
+            party="bob",
+            phase="sealed",
+            thread="custom-three",
+            sequence=1,
+            attempt=1,
+            transcript=None,
+        )
+    assert arbitrary.value.retryable is False
+
+
 @pytest.mark.parametrize("label", ["controller-only", "opponent-only", "historical", "user-memory"])
 def test_contamination_canary_attempt_rejects_profile_and_records_reason(tmp_path: Path, label: str) -> None:
     repo, sha = make_repository(tmp_path)
@@ -452,6 +665,14 @@ def test_contamination_canary_attempt_rejects_profile_and_records_reason(tmp_pat
 
 def test_source_export_is_complete_except_separated_state_and_git_is_unreachable(tmp_path: Path) -> None:
     repo, sha = make_repository(tmp_path)
+    prior = repo / ".debate" / "runtime" / "old-channel" / "cases" / "old"
+    prior.mkdir(parents=True)
+    (prior / "input.json").write_text('{"historical": true}\n', encoding="utf-8")
+    (prior / "result.json").write_text('{"decision": "PASS"}\n', encoding="utf-8")
+    (prior / "stdout.txt").write_text("old output\n", encoding="utf-8")
+    assert _run(["git", "add", "-f", ".debate"], repo).returncode == 0
+    assert _run(["git", "commit", "-m", "committed hidden runtime fixture"], repo).returncode == 0
+    sha = _run(["git", "rev-parse", "HEAD"], repo).stdout.strip()
     broker = make_broker(repo, sha)
     export = create_source_export(broker, "bob")
 
@@ -460,13 +681,17 @@ def test_source_export_is_complete_except_separated_state_and_git_is_unreachable
     assert not (export.root / ".git").exists()
     assert not (export.root / "collab").exists()
     assert not (export.root / "var").exists()
+    assert not (export.root / ".debate").exists()
+    assert any(path.startswith(".debate/") for path in export.excluded)
+    manifest = json.loads(export.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["exclusion_policy"] == ["collab/", "var/", ".git/", ".debate/"]
     tracked = set(
         _run(["git", "ls-tree", "-r", "--name-only", sha], repo).stdout.splitlines()
     )
     expected = {
         path
         for path in tracked
-        if path.split("/", 1)[0] not in {"collab", "var", ".git"}
+        if path.split("/", 1)[0] not in {"collab", "var", ".git", ".debate"}
     }
     assert set(export.files) == expected
 
@@ -498,6 +723,34 @@ def test_source_export_is_complete_except_separated_state_and_git_is_unreachable
         env=env,
     )
     assert project_test.returncode == 0, (project_test.stdout, project_test.stderr)
+
+
+def test_root_pytest_does_not_collect_duplicate_tests_from_hidden_runtime(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "collection-fixture"
+    hidden = project / ".debate" / "runtime" / "old" / "exports" / "seat"
+    hidden.mkdir(parents=True)
+    (project / "test_duplicate.py").write_text(
+        "def test_visible():\n    assert True\n", encoding="utf-8"
+    )
+    (hidden / "test_duplicate.py").write_text(
+        "def test_hidden_copy():\n    assert False\n", encoding="utf-8"
+    )
+    environment = {
+        **os.environ,
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTEST_ADDOPTS": "-p no:cacheprovider",
+    }
+    collected = _run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"],
+        project,
+        env=environment,
+    )
+    assert collected.returncode == 0, (collected.stdout, collected.stderr)
+    assert "test_visible" in collected.stdout
+    assert "test_hidden_copy" not in collected.stdout
 
 
 def test_untracked_docket_files_are_content_addressed_and_manifested(tmp_path: Path) -> None:
@@ -641,6 +894,393 @@ def test_profiles_refuse_live_user_settings_and_controller_owned_environment() -
     with pytest.raises(channel.ChannelError, match="controller-owned environment"):
         profile = make_profile("seat", "author-independent")
         AdapterProfile(**{**profile.__dict__, "environment": {"GIT_CONFIG_KEY_0": "include.path"}})
+    with pytest.raises(channel.ChannelError, match="controller-owned environment"):
+        profile = make_profile("seat", "author-independent")
+        AdapterProfile(**{**profile.__dict__, "environment": {"CLAUDE_CONFIG_DIR": "/host/.claude"}})
+    bridge_shaped = AdapterProfile(
+        **{
+            **make_profile("seat", "author-independent").__dict__,
+            "environment": {"PYTHONPATH": "src", "DEBATE_BRIDGE_REAL_HOME": "/home/x"},
+            "environment_allowlist": (
+                "PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR",
+                "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+            ),
+        }
+    )
+    assert bridge_shaped.environment == {"PYTHONPATH": "src", "DEBATE_BRIDGE_REAL_HOME": "/home/x"}
+
+
+def _write_result(path: Path, extra: dict[str, object]) -> None:
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "entry_type": "verdict",
+        "body": "seat review text",
+        "runtime_model": "seat-runtime-1",
+        "decision": "PASS",
+    }
+    payload.update(extra)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_parse_result_defaults_accepts_and_refuses_runtime_model_basis_configuration_home_isolation_flags(
+    tmp_path: Path,
+) -> None:
+    profile = make_profile("seat", "author-independent")
+    result_path = tmp_path / "result.json"
+
+    _write_result(result_path, {})
+    absent = _parse_result(result_path, "seat", profile)
+    assert absent.runtime_model_basis == "verified"
+    assert absent.configuration_home == "sandbox"
+    assert absent.isolation_flags is None
+
+    _write_result(
+        result_path,
+        {
+            "runtime_model_basis": "declared",
+            "configuration_home": "operator (CLAUDE_CONFIG_DIR)",
+            "isolation_flags": "catalogued",
+        },
+    )
+    declared = _parse_result(result_path, "seat", profile)
+    assert declared.runtime_model_basis == "declared"
+    assert declared.configuration_home == "operator (CLAUDE_CONFIG_DIR)"
+    assert declared.isolation_flags == "catalogued"
+
+    _write_result(
+        result_path,
+        {
+            "runtime_model_basis": "verified",
+            "configuration_home": "sandbox",
+            "isolation_flags": "declared",
+        },
+    )
+    verified = _parse_result(result_path, "seat", profile)
+    assert verified.runtime_model_basis == "verified"
+    assert verified.configuration_home == "sandbox"
+    assert verified.isolation_flags == "declared"
+
+    _write_result(result_path, {"runtime_model_basis": "bogus"})
+    with pytest.raises(AdapterError, match="runtime_model_basis must be 'verified' or 'declared'"):
+        _parse_result(result_path, "seat", profile)
+
+    _write_result(result_path, {"configuration_home": "bogus"})
+    with pytest.raises(AdapterError, match="configuration_home must be"):
+        _parse_result(result_path, "seat", profile)
+
+    _write_result(result_path, {"configuration_home": "operator (lowercase)"})
+    with pytest.raises(AdapterError, match="configuration_home must be"):
+        _parse_result(result_path, "seat", profile)
+
+    _write_result(result_path, {"isolation_flags": "bogus"})
+    with pytest.raises(AdapterError, match="isolation_flags must be"):
+        _parse_result(result_path, "seat", profile)
+
+
+def test_parse_result_accepts_deliberation_input_only_on_a_later_pass(tmp_path: Path) -> None:
+    profile = make_profile("seat", "author-independent")
+    result_path = tmp_path / "result.json"
+
+    _write_result(result_path, {})
+    assert _parse_result(result_path, "seat", profile).deliberation_input is None
+    assert _parse_result(result_path, "seat", profile, phase="deliberation").deliberation_input is None
+
+    for value in ("verdicts-only", "full-docket"):
+        _write_result(result_path, {"deliberation_input": value})
+        for phase in ("deliberation", "open"):
+            carried = _parse_result(result_path, "seat", profile, phase=phase)
+            assert carried.deliberation_input == value
+        with pytest.raises(AdapterError, match="deliberation_input on a sealed result"):
+            _parse_result(result_path, "seat", profile)
+        with pytest.raises(AdapterError, match="deliberation_input on a sealed result"):
+            _parse_result(result_path, "seat", profile, phase="sealed")
+
+    _write_result(result_path, {"deliberation_input": "bogus"})
+    with pytest.raises(AdapterError, match="deliberation_input must be"):
+        _parse_result(result_path, "seat", profile, phase="deliberation")
+
+
+def test_published_body_shows_default_and_extended_provenance_lines(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    evidence: dict[str, str | Path] = {
+        "source_manifest_sha256": "source-sha",
+        "docket_revision_sha256": "docket-sha",
+        "input_sha256": "input-sha",
+    }
+
+    default_result = AdapterResult("verdict", "body text", "", "", "bob-runtime-1", "PASS")
+    default_body = controller._published_body(party="bob", result=default_result, evidence=evidence, phase="sealed")
+    assert "- runtime-model-basis: verified" in default_body
+    assert "- configuration-home: sandbox" in default_body
+    assert "- isolation-flags:" not in default_body
+
+    extended_result = AdapterResult(
+        "verdict",
+        "body text",
+        "",
+        "",
+        "bob-runtime-1",
+        "PASS",
+        runtime_model_basis="declared",
+        configuration_home="operator (CLAUDE_CONFIG_DIR)",
+        isolation_flags="catalogued",
+    )
+    extended_body = controller._published_body(
+        party="bob", result=extended_result, evidence=evidence, phase="sealed"
+    )
+    assert "- runtime-model-basis: declared" in extended_body
+    assert "- configuration-home: operator (CLAUDE_CONFIG_DIR)" in extended_body
+    assert "- isolation-flags: catalogued" in extended_body
+
+
+def test_published_body_names_what_a_later_pass_read_and_stays_silent_on_a_sealed_one(
+    tmp_path: Path,
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    controller = BrokerController(make_broker(repo, sha))
+    evidence: dict[str, str | Path] = {
+        "source_manifest_sha256": "source-sha",
+        "docket_revision_sha256": "docket-sha",
+        "input_sha256": "input-sha",
+    }
+
+    sealed_result = AdapterResult("verdict", "body text", "", "", "bob-runtime-1", "PASS")
+    sealed_body = controller._published_body(
+        party="bob", result=sealed_result, evidence=evidence, phase="sealed"
+    )
+    assert "- deliberation-input:" not in sealed_body
+
+    later_result = AdapterResult(
+        "verdict",
+        "body text",
+        "",
+        "",
+        "bob-runtime-1",
+        "PASS",
+        runtime_model_basis="declared",
+        configuration_home="sandbox",
+        isolation_flags="catalogued",
+        deliberation_input="verdicts-only",
+    )
+    later_body = controller._published_body(
+        party="bob", result=later_result, evidence=evidence, phase="deliberation"
+    )
+    assert "- deliberation-input: verdicts-only" in later_body
+    assert later_body.index("- configuration-home:") < later_body.index("- deliberation-input:")
+    assert later_body.index("- isolation-flags:") < later_body.index("- deliberation-input:")
+
+
+def test_a_recorded_result_round_trips_what_the_pass_read_and_defaults_to_nothing() -> None:
+    evidence: dict[str, str | Path] = {
+        "source_manifest_sha256": "source-sha",
+        "docket_revision_sha256": "docket-sha",
+        "input_sha256": "input-sha",
+    }
+    result = AdapterResult(
+        "verdict", "body text", "", "", "bob-runtime-1", "PASS", deliberation_input="full-docket"
+    )
+    record = BrokerController._result_record(result, evidence, "2026-08-20T12:00:00+00:00")
+    recorded = record["result"]
+    assert isinstance(recorded, dict)
+    assert recorded["deliberation_input"] == "full-docket"
+    assert BrokerController._recorded_result(record)[0].deliberation_input == "full-docket"
+
+    recorded.pop("deliberation_input")
+    assert BrokerController._recorded_result(record)[0].deliberation_input is None
+
+
+def test_sealed_capture_round_trip_publishes_extended_provenance_lines_after_reveal(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(
+        repo,
+        sha,
+        bob_additions={"FAKE_EXTRA_PROVENANCE": "1"},
+    )
+    open_brokered_thread(root, name, broker)
+    config = WatcherConfig(
+        channel_root=root,
+        channel_name=name,
+        state_path=broker.runtime_root / "watcher-state.json",
+        broker=broker,
+    )
+
+    run_once(config)
+
+    entries = channel.read_entries(root, name)
+    bob_entry = next(entry for entry in entries if entry.sender == "bob")
+    alice_entry = next(entry for entry in entries if entry.sender == "alice")
+    assert "- runtime-model-basis: declared" in bob_entry.body
+    assert "- configuration-home: operator (CLAUDE_CONFIG_DIR)" in bob_entry.body
+    assert "- isolation-flags: catalogued" in bob_entry.body
+    assert "- runtime-model-basis: verified" in alice_entry.body
+    assert "- configuration-home: sandbox" in alice_entry.body
+    assert "- isolation-flags:" not in alice_entry.body
+
+
+def test_recorded_sealed_submission_without_new_provenance_keys_loads_with_defaults(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="pre-c4-record",
+        first_party="alice",
+        body="Inspect the pinned source and return a structured review.",
+    )
+    for party in ("alice", "bob"):
+        controller.capture_sealed(
+            channel_root=root,
+            channel_name=name,
+            party=party,
+            thread="pre-c4-record",
+            sequence=1,
+            attempt=1,
+        )
+    case_path = broker.runtime_root / "cases" / "pre-c4-record" / "case.json"
+    state = json.loads(case_path.read_text(encoding="utf-8"))
+    for party in ("alice", "bob"):
+        record_result = state["sealed_submissions"][party]["result"]
+        record_result.pop("runtime_model_basis", None)
+        record_result.pop("configuration_home", None)
+        record_result.pop("isolation_flags", None)
+    case_path.write_text(json.dumps(state), encoding="utf-8")
+
+    controller.reveal_pair(channel_root=root, channel_name=name, thread="pre-c4-record")
+
+    entries = channel.read_entries(root, name)
+    published = [entry for entry in entries if entry.sender in ("alice", "bob")]
+    assert len(published) == 2
+    for entry in published:
+        assert "- runtime-model-basis: verified" in entry.body
+        assert "- configuration-home: sandbox" in entry.body
+        assert "- isolation-flags:" not in entry.body
+
+
+def _bridge_seat_command(
+    *, seat_id: str, config_home: str | None, isolation_flags_basis: str
+) -> tuple[str, ...]:
+    command = [
+        sys.executable, "-m", "debate", "run-seat",
+        "--seat-id", seat_id,
+        "--vendor", "anthropic",
+        "--submodel", "claude-opus",
+        "--argv-json", json.dumps(["claude", "{prompt}"]),
+        "--isolation-argv-json", json.dumps(["--strict-mcp-config"]),
+        "--no-persistence-argv-json", json.dumps(["--no-session"]),
+    ]
+    if config_home is not None:
+        command += ["--config-home", config_home]
+    command += [
+        "--deliberation-input", "full",
+        "--isolation-flags-basis", isolation_flags_basis,
+        "{input_path}", "{result_path}",
+    ]
+    return tuple(command)
+
+
+def test_doctor_lines_reports_configuration_home_and_isolation_flags_only_for_bridge_seats(
+    tmp_path: Path,
+) -> None:
+    repo, sha = make_repository(tmp_path)
+
+    hand_authored = make_profile("alice", "author-affiliated")
+    bridge_with_config_home = AdapterProfile(
+        **{
+            **make_profile("bob", "author-independent").__dict__,
+            "command": _bridge_seat_command(
+                seat_id="bob", config_home="CLAUDE_CONFIG_DIR=.claude", isolation_flags_basis="catalogued"
+            ),
+        }
+    )
+    profiles_with_config_home = {"alice": hand_authored, "bob": bridge_with_config_home}
+    timing_with_config_home = TimingPolicy(
+        thread_cap=12,
+        scheduler_interval_seconds=60,
+        retry_seconds=120,
+        whole_case_timeout_seconds=900,
+        profiles=(profiles_with_config_home["alice"], profiles_with_config_home["bob"]),
+    )
+    config_with_config_home = BrokerConfig(
+        repository_root=repo,
+        runtime_root=repo / "var" / "debate" / "doctor-bridge-config-home",
+        source_ref=sha,
+        profiles=profiles_with_config_home,
+        timing=timing_with_config_home,
+        config_sha256="a" * 64,
+    )
+    lines_with_config_home = doctor_lines(config_with_config_home)
+    assert "seat bob: configuration home OPERATOR (CLAUDE_CONFIG_DIR); isolation flags catalogued" in (
+        lines_with_config_home
+    )
+    assert not any(line.startswith("seat alice: configuration home") for line in lines_with_config_home)
+
+    bridge_without_config_home = AdapterProfile(
+        **{
+            **make_profile("bob", "author-independent").__dict__,
+            "command": _bridge_seat_command(
+                seat_id="bob", config_home=None, isolation_flags_basis="declared"
+            ),
+        }
+    )
+    profiles_without_config_home = {"alice": hand_authored, "bob": bridge_without_config_home}
+    timing_without_config_home = TimingPolicy(
+        thread_cap=12,
+        scheduler_interval_seconds=60,
+        retry_seconds=120,
+        whole_case_timeout_seconds=900,
+        profiles=(profiles_without_config_home["alice"], profiles_without_config_home["bob"]),
+    )
+    config_without_config_home = BrokerConfig(
+        repository_root=repo,
+        runtime_root=repo / "var" / "debate" / "doctor-bridge-sandbox",
+        source_ref=sha,
+        profiles=profiles_without_config_home,
+        timing=timing_without_config_home,
+        config_sha256="a" * 64,
+    )
+    lines_without_config_home = doctor_lines(config_without_config_home)
+    assert "seat bob: configuration home SANDBOX; isolation flags declared" in lines_without_config_home
+
+
+def test_doctor_lines_reads_isolation_flags_basis_through_an_abbreviated_flag(tmp_path: Path) -> None:
+    # argparse (stock, via bridge.configure_parser) accepts unambiguous flag
+    # abbreviations, e.g. --isolation-flags-b for --isolation-flags-basis.
+    # The doctor must read the parsed BridgeSpec, not re-scan raw argv tokens,
+    # so it has to understand the abbreviated form exactly like the real
+    # parser does.
+    repo, sha = make_repository(tmp_path)
+    hand_authored = make_profile("alice", "author-affiliated")
+    command = list(
+        _bridge_seat_command(seat_id="bob", config_home=None, isolation_flags_basis="catalogued")
+    )
+    index = command.index("--isolation-flags-basis")
+    command[index] = "--isolation-flags-b"
+    bridge_abbreviated = AdapterProfile(
+        **{**make_profile("bob", "author-independent").__dict__, "command": tuple(command)}
+    )
+    profiles = {"alice": hand_authored, "bob": bridge_abbreviated}
+    timing = TimingPolicy(
+        thread_cap=12,
+        scheduler_interval_seconds=60,
+        retry_seconds=120,
+        whole_case_timeout_seconds=900,
+        profiles=(profiles["alice"], profiles["bob"]),
+    )
+    config = BrokerConfig(
+        repository_root=repo,
+        runtime_root=repo / "var" / "debate" / "doctor-bridge-abbreviated-flag",
+        source_ref=sha,
+        profiles=profiles,
+        timing=timing,
+        config_sha256="a" * 64,
+    )
+    lines = doctor_lines(config)
+    assert "seat bob: configuration home SANDBOX; isolation flags catalogued" in lines
 
 
 def test_runtime_root_below_a_tool_cache_is_refused(tmp_path: Path) -> None:
@@ -768,14 +1408,17 @@ def test_sealed_pair_completes_in_either_order_without_cross_anchoring(
         first_party=first_party,
         body="Neutral docket.",
     )
+    # Hooked at the recording step, not the capture, so the assertion holds
+    # whichever sealed mode is configured: the two seats may be ASKED at once,
+    # but they are recorded one at a time, first_party first.
     order: list[str] = []
-    original = controller.capture_sealed
+    original = controller._record_sealed
 
     def record_order(**kwargs: object) -> AdapterResult:
         order.append(str(kwargs["party"]))
         return original(**kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(controller, "capture_sealed", record_order)
+    monkeypatch.setattr(controller, "_record_sealed", record_order)
     outcome = controller.drive_case(
         channel_root=root,
         channel_name=name,
@@ -1180,6 +1823,79 @@ def test_real_adapter_timeout_is_bounded_and_retryable_without_mailbox_write(tmp
     assert len(channel.read_entries(root, name)) == 1
 
 
+def test_timeout_redacts_a_credential_bearing_result_before_retention(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    secret = "or-timeout-secret-fixture-123456789"
+    digest = hashlib.sha256(secret.encode()).hexdigest()
+    monkeypatch.setenv("OPENROUTER_API_KEY", secret)
+    broker = make_broker(repo, sha, alice_timeout=1)
+    original = broker.profiles["alice"]
+    leaking = AdapterProfile(
+        **{
+            **original.__dict__,
+            "environment": {
+                **original.environment,
+                "FAKE_MODE": "credential-timeout",
+            },
+            "environment_allowlist": (
+                *original.environment_allowlist,
+                "OPENROUTER_API_KEY",
+            ),
+            "credential_env": ("OPENROUTER_API_KEY",),
+        }
+    )
+    profiles = {**broker.profiles, "alice": leaking}
+    protected_broker = BrokerConfig(
+        repository_root=broker.repository_root,
+        runtime_root=broker.runtime_root,
+        source_ref=broker.source_ref,
+        profiles=profiles,
+        timing=TimingPolicy(
+            thread_cap=12,
+            scheduler_interval_seconds=60,
+            retry_seconds=120,
+            whole_case_timeout_seconds=900,
+            profiles=(profiles["alice"], profiles["bob"]),
+        ),
+        config_sha256=broker.config_sha256,
+        docket_files=broker.docket_files,
+        sealed_concurrency="sequential",
+    )
+    managed = BrokerController(protected_broker)
+    managed.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="credential-timeout",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+
+    with pytest.raises(AdapterError, match="timed out after 1s"):
+        managed.drive_case(
+            channel_root=root,
+            channel_name=name,
+            thread="credential-timeout",
+            sequence=1,
+            attempt=1,
+        )
+
+    retained = (
+        protected_broker.runtime_root
+        / "cases"
+        / "credential-timeout"
+        / "invocations"
+        / "1-alice-1"
+        / "result.json"
+    ).read_text(encoding="utf-8")
+    assert secret not in retained
+    assert digest not in retained
+    assert "[redacted credential OPENROUTER_API_KEY]" in retained
+    assert "[redacted digest OPENROUTER_API_KEY]" in retained
+
+
 def test_expiry_during_sealed_invocation_closes_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo, sha = make_repository(tmp_path)
     root, name = make_channel(repo)
@@ -1386,6 +2102,112 @@ def test_thread_cap_exhaustion_closes_no_pass(tmp_path: Path) -> None:
     assert len(channel.thread_entries(root, "review-one", name)) == 5, "typed close may follow the cap"
 
 
+def test_insufficient_sealed_room_closes_without_invoking_a_seat(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo, thread_cap=5)
+    broker = make_broker(repo, sha, thread_cap=5)
+    open_brokered_thread(root, name, broker)
+    for index in range(3):
+        channel.post(root, "owner", "info", "review-one", f"context {index}", name=name)
+    outcome = BrokerController(broker).drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="review-one",
+        sequence=4,
+        attempt=1,
+    )
+    assert outcome.close_reason == "thread-cap-exhausted"
+    invocations = broker.runtime_root / "cases" / "review-one" / "invocations"
+    assert not invocations.exists() or list(invocations.iterdir()) == []
+
+
+def test_sealed_supervisor_race_retains_diagnostics_and_publishes_no_vote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo, thread_cap=5)
+    broker = make_broker(repo, sha, thread_cap=5)
+    controller = BrokerController(broker)
+    open_brokered_thread(root, name, broker)
+    channel.post(root, "owner", "info", "review-one", "context one", name=name)
+    channel.post(root, "owner", "info", "review-one", "context two", name=name)
+    original = controller._capture_sealed_positions
+
+    def raced(**kwargs: object) -> None:
+        original(**kwargs)  # type: ignore[arg-type]
+        channel.post(root, "owner", "info", "review-one", "racing context", name=name)
+
+    monkeypatch.setattr(controller, "_capture_sealed_positions", raced)
+    outcome = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="review-one",
+        sequence=3,
+        attempt=1,
+    )
+    assert outcome.close_reason == "thread-cap-race"
+    entries = channel.thread_entries(root, "review-one", name)
+    assert not any(entry.entry_type == "verdict" for entry in entries)
+    assert entries[-1].entry_type == "close"
+    invocations = sorted(
+        (broker.runtime_root / "cases" / "review-one" / "invocations").iterdir()
+    )
+    assert len(invocations) == 2
+    assert all((path / "result.json").is_file() for path in invocations)
+    assert all(path.name.endswith("-1") for path in invocations), "the race spends no retry"
+
+
+def test_deliberation_supervisor_race_retains_diagnostics_and_publishes_no_new_vote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo, thread_cap=5)
+    broker = make_broker(
+        repo,
+        sha,
+        thread_cap=5,
+        alice_sealed_decision="PASS",
+        bob_sealed_decision="NO_PASS",
+        alice_deliberation_decision="PASS",
+        bob_deliberation_decision="NO_PASS",
+    )
+    controller = BrokerController(broker)
+    open_brokered_thread(root, name, broker)
+    first = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="review-one",
+        sequence=1,
+        attempt=1,
+    )
+    assert first.phase == "deliberation"
+    original = controller._invoke
+
+    def raced(**kwargs: object) -> tuple[AdapterResult, dict[str, str | Path]]:
+        result = original(**kwargs)  # type: ignore[arg-type]
+        channel.post(root, "owner", "info", "review-one", "racing context one", name=name)
+        channel.post(root, "owner", "info", "review-one", "racing context two", name=name)
+        return result
+
+    monkeypatch.setattr(controller, "_invoke", raced)
+    outcome = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="review-one",
+        sequence=3,
+        attempt=1,
+    )
+    assert outcome.close_reason == "thread-cap-race"
+    entries = channel.thread_entries(root, "review-one", name)
+    assert len([entry for entry in entries if entry.entry_type == "verdict"]) == 2
+    assert entries[-1].entry_type == "close"
+    later = list(
+        (broker.runtime_root / "cases" / "review-one" / "invocations").glob("3-*-1")
+    )
+    assert len(later) == 1 and (later[0] / "result.json").is_file()
+    assert not list(later[0].parent.glob("3-*-2"))
+
+
 def test_verdict_without_typed_decision_is_refused_before_mailbox_write(tmp_path: Path) -> None:
     repo, sha = make_repository(tmp_path)
     root, name = make_channel(repo)
@@ -1538,3 +2360,616 @@ def test_watch_status_reports_managed_terminal_surface_and_error_attention(tmp_p
     assert "status-error" in result.detail
     assert any("phase terminal" in line and "result ERROR" in line for line in lines)
     assert "ERROR" in _NEEDS_ATTENTION
+
+
+# --- concurrent sealed capture (Slice A1) ------------------------------------
+
+GOLDEN_SEALED_INSTRUCTIONS = (
+    "Inspect the complete pinned source and docket. Write only the structured result file. "
+    "Do not edit the source, do not access a Debate channel, and do not include private reasoning."
+)
+
+
+class AdapterCall(NamedTuple):
+    party: str
+    start: float
+    end: float
+
+
+class SealedRun(NamedTuple):
+    elapsed: float
+    outcome: DriveOutcome
+    submissions: list[str]
+    log: list[AdapterCall]
+    signal: dict[str, object]
+    parties: list[str]
+
+
+def read_adapter_log(path: Path) -> list[AdapterCall]:
+    """Every fake-adapter invocation, in completion order: party, start, end."""
+    if not path.exists():
+        return []
+    calls: list[AdapterCall] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        raw = json.loads(line)
+        calls.append(AdapterCall(str(raw["party"]), float(raw["start"]), float(raw["end"])))
+    return calls
+
+
+def sealed_submissions(broker: BrokerConfig, thread: str) -> dict[str, object]:
+    """The case file's private submissions, round-tripped through JSON."""
+    case = json.loads((broker.runtime_root / "cases" / thread / "case.json").read_text(encoding="utf-8"))
+    submissions = case["sealed_submissions"]
+    assert isinstance(submissions, dict)
+    return {str(party): record for party, record in submissions.items()}
+
+
+def stable_signal(signal: dict[str, object]) -> dict[str, object]:
+    """The doorbell without the fields that differ between two wall-clock runs."""
+    return {
+        key: value
+        for key, value in signal.items()
+        if key != "deadline" and not key.endswith("_at") and not key.endswith("_ts")
+    }
+
+
+def drive_one_sealed_pair(base: Path, mode: str) -> SealedRun:
+    """Open and drive one case to its terminal state; report what both modes share."""
+    repo, sha = make_repository(base)
+    root, name = make_channel(repo)
+    log = base / "adapter-log.jsonl"
+    broker = make_broker(
+        repo,
+        sha,
+        alice_mode="slow",
+        bob_mode="slow",
+        alice_additions={"FAKE_LOG_PATH": str(log), "FAKE_SLEEP": "1.5"},
+        bob_additions={"FAKE_LOG_PATH": str(log), "FAKE_SLEEP": "1.5"},
+        sealed_concurrency=mode,
+    )
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="paired-seal",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    started = time.monotonic()
+    outcome = controller.drive_case(
+        channel_root=root,
+        channel_name=name,
+        thread="paired-seal",
+        sequence=1,
+        attempt=1,
+    )
+    elapsed = time.monotonic() - started
+    return SealedRun(
+        elapsed=elapsed,
+        outcome=outcome,
+        submissions=sorted(sealed_submissions(broker, "paired-seal")),
+        log=read_adapter_log(log),
+        signal=stable_signal(channel.read_signal(root, name)),
+        parties=sorted(
+            entry.sender for entry in channel.read_entries(root, name) if entry.sender in broker.profiles
+        ),
+    )
+
+
+def test_concurrent_sealed_capture_overlaps_and_records_what_the_sequential_run_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = channel.update_managed_phase
+    signal_writes: list[tuple[str, str, str]] = []
+
+    def counting(root: Path, **kwargs: object) -> None:
+        signal_writes.append((str(kwargs["thread"]), str(kwargs["phase"]), str(kwargs["turn"])))
+        original(root, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(channel, "update_managed_phase", counting)
+
+    sequential = drive_one_sealed_pair(tmp_path / "sequential", "sequential")
+    sequential_writes = list(signal_writes)
+    signal_writes.clear()
+    concurrent_run = drive_one_sealed_pair(tmp_path / "concurrent", "concurrent")
+    concurrent_writes = list(signal_writes)
+
+    sequential_log = {call.party: call for call in sequential.log}
+    concurrent_log = {call.party: call for call in concurrent_run.log}
+    assert sorted(sequential_log) == sorted(concurrent_log) == ["alice", "bob"]
+    assert len(sequential.log) == len(concurrent_run.log) == 2
+
+    assert concurrent_log["alice"].start < concurrent_log["bob"].end
+    assert concurrent_log["bob"].start < concurrent_log["alice"].end
+    assert concurrent_run.elapsed < 2.5
+
+    assert min(call.end for call in sequential_log.values()) <= max(
+        call.start for call in sequential_log.values()
+    )
+    assert sequential.elapsed >= 3.0
+
+    assert concurrent_run.submissions == sequential.submissions == ["alice", "bob"]
+    assert concurrent_run.parties == sequential.parties == ["alice", "bob"]
+    assert concurrent_run.signal == sequential.signal
+    assert concurrent_writes == sequential_writes
+    assert concurrent_run.outcome.terminal_result == "PASS"
+
+
+def test_concurrent_sealed_capture_keeps_the_survivor_and_retries_only_the_failing_seat(
+    tmp_path: Path,
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    log = tmp_path / "adapter-log.jsonl"
+    broker = make_broker(
+        repo,
+        sha,
+        alice_mode="timeout",
+        alice_timeout=1,
+        alice_additions={"FAKE_LOG_PATH": str(log)},
+        bob_additions={"FAKE_LOG_PATH": str(log)},
+    )
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="half-seal",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+
+    with pytest.raises(AdapterError, match="timed out after 1s") as caught:
+        controller.drive_case(
+            channel_root=root, channel_name=name, thread="half-seal", sequence=1, attempt=1
+        )
+
+    assert caught.value.retryable is True
+    assert sorted(sealed_submissions(broker, "half-seal")) == ["bob"]
+    assert [call.party for call in read_adapter_log(log)] == ["bob"]
+    assert not any(entry.sender in broker.profiles for entry in channel.read_entries(root, name))
+    assert channel.read_signal(root, name)["turn"] == "alice"
+
+    with pytest.raises(AdapterError, match="timed out after 1s"):
+        controller.drive_case(
+            channel_root=root, channel_name=name, thread="half-seal", sequence=1, attempt=2
+        )
+
+    assert [call.party for call in read_adapter_log(log)] == ["bob"]
+    assert sorted(path.name for path in broker.runtime_root.glob("cases/half-seal/invocations/*")) == [
+        "1-alice-1",
+        "1-alice-2",
+        "1-bob-1",
+    ]
+
+
+def test_deadline_expiry_during_concurrent_capture_closes_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, whole_case_timeout_seconds=5)
+    opened_at = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+    controller = BrokerController(broker, now=opened_at)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="expires-concurrently",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    invoked: list[str] = []
+
+    def finish_after_deadline(**kwargs: object) -> tuple[AdapterResult, dict[str, str | Path]]:
+        invoked.append(str(kwargs["party"]))
+        controller._fixed_now = opened_at + timedelta(seconds=6)
+        return (
+            AdapterResult("verdict", "late", "", "", "fixture", "PASS"),
+            {
+                "input_sha256": "1" * 64,
+                "source_manifest_sha256": "2" * 64,
+                "docket_revision_sha256": "3" * 64,
+                "diagnostics_root": broker.runtime_root,
+            },
+        )
+
+    monkeypatch.setattr(controller, "_invoke", finish_after_deadline)
+    outcome = controller.drive_case(
+        channel_root=root, channel_name=name, thread="expires-concurrently", sequence=1, attempt=1
+    )
+
+    assert sorted(invoked) == ["alice", "bob"]
+    assert outcome.terminal_result == "ERROR"
+    assert outcome.close_reason == "case-deadline-expired"
+    assert channel.read_signal(root, name)["close_reason"] == "case-deadline-expired"
+    assert sealed_submissions(broker, "expires-concurrently") == {}
+    assert not any(entry.sender in broker.profiles for entry in channel.read_entries(root, name))
+
+
+def test_concurrent_mode_does_not_reinvoke_an_already_sealed_seat(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    log = tmp_path / "adapter-log.jsonl"
+    broker = make_broker(
+        repo,
+        sha,
+        alice_additions={"FAKE_LOG_PATH": str(log)},
+        bob_additions={"FAKE_LOG_PATH": str(log)},
+    )
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="one-left",
+        first_party="bob",
+        body="Neutral docket.",
+    )
+    controller.capture_sealed(
+        channel_root=root, channel_name=name, party="bob", thread="one-left", sequence=1, attempt=1
+    )
+
+    outcome = controller.drive_case(
+        channel_root=root, channel_name=name, thread="one-left", sequence=1, attempt=1
+    )
+
+    assert outcome.terminal_result == "PASS"
+    assert sorted(call.party for call in read_adapter_log(log)) == ["alice", "bob"]
+    assert sorted(path.name for path in broker.runtime_root.glob("cases/one-left/invocations/*")) == [
+        "1-alice-1",
+        "1-bob-1",
+    ]
+
+
+def test_sealed_worker_threads_never_write_case_state_or_the_doorbell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, alice_mode="slow", bob_mode="slow")
+    controller = BrokerController(broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="main-thread-only",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    original_write = BrokerController._write_case
+    original_phase = channel.update_managed_phase
+    off_thread: list[str] = []
+
+    def guarded_write(self: BrokerController, thread: str, state: dict[str, object]) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            off_thread.append(f"_write_case from {threading.current_thread().name}")
+        original_write(self, thread, state)
+
+    def guarded_phase(signal_root: Path, **kwargs: object) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            off_thread.append(f"update_managed_phase from {threading.current_thread().name}")
+        original_phase(signal_root, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(BrokerController, "_write_case", guarded_write)
+    monkeypatch.setattr(channel, "update_managed_phase", guarded_phase)
+
+    outcome = controller.drive_case(
+        channel_root=root, channel_name=name, thread="main-thread-only", sequence=1, attempt=1
+    )
+
+    assert off_thread == []
+    assert outcome.terminal_result == "PASS"
+
+
+def test_sealed_adapter_input_matches_its_golden_payload(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+    broker = make_broker(repo, sha)
+    controller = BrokerController(broker)
+    exports, docket, _ = controller._prepare_case("golden-case")
+    result_path = broker.runtime_root / "cases" / "golden-case" / "invocations" / "1-bob-1" / "result.json"
+
+    payload = controller.render_input(
+        party="bob",
+        phase="sealed",
+        thread="golden-case",
+        result_path=result_path,
+        source=exports["bob"],
+        docket=docket,
+        transcript=None,
+    )
+
+    encoded = json.dumps(payload, indent=2, sort_keys=True)
+    for actual, token in (
+        (str(broker.runtime_root), "<runtime>"),
+        (sha, "<ref>"),
+        (docket.revision_sha256, "<docket>"),
+        (exports["bob"].manifest_sha256, "<manifest>"),
+    ):
+        encoded = encoded.replace(actual, token)
+
+    assert json.loads(encoded) == {
+        "schema_version": 1,
+        "phase": "sealed",
+        "thread": "golden-case",
+        "seat": {
+            "party": "bob",
+            "author_relationship": "author-independent",
+            "topology": "minimum-two-agent",
+        },
+        "review_contract": {
+            "review_mode": "release-gate",
+            "review_contract_basis": "legacy-absent",
+        },
+        "source": {
+            "root": "<runtime>/exports/<ref>/bob",
+            "ref": "<ref>",
+            "manifest_sha256": "<manifest>",
+        },
+        "docket": {
+            "root": "<runtime>/dockets/<docket>/files",
+            "revision_sha256": "<docket>",
+            "files": [
+                {
+                    "path": "docs/plans/superseded.md",
+                    "sha256": "502eeaef8517a63609f685ffc40690a6cc9aa980ad8fb673523ffbab2c0b81cf",
+                    "tracked_at_source_ref": False,
+                },
+                {
+                    "path": "watcher.json",
+                    "sha256": "9eb2269e11d0a83c051255203611b6d9a9bb3ead51c72e0429fb8f44df528846",
+                    "tracked_at_source_ref": False,
+                },
+            ],
+        },
+        "result": {
+            "path": "<runtime>/cases/golden-case/invocations/1-bob-1/result.json",
+            "schema_version": 1,
+            "controller_owned_fields": ["sender"],
+            "required_fields": [
+                "schema_version",
+                "entry_type",
+                "body",
+                "runtime_model",
+                "decision (PASS or NO_PASS for verdicts)",
+            ],
+        },
+        "instructions": GOLDEN_SEALED_INSTRUCTIONS,
+    }
+    assert set(payload) == {
+        "schema_version",
+        "phase",
+        "thread",
+        "seat",
+        "review_contract",
+        "source",
+        "docket",
+        "result",
+        "instructions",
+    }
+    assert payload["instructions"] == GOLDEN_SEALED_INSTRUCTIONS
+    assert "current_thread" not in payload
+
+
+def test_doctor_reports_the_sealed_invocation_mode(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+
+    assert "sealed invocations: concurrent" in doctor_lines(make_broker(repo, sha))
+    assert "sealed invocations: sequential" in doctor_lines(
+        make_broker(repo, sha, sealed_concurrency="sequential")
+    )
+
+
+def test_a_sealed_concurrency_value_outside_the_two_modes_is_refused(tmp_path: Path) -> None:
+    repo, sha = make_repository(tmp_path)
+
+    with pytest.raises(channel.ChannelError, match="sealed_concurrency"):
+        make_broker(repo, sha, sealed_concurrency="maybe")
+
+
+# --- final review wave I2: a timed-out adapter takes its children with it ----
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process groups are a POSIX facility")
+def test_a_timed_out_adapter_leaves_no_child_process_behind(tmp_path: Path) -> None:
+    """A vendor CLI spawns children of its own; killing only the process the
+    controller launched left them running long past the case deadline, burning
+    tokens against a case nobody is waiting for (final review wave, I2)."""
+    import time as time_module
+
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, alice_timeout=1)
+    pids_path = tmp_path / "pids.json"
+    hanging = AdapterProfile(
+        **{
+            **broker.profiles["alice"].__dict__,
+            "environment": {
+                **broker.profiles["alice"].environment,
+                "FAKE_MODE": "orphan",
+                "FAKE_PIDS_PATH": str(pids_path),
+            },
+            "environment_allowlist": ("PATH",),
+        }
+    )
+    profiles = {**broker.profiles, "alice": hanging}
+    hanging_broker = BrokerConfig(
+        repository_root=broker.repository_root,
+        runtime_root=broker.runtime_root,
+        source_ref=broker.source_ref,
+        profiles=profiles,
+        timing=TimingPolicy(
+            thread_cap=12,
+            scheduler_interval_seconds=60,
+            retry_seconds=120,
+            whole_case_timeout_seconds=900,
+            profiles=(profiles["alice"], profiles["bob"]),
+        ),
+        config_sha256=broker.config_sha256,
+        docket_files=broker.docket_files,
+        sealed_concurrency="sequential",
+    )
+    controller = BrokerController(hanging_broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="orphan-case",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+    with pytest.raises(AdapterError, match="timed out after 1s"):
+        controller.drive_case(
+            channel_root=root,
+            channel_name=name,
+            thread="orphan-case",
+            sequence=1,
+            attempt=1,
+        )
+
+    pids = json.loads(pids_path.read_text(encoding="utf-8"))
+
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:  # pragma: no cover - a reused pid we do not own
+            return True
+        return True
+
+    deadline = time_module.monotonic() + 10.0
+    while time_module.monotonic() < deadline:
+        if not _alive(int(pids["adapter"])) and not _alive(int(pids["child"])):
+            break
+        time_module.sleep(0.05)
+    assert not _alive(int(pids["adapter"])), "the adapter itself outlived its timeout"
+    assert not _alive(int(pids["child"])), "the adapter's own child outlived the timeout"
+
+
+# --- final review wave M6: the concurrent capture's precondition, checked ----
+
+
+def test_the_concurrent_sealed_capture_refuses_when_the_case_is_not_prepared(
+    tmp_path: Path,
+) -> None:
+    """Both workers only ever VERIFY the pinned export and review material;
+    creating them is the driving thread's job, done once before either worker
+    starts. If they are not there, two threads would race to write the same
+    paths, so this refuses instead (final review wave, M6)."""
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, sealed_concurrency="concurrent")
+    controller = BrokerController(broker)
+    open_brokered_thread(root, name, broker)
+    (broker.runtime_root / "exports").rename(broker.runtime_root / "exports-elsewhere")
+    with pytest.raises(channel.ChannelError, match="before both seats are called"):
+        controller._capture_sealed_pair(
+            channel_root=root,
+            channel_name=name,
+            thread="review-one",
+            order=("alice", "bob"),
+            sequence=1,
+            attempt=1,
+        )
+    assert len(channel.read_entries(root, name)) == 1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process groups are a POSIX facility")
+def test_an_interrupted_seat_call_leaves_no_child_process_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ctrl-C is not a timeout, and it does not reach the adapter either.
+
+    Running the adapter in a session of its own (so a timeout can kill its whole
+    tree) also puts it OUTSIDE the terminal's process group, so the interrupt
+    the operator typed never lands on it -- and `Popen.__exit__` only waits.
+    Every way out of the wait must therefore end the tree, not just the timeout
+    (re-review of the wave). The exception is re-raised untouched.
+    """
+    import time as time_module
+
+    repo, sha = make_repository(tmp_path)
+    root, name = make_channel(repo)
+    broker = make_broker(repo, sha, alice_timeout=30)
+    pids_path = tmp_path / "pids.json"
+    hanging = AdapterProfile(
+        **{
+            **broker.profiles["alice"].__dict__,
+            "environment": {
+                **broker.profiles["alice"].environment,
+                "FAKE_MODE": "orphan",
+                "FAKE_PIDS_PATH": str(pids_path),
+            },
+            "environment_allowlist": ("PATH",),
+        }
+    )
+    profiles = {**broker.profiles, "alice": hanging}
+    hanging_broker = BrokerConfig(
+        repository_root=broker.repository_root,
+        runtime_root=broker.runtime_root,
+        source_ref=broker.source_ref,
+        profiles=profiles,
+        timing=TimingPolicy(
+            thread_cap=12,
+            scheduler_interval_seconds=60,
+            retry_seconds=120,
+            whole_case_timeout_seconds=900,
+            profiles=(profiles["alice"], profiles["bob"]),
+        ),
+        config_sha256=broker.config_sha256,
+        docket_files=broker.docket_files,
+        sealed_concurrency="sequential",
+    )
+    controller = BrokerController(hanging_broker)
+    controller.open_case(
+        channel_root=root,
+        channel_name=name,
+        thread="interrupted-case",
+        first_party="alice",
+        body="Neutral docket.",
+    )
+
+    # Ctrl-C, delivered exactly where the operator's would land: inside the
+    # wait, once the adapter has started a child of its own. Only the adapter's
+    # own wait is interrupted -- git and every other subprocess is untouched.
+    real_communicate = subprocess.Popen.communicate
+
+    def interrupted(
+        self: "subprocess.Popen[Any]", input: Any = None, timeout: float | None = None
+    ) -> Any:
+        arguments = self.args if isinstance(self.args, (list, tuple)) else [self.args]
+        if not any("fake_adapter.py" in str(part) for part in arguments):
+            return real_communicate(self, input, timeout)
+        deadline = time_module.monotonic() + 10.0
+        while not pids_path.exists() and time_module.monotonic() < deadline:
+            time_module.sleep(0.02)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", interrupted)
+
+    with pytest.raises(KeyboardInterrupt):
+        controller.drive_case(
+            channel_root=root,
+            channel_name=name,
+            thread="interrupted-case",
+            sequence=1,
+            attempt=1,
+        )
+
+    pids = json.loads(pids_path.read_text(encoding="utf-8"))
+
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:  # pragma: no cover - a reused pid we do not own
+            return True
+        return True
+
+    deadline = time_module.monotonic() + 10.0
+    while time_module.monotonic() < deadline:
+        if not _alive(int(pids["adapter"])) and not _alive(int(pids["child"])):
+            break
+        time_module.sleep(0.05)
+    assert not _alive(int(pids["adapter"])), "the adapter itself outlived the interrupt"
+    assert not _alive(int(pids["child"])), "the adapter's own child outlived the interrupt"
+    assert len(channel.read_entries(root, name)) == 1

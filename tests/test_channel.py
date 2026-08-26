@@ -45,6 +45,69 @@ def test_explicit_historical_thread_cap_is_preserved(tmp_path: Path) -> None:
     assert channel.load_config(tmp_path).thread_cap == 8
 
 
+def test_historical_channel_without_review_fields_loads_honestly(tmp_path: Path) -> None:
+    init_channel(tmp_path, ("alice", "bob"), "owner")
+    loaded = channel.load_config(tmp_path)
+    assert loaded.review_mode == "release-gate"
+    assert loaded.review_contract_basis == "legacy-absent"
+    assert loaded.goal is None
+    assert loaded.review_domain is None
+    assert loaded.stop_rule is None
+
+
+def test_recorded_review_contract_round_trips_and_partial_record_refuses(tmp_path: Path) -> None:
+    name = "bounded-12345"
+    root = tmp_path / "collab"
+    init_channel(
+        root,
+        ("alice", "bob"),
+        "owner",
+        thread_cap=5,
+        name=name,
+        managed_version=channel.BROKERED_MANAGED_VERSION,
+        review_mode="ordinary",
+        review_contract_basis="recorded",
+        goal="Verify the retry helper.",
+        review_domain="retry.py and its tests.",
+        stop_rule="Stop when the criteria resolve.",
+    )
+    loaded = channel.load_config(root, name)
+    assert loaded.review_mode == "ordinary"
+    assert loaded.review_contract_basis == "recorded"
+    assert loaded.goal == "Verify the retry helper."
+
+    record_path = root / f"{name}.debate.json"
+    raw = json.loads(record_path.read_text(encoding="utf-8"))
+    raw.pop("stop_rule")
+    record_path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ChannelError, match="partial review contract"):
+        channel.load_config(root, name)
+
+
+def test_recorded_review_contract_refuses_non_string_text(tmp_path: Path) -> None:
+    name = "bounded-12345"
+    root = tmp_path / "collab"
+    init_channel(
+        root,
+        ("alice", "bob"),
+        "owner",
+        name=name,
+        managed_version=channel.BROKERED_MANAGED_VERSION,
+        review_mode="ordinary",
+        review_contract_basis="recorded",
+        goal="Verify the retry helper.",
+        review_domain="retry.py and its tests.",
+        stop_rule="Stop when the criteria resolve.",
+    )
+    record_path = root / f"{name}.debate.json"
+    raw = json.loads(record_path.read_text(encoding="utf-8"))
+    raw["goal"] = None
+    record_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ChannelError, match="review contract fields must be strings"):
+        channel.load_config(root, name)
+
+
 def test_init_refuses_double_init(tmp_path: Path) -> None:
     init_channel(tmp_path, ("alice", "bob"), "owner")
 
@@ -374,6 +437,51 @@ def test_supervisor_verdict_with_nothing_open_creates_turnless_open_thread(tmp_p
     signal = channel.read_signal(root)
     assert signal["thread"] == "t-one"   # supervisor posts are exempt and open the slug
     assert signal["turn"] == ""          # with no turn assigned - the supervisor-only state of D2
+
+
+def test_native_cli_appends_a_supervisor_correction_without_rewriting_history(
+    tmp_path: Path,
+) -> None:
+    from debate.__main__ import main
+
+    root = tmp_path / "collab"
+    name = "correction-12345"
+    channel.init_channel(root, ("alice", "bob"), "owner", name=name)
+    channel.post(root, "alice", "review-request", "original", "Review it.", name=name)
+    channel.post(
+        root,
+        "bob",
+        "verdict",
+        "original",
+        "NO_PASS: MSG finding based on a failing command.",
+        name=name,
+    )
+    channel.post(root, "alice", "close", "original", "Closed NO_PASS.", name=name)
+    before = channel.read_entries(root, name)
+    original = before[1]
+    body = (
+        "Correction to MSG-2. Fresh command: `python -m pytest -q`. "
+        "Fresh output: `3 passed`. The claimed failure is falsified. "
+        "The historical verdict remains in the append-only record."
+    )
+    assert main([
+        "post", "--root", str(root), "--channel", name,
+        "--from", "owner", "--type", "close",
+        "--thread", "correction-msg-2", "--body", body,
+    ]) == 0
+    after = channel.read_entries(root, name)
+    assert after[1] == original
+    assert after[-1].sender == "owner"
+    assert after[-1].entry_type == "close"
+    assert after[-1].thread == "correction-msg-2"
+    assert "MSG-2" in after[-1].body
+    assert "python -m pytest -q" in after[-1].body
+    assert "3 passed" in after[-1].body
+    with channel.exclusive(root, name):
+        assert not any(
+            finding.level == channel.ANOMALY
+            for finding in channel.verify_record(root, name)
+        )
 
 
 def _open_managed_reveal_channel(tmp_path: Path) -> tuple[Path, str, str]:
