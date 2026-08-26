@@ -169,7 +169,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
     CatalogEntry(
         vendor="codex",
         binaries=("codex",),
-        submodels=("gpt-5.6-sol",),
+        submodels=("gpt-5.6-sol", "gpt-5.6-terra"),
         known_efforts=("xhigh",),
         invocation=(
             "{binary}", "exec", "--skip-git-repo-check", "-c",
@@ -182,10 +182,14 @@ CATALOG: tuple[CatalogEntry, ...] = (
             "flags read from codex exec --help and parser-checked 2026-08-26; "
             "--skip-git-repo-check is load-bearing in the base invocation too, because "
             "seat smoke scratch dirs and controller source exports are not git repositories "
-            "and codex exec refuses any untrusted non-repo CWD without it (field finding F7)"
+            "and codex exec refuses any untrusted non-repo CWD without it (field finding F7); "
+            "gpt-5.6-sol is plan-dependent (a ChatGPT-account 400 rejects it on some plans, "
+            "field finding F8) while gpt-5.6-terra is production-proven on subscription "
+            "OAuth by every 02750 brokered gate, so both are catalogued and smoke decides "
+            "per machine"
         ),
         sibling_pattern=None,
-        capability_classes={"gpt-5.6-sol": "frontier"},
+        capability_classes={"gpt-5.6-sol": "frontier", "gpt-5.6-terra": "frontier"},
         isolation_argv=("--ignore-user-config", "--ignore-rules"),
         no_persistence_argv=("--ephemeral",),
         verification_argv=(
