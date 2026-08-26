@@ -658,7 +658,6 @@ def seat_environment(spec: BridgeSpec) -> dict[str, str]:
         variable, folder = seats.validate_config_home(spec.config_home, home=Path(real_home))
     except channel.ChannelError as error:
         raise Refusal(str(error)) from error
-    environment[variable] = str(folder)
     if sys.platform == "darwin":
         # macOS keeps the operator's vendor credential in the login Keychain,
         # and the OS resolves that keychain through HOME -- under the
@@ -668,6 +667,17 @@ def seat_environment(spec: BridgeSpec) -> dict[str, str]:
         # the operator's own configuration, so the real HOME widens nothing
         # the profile did not intend.
         environment["HOME"] = real_home
+        if variable == "CLAUDE_CONFIG_DIR" and folder == Path(real_home) / ".claude":
+            # Setting CLAUDE_CONFIG_DIR -- even to the CLI's own default
+            # folder -- switches claude to a per-profile credential namespace
+            # keyed by the pointer (a SUFFIXED Keychain item; both names were
+            # observed side by side in the login keychain), which hides the
+            # operator's real login from the seat (field finding F19). With
+            # the real HOME restored, the CLI's own default reaches the same
+            # folder AND the default Keychain item, so the pointer is omitted
+            # exactly when it is redundant.
+            return environment
+    environment[variable] = str(folder)
     return environment
 
 

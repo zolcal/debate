@@ -799,7 +799,11 @@ def test_darwin_restores_the_real_home_for_an_operator_configured_seat(
     """macOS resolves the login Keychain through HOME, so an operator-
     configured seat under the sandbox home can only print "Not logged in"
     (field finding F11). The config-home authorization already grants the
-    operator's configuration; the real HOME widens nothing beyond it."""
+    operator's configuration; the real HOME widens nothing beyond it. And a
+    CLAUDE_CONFIG_DIR pointing at the CLI's own default folder is OMITTED:
+    the pointer switches claude to a per-profile credential namespace (a
+    suffixed Keychain item), hiding the operator's real login exactly when
+    the pointer is redundant (field finding F19)."""
     home = _real_home(tmp_path, monkeypatch)
     monkeypatch.setenv("HOME", str(tmp_path / "sandbox-home"))
     monkeypatch.setattr(sys, "platform", "darwin")
@@ -807,7 +811,24 @@ def test_darwin_restores_the_real_home_for_an_operator_configured_seat(
     assert main(_argv(case, seat, extra=["--config-home", "CLAUDE_CONFIG_DIR=.claude"])) == 0
     call = seat.calls()[0]
     assert call["home"] == str(home)
-    assert call["config_dir"] == str(home / ".claude")
+    assert call["config_dir"] is None
+
+
+def test_darwin_keeps_a_nondefault_config_pointer(
+    tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The F19 omission is scoped to the redundant default pointer: an
+    isolated profile folder is a real redirection and must still reach the
+    seat."""
+    home = _real_home(tmp_path, monkeypatch)
+    (home / ".claude-isolated").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "sandbox-home"))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    case = _make_case(tmp_path)
+    assert main(_argv(case, seat, extra=["--config-home", "CLAUDE_CONFIG_DIR=.claude-isolated"])) == 0
+    call = seat.calls()[0]
+    assert call["home"] == str(home)
+    assert call["config_dir"] == str(home / ".claude-isolated")
 
 
 def test_darwin_keeps_the_sandbox_home_without_a_config_pointer(
