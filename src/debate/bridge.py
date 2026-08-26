@@ -667,6 +667,14 @@ def seat_environment(spec: BridgeSpec) -> dict[str, str]:
         # the operator's own configuration, so the real HOME widens nothing
         # the profile did not intend.
         environment["HOME"] = real_home
+        # The CLI also resolves its credential through USER, which the
+        # controller's allowlist strips (field finding F20, established by
+        # the field agent's subtractive bisect: the full working environment
+        # minus USER alone fails). Derived from the process owner, never
+        # from the stripped environment.
+        import getpass
+
+        environment.setdefault("USER", getpass.getuser())
         if variable == "CLAUDE_CONFIG_DIR" and folder == Path(real_home) / ".claude":
             # Setting CLAUDE_CONFIG_DIR -- even to the CLI's own default
             # folder -- switches claude to a per-profile credential namespace

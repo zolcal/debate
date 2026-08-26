@@ -34,6 +34,7 @@ record = {
     "stdin": sys.stdin.read(),
     "config_dir": os.environ.get("CLAUDE_CONFIG_DIR"),
     "home": os.environ.get("HOME"),
+    "user": os.environ.get("USER"),
     "real_home": os.environ.get("DEBATE_BRIDGE_REAL_HOME"),
     "pythonpath": os.environ.get("PYTHONPATH"),
     "codex_home": os.environ.get("CODEX_HOME"),
@@ -812,6 +813,11 @@ def test_darwin_restores_the_real_home_for_an_operator_configured_seat(
     call = seat.calls()[0]
     assert call["home"] == str(home)
     assert call["config_dir"] is None
+    # F20: the CLI resolves its credential through USER too; the allowlist
+    # strips it, so the darwin bridge restores the process owner's name.
+    import getpass
+
+    assert call["user"] == getpass.getuser()
 
 
 def test_darwin_keeps_a_nondefault_config_pointer(
