@@ -675,7 +675,8 @@ def test_discover_fills_catalog_seat_declarations(
     )
     codex = reg.seats["codex/gpt-5.6-sol"]
     assert codex.commands == [[
-        "/x/codex", "exec", "--skip-git-repo-check", "-c",
+        "/x/codex", "exec", "--skip-git-repo-check",
+        "--sandbox", "workspace-write", "-c",
         'model_reasoning_effort="xhigh"',
         "{prompt}", "--model", "gpt-5.6-sol",
     ]]

@@ -358,8 +358,12 @@ def smoke(spec: SetupSpec, *, scratch_base: Path | None = None,
                 env = dict(os.environ)
                 env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
             try:
+                # cwd is the scratch channel: a sandboxing CLI (codex exec
+                # seatbelt, field finding F10) scopes writes to its workspace,
+                # and the mailbox/lock the seat must write live exactly here.
                 proc = subprocess.run(expanded, stdin=subprocess.DEVNULL,
                                       capture_output=True, text=True, env=env,
+                                      cwd=str(scratch),
                                       timeout=spec.timeout_seconds, check=False)
             except (OSError, subprocess.SubprocessError) as error:
                 failures.append(f"{party}: seat command failed to run: {error}")

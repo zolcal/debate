@@ -172,7 +172,8 @@ CATALOG: tuple[CatalogEntry, ...] = (
         submodels=("gpt-5.6-sol", "gpt-5.6-terra"),
         known_efforts=("xhigh",),
         invocation=(
-            "{binary}", "exec", "--skip-git-repo-check", "-c",
+            "{binary}", "exec", "--skip-git-repo-check",
+            "--sandbox", "workspace-write", "-c",
             'model_reasoning_effort="xhigh"', "{prompt}",
         ),
         submodel_argv=("--model", "{submodel}"),
@@ -186,7 +187,9 @@ CATALOG: tuple[CatalogEntry, ...] = (
             "gpt-5.6-sol is plan-dependent (a ChatGPT-account 400 rejects it on some plans, "
             "field finding F8) while gpt-5.6-terra is production-proven on subscription "
             "OAuth by every 02750 brokered gate, so both are catalogued and smoke decides "
-            "per machine"
+            "per machine; --sandbox workspace-write is load-bearing too, because a "
+            "self-posting seat must write the mailbox and lock in its CWD and the default "
+            "sandbox denied exactly that lock write (field finding F10)"
         ),
         sibling_pattern=None,
         capability_classes={"gpt-5.6-sol": "frontier", "gpt-5.6-terra": "frontier"},

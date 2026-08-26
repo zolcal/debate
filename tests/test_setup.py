@@ -301,6 +301,7 @@ chan = re.search(r"--channel ([A-Za-z0-9-]+)", prompt).group(1)
 sig = json.load(open(os.path.join(root, chan + ".signal.json"), encoding="utf-8"))
 resolved = shutil.which("debate")
 assert resolved and "debate-smoke-" in resolved, resolved
+assert "debate-smoke-" in os.getcwd(), os.getcwd()
 subprocess.run(["debate", "post", "--root", root,
                 "--channel", chan, "--from", {party!r}, "--type", "info",
                 "--thread", sig["thread"], "--body", "pong"], check=True)
