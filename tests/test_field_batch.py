@@ -239,9 +239,20 @@ def test_open_survives_post_creation_bookkeeping_failure(
 ) -> None:
     """Field finding: a sandboxed registry write crashed the CLI AFTER a
     successful open, stranding an orphaned channel on retry. The channel is
-    usable; last_pair is a convenience -- warn, never crash."""
+    usable, but the required next-default save failed -- report degraded and
+    stop before another sequence rather than opening a duplicate."""
     registry, project = isolated
     _prepare_project(registry, project, tmp_path)
+    preparation = opening.prepare_brokered_open(
+        root=project / "collab", registry=seats.load_registry(),
+        review_mode="ordinary", requested_cap=None, docket_files=(),
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        author_vendor="claude", tool_version="0.8.0", real_home=tmp_path,
+    )
+    choices = preparation["choices"]
+    assert isinstance(choices, list) and isinstance(choices[0], dict)
+    budget = choices[0]["budget"]
+    assert isinstance(budget, dict)
 
     def refuse(_registry: seats.Registry) -> Path:
         raise OSError(30, "Read-only file system")
@@ -254,10 +265,14 @@ def test_open_survives_post_creation_bookkeeping_failure(
         "--goal", "Establish whether the fixture meets its criterion.",
         "--review-domain", "The pinned fixture source and docket.",
         "--stop-rule", "Stop after bounded checks and a decisive verdict.",
+        "--preparation-revision", str(preparation["preparation_revision"]),
+        "--confirmed-budget",
+        f"{budget['seat_turn_ceiling']},{budget['nested_launch_ceiling']}",
     ])
     captured = capsys.readouterr()
-    assert rc == 0
-    assert "bookkeeping failed" in captured.out
+    assert rc == 3
+    assert "DEGRADED" in captured.out
+    assert "do not open a replacement channel automatically" in captured.out
     channels = list((project / "collab").glob("*.debate.json"))
     assert len(channels) == 1  # created once, usable, no crash
 

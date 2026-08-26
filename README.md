@@ -122,14 +122,24 @@ status and makes zero model calls.
 After **"set up Debate"**, approve in your agent's own UI which locally detected
 agents this project may seat. Detection is evidence, not approval: nothing found on
 PATH, in an old registry, or in a previous project's remembered pair is ever approved
-silently, and discovery makes zero model calls. Then say **"start a debate"**, pick
-exactly two approved seats, and Debate creates a fresh
+silently, and discovery makes zero model calls. Then say **"start a debate"**.
+Every new channel start shows the exact project's current approved pair menu before
+creating anything. If the previous project pair is still valid, Enter explicitly keeps
+it; choose a number to change it, or cancel with no channel write or Debate seat call.
+The selected pair becomes the next default only after the channel and registry save
+succeed. Debate then creates a fresh
 fully managed channel — the agent you are talking to stays outside both seats, and you
 are the supervisor. A short request is enough: the installed skill derives and shows the
 artifact, bounded goal/domain, acceptance criteria, verification commands, stop rule,
-seat pair and retry-inclusive budget once before asking you to confirm. Every subject or
-changed-artifact re-review creates a new channel. When everything is healthy, session
-start is silent in both hosts.
+seat pair, cap 12, and that pair's engine-produced clean and retry-inclusive budget once
+before asking you to confirm. In a plan with several debate checkpoints, each checkpoint
+starts a fresh menu and confirmation; authorization never carries to the next channel,
+and `NO_PASS`, `ERROR`, cancellation, cap exhaustion, or an invalid ref stops the
+sequence. Every subject or changed-artifact re-review creates a new channel. When
+everything is healthy, session start is silent in both hosts.
+
+A plugin installed or repaired in a running Codex or Claude process is available after
+starting a fresh host process; same-process behavior is not an installation test.
 
 Uninstalling the plugin removes the host integration only: your registry
 (`~/.config/debate/seats.json`), project profiles (`debate-profile.json`), and channel
@@ -430,13 +440,15 @@ state, docket revisions, source exports/manifests, inputs/results, raw streams, 
 fsynced prune receipts. An open case, held lock, wrong config/channel, or symlink target
 refuses without deletion.
 
-New product reviews record one of two modes. `ordinary` is criteria-bound and uses cap 5
-(at most four vote-producing seat turns and eight nested launches with one retry); a clean
-agreement uses two launches. `release-gate` keeps the exhaustive adversarial stance and
-defaults to cap 12 (eleven seat turns, twenty-two launches). Supervisor messages consume
-the same entry cap. A race after invocation can retain diagnostics, but cannot publish a
-vote or spend a retry; it closes `NO_PASS / thread-cap-race`. Historical configs lacking
-the mode remain release-gate/adversarial with an honest `legacy-absent` contract basis.
+New product reviews record one of two modes. `ordinary` is criteria-bound;
+`release-gate` keeps the exhaustive adversarial stance. Both create channels with the
+standard cap 12. The engine reports the selected pair's clean and retry-inclusive
+launch budget from its actual adapter retry policy instead of deriving a separate review
+or launch ceiling from the cap. Supervisor messages consume the same entry cap. A race
+after invocation can retain diagnostics, but cannot publish a vote or spend a retry; it
+closes `NO_PASS / thread-cap-race`. Existing persisted channels retain their recorded
+cap, and historical configs lacking the mode remain release-gate/adversarial with an
+honest `legacy-absent` contract basis.
 
 This is a pre-release CLI break for new product opens: `open --brokered` now requires
 `--goal`, `--review-domain`, `--stop-rule`, and `--review-mode` (the installed skill

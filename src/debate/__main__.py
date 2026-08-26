@@ -712,8 +712,26 @@ def main(argv: list[str] | None = None) -> int:
     p_open.add_argument("--supervisor", default="owner")
     p_open.add_argument(
         "--cap", type=int, default=None, dest="thread_cap",
-        help="maximum entries in one thread (ordinary product reviews require 5; "
-        "release gates and legacy opens default to 12)",
+        help="maximum entries in one thread (product opens require 12; "
+        "plain legacy opens retain explicit-cap compatibility)",
+    )
+    p_open.add_argument(
+        "--json", action="store_true", dest="as_json",
+        help="without --pair, print the read-only product preparation as JSON",
+    )
+    p_open.add_argument(
+        "--preparation-revision",
+        default=None,
+        dest="preparation_revision",
+        metavar="HASH",
+        help="with --pair, the revision printed by the immediately preceding preparation",
+    )
+    p_open.add_argument(
+        "--confirmed-budget",
+        default=None,
+        dest="confirmed_budget",
+        metavar="SEAT_TURNS,NESTED_LAUNCHES",
+        help="with --pair, the selected preparation's confirmed retry-inclusive ceilings",
     )
     p_open.add_argument(
         "--yes",
@@ -1112,52 +1130,49 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "open" and args.brokered:
             registry = seats.load_registry()
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            from debate import __version__
+
             product_thread_cap = opening.resolve_review_thread_cap(
                 args.review_mode, args.thread_cap
             )
             if args.pair is None:
-                # The refusal stands -- this path never picks for the user --
-                # but it hands the skill the numbered list to show, sized by
-                # how much there is to review.
-                project_root = opening.project_key(args.root)
-                approved = seats.load_profile(project_root, registry)
-                allowlist = None if approved is None else approved.allowlist
-                review_bytes = opening.docket_byte_size(project_root, args.docket_files)
-                lines = [
-                    "refused: a fully managed debate needs --pair (the product skill "
-                    "passes the user's exact two-seat choice)"
-                ]
-                suggestion = opening.suggest_pair_with_reason(
-                    registry,
-                    allowlist=allowlist,
-                    docket_bytes=review_bytes,
+                preparation = opening.prepare_brokered_open(
+                    root=args.root,
+                    registry=registry,
+                    review_mode=args.review_mode,
+                    requested_cap=args.thread_cap,
+                    docket_files=tuple(args.docket_files),
                     quick_review_max_bytes=args.quick_review_max_bytes,
-                    last_pair=opening.remembered_pair(
-                        registry, project=project_root, allowlist=allowlist
-                    ),
+                    author_vendor=args.author_vendor or "",
+                    tool_version=__version__,
+                    deliberation_input=args.deliberation_input,
                 )
-                menu = opening.pair_menu(
-                    registry,
-                    allowlist=allowlist,
-                    suggestion=suggestion,
-                    docket_bytes=review_bytes,
-                    quick_review_max_bytes=args.quick_review_max_bytes,
-                )
-                if menu:
-                    lines.append("seat one of these with --pair a,b:")
-                    lines.extend(menu)
-                budget = opening.review_budget(product_thread_cap, (1, 1))
-                lines.append(
-                    f"review budget ({args.review_mode}): {budget.seat_turn_ceiling} "
-                    f"seat turns, at most {budget.nested_launch_ceiling} nested-seat "
-                    "launches; supervisor entries consume the same cap"
-                )
-                raise channel.ChannelError("\n".join(lines))
+                if args.as_json:
+                    print(json.dumps(preparation, indent=2))
+                else:
+                    for line in opening.brokered_preparation_lines(preparation):
+                        _flushing_print(line)
+                return 0
             parts = tuple(part.strip() for part in args.pair.split(","))
             if len(parts) != 2 or not all(parts):
                 raise channel.ChannelError(
                     f"refused: --pair needs exactly two seat ids, got {args.pair!r}"
                 )
+            if args.preparation_revision is None or args.confirmed_budget is None:
+                raise channel.ChannelError(
+                    "refused: a product open with --pair needs --preparation-revision "
+                    "and --confirmed-budget from the owner's immediately preceding menu"
+                )
+            budget_parts = tuple(part.strip() for part in args.confirmed_budget.split(","))
+            if len(budget_parts) != 2 or not all(part.isdigit() for part in budget_parts):
+                raise channel.ChannelError(
+                    "refused: --confirmed-budget must be SEAT_TURNS,NESTED_LAUNCHES"
+                )
+            confirmed_budget = opening.ReviewBudget(
+                product_thread_cap,
+                int(budget_parts[0]),
+                int(budget_parts[1]),
+            )
             source_ref = args.source_ref
             if source_ref is None:
                 import subprocess
@@ -1178,8 +1193,6 @@ def main(argv: list[str] | None = None) -> int:
                     "refused: a fully managed debate needs --author-vendor (the "
                     "interactive author's vendor, e.g. 'claude' or 'codex')"
                 )
-            from debate import __version__
-
             result = opening.open_debate_brokered(
                 opening.BrokeredOpenSpec(
                     root=args.root,
@@ -1198,6 +1211,8 @@ def main(argv: list[str] | None = None) -> int:
                     review_domain=args.review_domain or "",
                     stop_rule=args.stop_rule or "",
                     review_mode=args.review_mode,
+                    preparation_revision=args.preparation_revision,
+                    confirmed_budget=confirmed_budget,
                 ),
                 registry,
                 load_config_fn=_watcher_config,
@@ -1212,11 +1227,15 @@ def main(argv: list[str] | None = None) -> int:
                 # never crash-and-orphan (field finding, 2026-08-20: a
                 # sandboxed registry write killed the CLI after a successful
                 # open, stranding an empty second channel on retry).
+                for line in result.hints:
+                    _flushing_print(line)
                 _flushing_print(
-                    f"warning: the debate opened fine, but the registry's "
-                    f"remembered-pair bookkeeping failed ({error}); run "
-                    f"'debate seats discover' later to refresh it"
+                    f"DEGRADED: channel {result.channel_name} exists, but its project "
+                    f"default was not saved ({error}). Stop this sequence; do not open "
+                    "a replacement channel automatically. Restore registry write authority "
+                    "before the next start."
                 )
+                return 3
             for line in result.hints:
                 _flushing_print(line)
             return 0

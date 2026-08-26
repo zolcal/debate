@@ -971,9 +971,9 @@ def test_managed_open_wraps_both_seats_end_to_end(
         **MANAGED_CONTRACT,
         "review_mode": "ordinary",
         "review_contract_basis": "recorded",
-        "thread_cap": 5,
-        "seat_turn_ceiling": 4,
-        "nested_launch_ceiling": 8,
+        "thread_cap": 12,
+        "seat_turn_ceiling": 11,
+        "nested_launch_ceiling": 22,
         "supervisor_entries_consume_cap": True,
     }
     assert record["seats"]["claude"]["isolation_flags"] == "catalogued"
@@ -983,13 +983,14 @@ def test_managed_open_wraps_both_seats_end_to_end(
 
 
 def test_review_mode_caps_and_engine_budget_are_single_source() -> None:
-    assert opening.resolve_review_thread_cap("ordinary", None) == 5
-    assert opening.resolve_review_thread_cap("ordinary", 5) == 5
-    with pytest.raises(channel.ChannelError, match="ordinary review uses thread cap 5"):
-        opening.resolve_review_thread_cap("ordinary", 12)
+    assert opening.resolve_review_thread_cap("ordinary", None) == 12
+    assert opening.resolve_review_thread_cap("ordinary", 12) == 12
+    with pytest.raises(channel.ChannelError, match="product reviews use thread cap 12"):
+        opening.resolve_review_thread_cap("ordinary", 5)
     assert opening.resolve_review_thread_cap("release-gate", None) == 12
-    assert opening.resolve_review_thread_cap("release-gate", 9) == 9
-    assert opening.review_budget(5, (0, 1)) == opening.ReviewBudget(5, 4, 8)
+    assert opening.resolve_review_thread_cap("release-gate", 12) == 12
+    with pytest.raises(channel.ChannelError, match="product reviews use thread cap 12"):
+        opening.resolve_review_thread_cap("release-gate", 9)
     assert opening.review_budget(12, (1, 0)) == opening.ReviewBudget(12, 11, 22)
 
 
@@ -998,11 +999,11 @@ def test_ordinary_wrong_cap_refuses_before_target_write(
 ) -> None:
     project, head = _quick_pair_project(tmp_path, monkeypatch)
     root = project / "collab"
-    with pytest.raises(channel.ChannelError, match="ordinary review uses thread cap 5"):
+    with pytest.raises(channel.ChannelError, match="product reviews use thread cap 12"):
         opening.open_debate_brokered(
             opening.BrokeredOpenSpec(
                 root=root, label="wrong-cap", pair=("claude/haiku", "deepseek/flash"),
-                source_ref=head, author_vendor="claude", thread_cap=12,
+                source_ref=head, author_vendor="claude", thread_cap=5,
                 **MANAGED_CONTRACT,
             ),
             seats.load_registry(), load_config_fn=_watcher_config,
@@ -1017,6 +1018,12 @@ def test_cli_release_gate_omission_resolves_to_cap_twelve(
 ) -> None:
     project, _head = _quick_pair_project(tmp_path, monkeypatch)
     monkeypatch.chdir(project)
+    preparation = opening.prepare_brokered_open(
+        root=project / "collab", registry=seats.load_registry(),
+        review_mode="release-gate", requested_cap=None, docket_files=(),
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        author_vendor="claude", tool_version="test", real_home=tmp_path,
+    )
     assert main([
         "open", "--brokered", "--root", str(project / "collab"),
         "--label", "release", "--pair", "claude/opus,deepseek/pro",
@@ -1024,6 +1031,8 @@ def test_cli_release_gate_omission_resolves_to_cap_twelve(
         "--goal", MANAGED_CONTRACT["goal"],
         "--review-domain", MANAGED_CONTRACT["review_domain"],
         "--stop-rule", MANAGED_CONTRACT["stop_rule"],
+        "--preparation-revision", str(preparation["preparation_revision"]),
+        "--confirmed-budget", "11,22",
         "--yes",
     ]) == 0
     names = sorted((project / "collab").glob("*.debate.json"))
@@ -1311,14 +1320,14 @@ def test_cli_managed_open_without_a_pair_offers_a_numbered_list(
         "open", "--brokered", "--root", str(project / "collab"),
         "--label", "market-research", "--author-vendor", "claude",
     ])
-    assert rc == 1
-    printed = capsys.readouterr().err
-    assert "a fully managed debate needs --pair" in printed
+    assert rc == 0
+    printed = capsys.readouterr().out
+    assert "Pick one numbered pair; cancel stops." in printed
     assert "1  claude/haiku + deepseek/flash" in printed
     assert "small review, quick pair" in printed
     assert "2  " in printed
-    assert "review budget (ordinary): 4 seat turns, at most 8 nested-seat launches" in printed
-    assert "supervisor entries consume the same cap" in printed
+    assert "maximum 11 seat turns / 22 retry-inclusive launches" in printed
+    assert "thread cap: 12" in printed
 
 
 def test_cli_managed_open_sizes_its_suggestion_by_the_review_material(
@@ -1332,7 +1341,369 @@ def test_cli_managed_open_sizes_its_suggestion_by_the_review_material(
         "--label", "market-research", "--author-vendor", "claude",
         "--docket-file", "big-docket.md",
     ])
-    assert rc == 1
-    printed = capsys.readouterr().err
+    assert rc == 0
+    printed = capsys.readouterr().out
     assert "1  claude/opus + deepseek/pro" in printed
     assert "full review, strongest pair" in printed
+
+
+# --- Automatic product start preparation -----------------------------------
+
+
+def _prepare_product(
+    project: Path,
+    registry: seats.Registry,
+    *,
+    mode: str = "ordinary",
+) -> dict[str, object]:
+    return opening.prepare_brokered_open(
+        root=project / "collab",
+        registry=registry,
+        review_mode=mode,
+        requested_cap=None,
+        docket_files=(),
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        author_vendor="claude",
+        tool_version="test",
+        real_home=project.parent,
+    )
+
+
+def _choice(
+    preparation: dict[str, object], pair: tuple[str, str]
+) -> dict[str, object]:
+    choices = preparation["choices"]
+    assert isinstance(choices, list)
+    return next(
+        row for row in choices
+        if isinstance(row, dict) and set(row["pair"]) == set(pair)
+    )
+
+
+def test_product_preparation_is_read_only_project_local_and_human_json_agree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, _head = _quick_pair_project(tmp_path, monkeypatch)
+    registry_path = seats.registry_path()
+    registry = seats.load_registry()
+    registry.last_pair[str(project)] = ["claude/opus", "deepseek/pro"]
+    registry.last_pair[""] = ["claude/haiku", "deepseek/flash"]
+    seats.save_registry(registry)
+    before_registry = registry_path.read_bytes()
+    before_profile = (project / seats.PROFILE_NAME).read_bytes()
+
+    preparation = _prepare_product(project, registry)
+
+    assert preparation["project"] == str(project)
+    assert preparation["thread_cap"] == 12
+    assert preparation["default_pair"] == ["claude/opus", "deepseek/pro"]
+    assert preparation["default_reason"] == "previous-project-pair"
+    assert preparation["budget_scope"] == "default-pair"
+    assert preparation["budget"] == _choice(
+        preparation, ("claude/opus", "deepseek/pro")
+    )["budget"]
+    choices = preparation["choices"]
+    assert isinstance(choices, list)
+    assert choices[0]["pair"] == ["claude/opus", "deepseek/pro"]
+    assert choices[0]["number"] == 1
+    lines = opening.brokered_preparation_lines(preparation)
+    assert any("Enter keeps claude/opus + deepseek/pro" in line for line in lines)
+    assert any("thread cap: 12" in line for line in lines)
+    assert registry_path.read_bytes() == before_registry
+    assert (project / seats.PROFILE_NAME).read_bytes() == before_profile
+    assert not (project / "collab").exists()
+    assert not (project / ".debate").exists()
+
+
+def test_product_preparation_ignores_global_and_other_project_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, _head = _quick_pair_project(tmp_path, monkeypatch)
+    registry = seats.load_registry()
+    registry.last_pair[str(project)] = ["claude/opus", "deepseek/pro"]
+    registry.last_pair[""] = ["claude/opus", "deepseek/pro"]
+    seats.save_registry(registry)
+
+    other = tmp_path / "other-project"
+    _git_project(other)
+    (other / seats.PROFILE_NAME).write_text(
+        (project / seats.PROFILE_NAME).read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    preparation = _prepare_product(other, registry)
+
+    assert preparation["project"] == str(other)
+    assert preparation["default_pair"] is None
+    assert preparation["budget"] is None
+    assert preparation["budget_scope"] == "per-choice"
+    choices = preparation["choices"]
+    assert isinstance(choices, list) and choices[0]["reason"] == "docket-size-light"
+    assert registry.last_pair[""] == ["claude/opus", "deepseek/pro"]
+
+
+def test_product_preparation_drops_duplicate_command_and_policy_stale_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, _head = _quick_pair_project(tmp_path, monkeypatch)
+    registry = seats.load_registry()
+    registry.last_pair[str(project)] = ["claude/haiku", "deepseek/flash"]
+    registry.seats["deepseek/flash"].commands = registry.seats["claude/haiku"].commands
+    duplicate = _prepare_product(project, registry)
+    assert duplicate["default_pair"] is None
+    duplicate_choices = duplicate["choices"]
+    assert isinstance(duplicate_choices, list)
+    assert all(
+        isinstance(row, dict)
+        and set(row["pair"]) != {"claude/haiku", "deepseek/flash"}
+        for row in duplicate_choices
+    )
+
+    registry = seats.load_registry()
+    registry.last_pair[str(project)] = ["claude/haiku", "deepseek/flash"]
+    registry.seats["deepseek/flash"].data_policy_revision = "new-policy"
+    registry.seats["deepseek/flash"].data_policy_notice = "Current fixture policy."
+    stale_policy = _prepare_product(project, registry)
+    assert stale_policy["default_pair"] is None
+    stale_choices = stale_policy["choices"]
+    assert isinstance(stale_choices, list)
+    assert all(
+        isinstance(row, dict) and "deepseek/flash" not in row["pair"]
+        for row in stale_choices
+    )
+
+
+def test_prepared_selection_opens_cap_twelve_and_remembers_only_after_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, head = _quick_pair_project(tmp_path, monkeypatch)
+    registry = seats.load_registry()
+    registry.last_pair[str(project)] = ["claude/opus", "deepseek/pro"]
+    registry.last_pair[""] = ["global/one", "global/two"]
+    preparation = _prepare_product(project, registry)
+    selected = _choice(preparation, ("claude/haiku", "deepseek/flash"))
+    budget = selected["budget"]
+    assert isinstance(budget, dict)
+
+    result = opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=project / "collab",
+            label="prepared",
+            pair=("claude/haiku", "deepseek/flash"),
+            source_ref=head,
+            author_vendor="claude",
+            preparation_revision=str(preparation["preparation_revision"]),
+            confirmed_budget=opening.ReviewBudget(
+                12,
+                int(budget["seat_turn_ceiling"]),
+                int(budget["nested_launch_ceiling"]),
+            ),
+            **MANAGED_CONTRACT,
+        ),
+        registry,
+        load_config_fn=_watcher_config,
+        now=MANAGED_NOW,
+        tool_version="test",
+        real_home=tmp_path,
+    )
+
+    record = json.loads(
+        (project / "collab" / f"{result.channel_name}.debate.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert record["thread_cap"] == 12
+    assert record["review_contract"]["thread_cap"] == 12
+    assert registry.last_pair[str(project)] == ["claude/haiku", "deepseek/flash"]
+    assert registry.last_pair[""] == ["global/one", "global/two"]
+    next_preparation = _prepare_product(project, registry)
+    assert next_preparation["default_pair"] == ["claude/haiku", "deepseek/flash"]
+
+
+def test_changed_profile_or_confirmed_budget_refuses_before_any_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, head = _quick_pair_project(tmp_path, monkeypatch)
+    registry = seats.load_registry()
+    registry.last_pair[str(project)] = ["claude/opus", "deepseek/pro"]
+    preparation = _prepare_product(project, registry)
+    previous = list(registry.last_pair[str(project)])
+    profile_path = project / seats.PROFILE_NAME
+    profile_path.write_text(
+        json.dumps({
+            "profile_version": 1,
+            "allowlist": ["claude/haiku", "deepseek/flash"],
+        }) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(channel.ChannelError, match="changed after confirmation"):
+        opening.open_debate_brokered(
+            opening.BrokeredOpenSpec(
+                root=project / "collab", label="changed",
+                pair=("claude/haiku", "deepseek/flash"), source_ref=head,
+                author_vendor="claude",
+                preparation_revision=str(preparation["preparation_revision"]),
+                confirmed_budget=opening.ReviewBudget(12, 11, 22),
+                **MANAGED_CONTRACT,
+            ),
+            registry, load_config_fn=_watcher_config, now=MANAGED_NOW,
+            tool_version="test", real_home=tmp_path,
+        )
+    assert registry.last_pair[str(project)] == previous
+    assert not (project / "collab").exists()
+    assert not (project / ".debate").exists()
+
+    fresh = _prepare_product(project, registry)
+    with pytest.raises(channel.ChannelError, match="confirmed review budget"):
+        opening.open_debate_brokered(
+            opening.BrokeredOpenSpec(
+                root=project / "collab", label="bad-budget",
+                pair=("claude/haiku", "deepseek/flash"), source_ref=head,
+                author_vendor="claude",
+                preparation_revision=str(fresh["preparation_revision"]),
+                confirmed_budget=opening.ReviewBudget(12, 10, 20),
+                **MANAGED_CONTRACT,
+            ),
+            registry, load_config_fn=_watcher_config, now=MANAGED_NOW,
+            tool_version="test", real_home=tmp_path,
+        )
+    assert not (project / "collab").exists()
+    assert not (project / ".debate").exists()
+
+
+def test_preparation_uses_each_pair_actual_retry_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, _head = _quick_pair_project(tmp_path, monkeypatch)
+    registry = seats.load_registry()
+    real_adapter = opening._brokered_adapter
+
+    def varied_adapter(seat: seats.Seat, **kwargs: object) -> dict[str, object]:
+        adapter = real_adapter(seat, **kwargs)  # type: ignore[arg-type]
+        adapter["retry_limit"] = 0 if seat.capability_class == "light" else 1
+        return adapter
+
+    monkeypatch.setattr(opening, "_brokered_adapter", varied_adapter)
+    preparation = _prepare_product(project, registry)
+    quick_budget = _choice(
+        preparation, ("claude/haiku", "deepseek/flash")
+    )["budget"]
+    frontier_budget = _choice(
+        preparation, ("claude/opus", "deepseek/pro")
+    )["budget"]
+    assert isinstance(quick_budget, dict) and quick_budget["nested_launch_ceiling"] == 11
+    assert isinstance(frontier_budget, dict) and frontier_budget["nested_launch_ceiling"] == 22
+
+
+def _open_prepared_checkpoint(
+    *,
+    project: Path,
+    registry: seats.Registry,
+    preparation: dict[str, object],
+    pair: tuple[str, str],
+    label: str,
+    source_ref: str,
+    docket_file: str,
+    real_home: Path,
+) -> opening.OpenResult:
+    selected = _choice(preparation, pair)
+    budget = selected["budget"]
+    assert isinstance(budget, dict)
+    return opening.open_debate_brokered(
+        opening.BrokeredOpenSpec(
+            root=project / "collab", label=label, pair=pair,
+            source_ref=source_ref, author_vendor="claude",
+            docket_files=(docket_file,),
+            preparation_revision=str(preparation["preparation_revision"]),
+            confirmed_budget=opening.ReviewBudget(
+                12, int(budget["seat_turn_ceiling"]),
+                int(budget["nested_launch_ceiling"]),
+            ),
+            **MANAGED_CONTRACT,
+        ),
+        registry, load_config_fn=_watcher_config, now=MANAGED_NOW,
+        tool_version="test", real_home=real_home,
+    )
+
+
+def test_three_checkpoint_policy_stops_on_error_and_resumes_with_fresh_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    project, _initial = _quick_pair_project(tmp_path, monkeypatch)
+    git = ["git", "-C", str(project), "-c", "user.email=t@t", "-c", "user.name=t"]
+    refs: list[str] = []
+    dockets = ("plan.md", "branch.md", "release.md")
+    for number, docket in enumerate(dockets, start=1):
+        (project / docket).write_text(f"checkpoint {number}\n", encoding="utf-8")
+        subprocess.run([*git, "add", docket], check=True)
+        subprocess.run([*git, "commit", "-qm", f"checkpoint {number}"], check=True)
+        refs.append(subprocess.run(
+            ["git", "-C", str(project), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip())
+
+    registry = seats.load_registry()
+    sequence_records: list[tuple[int, str, str, str]] = []
+
+    first_preparation = opening.prepare_brokered_open(
+        root=project / "collab", registry=registry, review_mode="ordinary",
+        requested_cap=None, docket_files=(dockets[0],),
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        author_vendor="claude", tool_version="test", real_home=tmp_path,
+    )
+    first = _open_prepared_checkpoint(
+        project=project, registry=registry, preparation=first_preparation,
+        pair=("claude/haiku", "deepseek/flash"), label="plan-review",
+        source_ref=refs[0], docket_file=dockets[0], real_home=tmp_path,
+    )
+    sequence_records.append((1, first.channel_name, refs[0], "PASS"))
+
+    second_preparation = opening.prepare_brokered_open(
+        root=project / "collab", registry=registry, review_mode="ordinary",
+        requested_cap=None, docket_files=(dockets[1],),
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        author_vendor="claude", tool_version="test", real_home=tmp_path,
+    )
+    assert second_preparation["default_pair"] == ["claude/haiku", "deepseek/flash"]
+    second = _open_prepared_checkpoint(
+        project=project, registry=registry, preparation=second_preparation,
+        pair=("claude/opus", "deepseek/pro"), label="branch-review",
+        source_ref=refs[1], docket_file=dockets[1], real_home=tmp_path,
+    )
+    sequence_records.append((2, second.channel_name, refs[1], "ERROR"))
+
+    # The host policy permits another automatic checkpoint only after PASS.
+    should_continue = sequence_records[-1][3] == "PASS"
+    assert should_continue is False
+    assert len(list((project / "collab").glob("*.debate.json"))) == 2
+
+    # Explicit owner resume starts fresh preparation; sequence 2's successful
+    # channel open made its selected pair the current project default.
+    resumed_preparation = opening.prepare_brokered_open(
+        root=project / "collab", registry=registry, review_mode="ordinary",
+        requested_cap=None, docket_files=(dockets[2],),
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        author_vendor="claude", tool_version="test", real_home=tmp_path,
+    )
+    assert resumed_preparation["default_pair"] == ["claude/opus", "deepseek/pro"]
+    third = _open_prepared_checkpoint(
+        project=project, registry=registry, preparation=resumed_preparation,
+        pair=("claude/opus", "deepseek/pro"), label="release-text-review",
+        source_ref=refs[2], docket_file=dockets[2], real_home=tmp_path,
+    )
+    sequence_records.append((3, third.channel_name, refs[2], "OPENED"))
+
+    assert len({row[1] for row in sequence_records}) == 3
+    assert len({row[2] for row in sequence_records}) == 3
+    configs = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(
+        (project / ".debate" / "channels").glob("*/watcher.json")
+    )]
+    assert {config["source_ref"] for config in configs} == set(refs)
+    assert {tuple(config["docket_files"]) for config in configs} == {
+        (dockets[0],), (dockets[1],), (dockets[2],),
+    }
+    records = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(
+        (project / "collab").glob("*.debate.json")
+    )]
+    assert all(record["thread_cap"] == 12 for record in records)
+    assert not list((project / ".debate" / "runtime").glob("*/cases/*/invocations/*"))

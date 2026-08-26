@@ -308,10 +308,10 @@ OPENING_MARKERS = (
 
 MAIN_MARKERS = (
     "the two seats run under Debate's control with you as supervisor",
-    "a fully managed debate needs --pair",
+    "a product open with --pair needs --preparation-revision",
     "a fully managed debate needs --author-vendor",
     "seat a lightweight model against a frontier model anyway",
-    "seat one of these with --pair a,b:",
+    "without --pair, print the read-only product preparation as JSON",
     "how much review material still counts as a small review",
 )
 

@@ -36,13 +36,15 @@ The field fold was gated on `plan-v080-field-fold-14206` (PASS, MSG-20).
   adapter timeout. The Ox notice states plainly that its process/tools can see the
   owner-selected generic key and its complete usable OpenRouter scope is in the blast
   radius.
-- **Bounded review contracts and two explicit modes** — every new product open records
+- **Automatic start preparation and standard cap 12** — every new product open records
   a non-empty goal, valid review domain, stop rule and `ordinary`/`release-gate` mode.
-  Ordinary reviews use cap 5 (four vote-producing seat turns, at most eight nested
-  launches with one retry); release gates retain the exhaustive stance and cap 12
-  default. Historical configurations remain release-gate with a `legacy-absent` basis.
-  Pair suggestion now falls back to another symmetric capability class and the numbered
-  menu remains populated whenever any admissible pair exists.
+  Both modes create a cap-12 channel. Before any write or Debate seat call, the engine
+  returns the exact project's stable pair menu, marks its last valid project pair as the
+  explicit Enter default, and reports each pair's clean and retry-inclusive budget from
+  its actual adapter policy. A preparation revision makes a changed profile, seat, menu,
+  or budget refuse before open. Multi-checkpoint plans repeat this choice at every fresh
+  channel and stop on failure or cancellation. Existing persisted caps and historical
+  configurations remain readable; mode-absent history keeps its `legacy-absent` basis.
 - **Result schema v2 with falsifiable verification evidence** — bundled product seats
   must return bounded `performed` command/status/output items or `unable` plus `NO_PASS`.
   The bridge and controller independently validate the dependency-free shape and limits;

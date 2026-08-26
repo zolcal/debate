@@ -89,9 +89,17 @@ def test_installed_onboarding_skill_carries_the_field_fold_contract() -> None:
         "--verification-capable --result-schema-version 2",
         "historical verdict remains in the append-only record",
         "fresh correction slug",
+        "Enter keeps A + B; choose a number to change; cancel stops",
+        "--preparation-revision <exact preparation_revision>",
+        "--confirmed-budget <selected seat_turn_ceiling>,<selected nested_launch_ceiling>",
+        "sequence N of M",
+        "no prior call authorization carries forward",
+        "Every new product channel",
+        "uses cap 12",
     ):
         assert contract in skill
     assert "verified by the schema" not in skill.lower()
+    assert "cap 5" not in skill.lower()
 
 
 def test_public_docs_name_upgrade_compatibility_and_safe_pruning() -> None:

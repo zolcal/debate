@@ -15,6 +15,10 @@ PATH-installed `debate`. If the launcher path is missing, run
 by resolving the plugin root yourself; if that fails, tell the user the plugin
 install is broken and stop.
 
+An install or repair does not hot-load this skill into a host process that was
+already running. Tell the user to start a fresh Codex or Claude process; only a
+fresh process is installation evidence.
+
 Core rules, non-negotiable:
 
 - **Detection is evidence, not approval.** Nothing found on PATH, in an old
@@ -31,6 +35,9 @@ Core rules, non-negotiable:
 - **Every subject gets a fresh channel.** A changed artifact being re-reviewed is
   a new subject and a new channel. Never reuse a terminal channel as if its old
   verdict had been rewritten.
+- **Every new channel start prepares and asks.** Never open from remembered state
+  alone. A previous current-project pair is only the displayed Enter default for
+  this start; every later checkpoint prepares and asks again.
 - **Plain words, always.** Say *agent* for an AI tool installed on this
   machine (claude, codex, kimi, ...), and *wrapper* for a small script of the
   user's that launches one with fixed settings. Define a term the first time
@@ -179,11 +186,20 @@ Core rules, non-negotiable:
    and mode. Use `ordinary` for bounded feature/fix review. Use `release-gate`
    for branch, release, security, or other owner-designated gates. Do not invent
    criteria the artifact does not claim.
-3. Ask the engine for its current numbered pair menu by running the product open
-   form without `--pair` (it refuses read-only after printing the menu and
-   budget). Render ONLY its admissible choices, in its stable order; never invent
-   or re-rank a pair. A remembered pair is a labelled convenience, never silently
-   selected. The user picks EXACTLY two. If two picks have different capability
+3. Ask the engine for its current structured preparation by running:
+   `<launcher> open --brokered --root <ABS collab dir> --label <slug>
+   --author-vendor <claude|codex> --review-mode <ordinary|release-gate>
+   --docket-file <project-relative review input> [--docket-file ...] --json`.
+   This is read-only and makes zero Debate seat calls. Render ONLY its numbered
+   `choices`, in their stable order; never invent or re-rank a pair or budget.
+   Keep the returned `preparation_revision` for the final open. With no valid
+   previous project pair, say: “Pick one numbered pair; cancel stops.” With a
+   valid previous project pair, say exactly: “Enter keeps A + B; choose a number to change; cancel stops.” Enter explicitly selects that displayed default for
+   this start. A number selects that row. `cancel` discards the preparation and
+   creates nothing. Never read a global or another project's remembered pair.
+   If a default or selected row carries warning metadata, choosing it does not
+   waive the separate warning confirmation. The user picks EXACTLY two. If two
+   picks have different capability
    classes,
    (a lightweight fast model against a frontier reasoning model), say so
    plainly before confirming: seats of different weight often produce
@@ -207,19 +223,19 @@ Core rules, non-negotiable:
    | Verification commands | ... |
    | Stop rule | ... |
    | Seats | exact pair from the engine menu |
-   | Clean path | 2 vote-producing seat turns / 2 nested-seat launches |
+   | Clean path | exact clean seat turns / nested launches from the selected engine budget |
    | Enforced maximum | engine-reported seat-turn and retry-inclusive nested-launch ceilings |
 
    Say in the same confirmation: this creates one NEW channel; the owner is
    supervisor and never a vote; supervisor posts consume the same entry cap;
    isolation remains advisory, not protection against hostile code; and every
    verification block is seat-declared evidence which the controller makes
-   falsifiable but does not authenticate as truth. For ordinary mode the engine
-   owns cap 5: at most four vote-producing seat turns and eight nested launches
-   with the product retry policy. For release-gate mode its default cap 12 permits
-   at most eleven seat turns and twenty-two launches. Use the exact budget the
-   engine printed, including any profile-specific retry difference, rather than
-   recalculating it. Ask once for confirmation before opening.
+   falsifiable but does not authenticate as truth. Every new product channel,
+   ordinary or release-gate, uses cap 12. Use the selected choice's exact clean
+   and retry-inclusive budget from the engine, including any seat-specific retry
+   difference, rather than recalculating it. Ask once for confirmation before
+   opening. This confirmation authorizes only this one channel and its displayed
+   budget; it never authorizes a later checkpoint.
 5. Run EXACTLY this form (agent-only engine fact: `--brokered` is NOT
    optional -- the plain form mints a legacy version-1 channel and is never
    the product path):
@@ -227,6 +243,8 @@ Core rules, non-negotiable:
    --pair <a>,<b> --author-vendor <your host's catalog vendor: "claude" in
    Claude Code, "codex" in Codex> --goal <goal> --review-domain <domain>
    --stop-rule <stop> --review-mode <ordinary|release-gate>
+   --preparation-revision <exact preparation_revision>
+   --confirmed-budget <selected seat_turn_ceiling>,<selected nested_launch_ceiling>
    --docket-file <project-relative review input>
    [--docket-file ...]` (the docket files are what the seats actually read --
    always pass the review target; --author-vendor makes the recorded author
@@ -242,8 +260,12 @@ Core rules, non-negotiable:
    collect isolation, persistence and verification declarations exactly as in
    Flow 1 step 3. On answer 2, show the mandatory v2 verification result shape
    and both registration declarations before writing/registering anything.
-6. Print the engine's single `.debate/` ignore suggestion when it appears; never
-   edit `.gitignore`. Open the docket with the `broker-open` hint (the request
+6. If the engine says the preparation changed, stop and render a fresh menu; never
+   reuse the old confirmation. If it reports `DEGRADED`, the channel exists but
+   the new project default was not saved: report that exact channel, stop the
+   sequence, and never open a replacement automatically. Otherwise print the
+   engine's single `.debate/` ignore suggestion when it appears; never edit
+   `.gitignore`. Open the docket with the `broker-open` hint (the request
    body states what to verify), then drive it with the printed `watch
    --until-close` command. Set the expectation once -- "this takes a few
    minutes of model thinking; I'll report when it closes" -- then BE QUIET:
@@ -258,7 +280,35 @@ Core rules, non-negotiable:
    inputs/results, streams, hashes, source manifests/exports and receipts.
    Keep other raw commands behind a "details" answer.
 
-## Flow 3 — correct a falsified terminal finding
+## Flow 3 — execute several debate checkpoints
+
+Before executing an approved plan, identify its declared debate checkpoints and
+their order. This is explanatory state in the plan and current handover, not a
+new scheduler or authorization store.
+
+1. At each checkpoint say `sequence N of M`, derive a fresh complete review brief,
+   and run Flow 2 preparation again. Show the exact artifact/ref, the current
+   project default, cap 12, and that selected channel's engine budget. When every
+   remaining checkpoint pair and retry policy is already known, sum the remaining
+   clean and maximum budgets; otherwise label the remaining plan-level budget
+   `unknown until each future pair is selected`. Never guess.
+2. Confirm and open only the current checkpoint. Its selected pair and cap stay
+   pinned through all turns, deliberation, and any open-thread fix-report/verdict
+   loop. Do not ask for seats again inside that channel.
+3. A typed terminal `PASS` permits the following non-debate plan work. Reaching
+   the next debate checkpoint starts Flow 2 again with a fresh menu and a fresh
+   current-turn confirmation; no prior call authorization carries forward.
+4. A terminal `NO_PASS`, `ERROR`, cap exhaustion, changed or invalid artifact ref,
+   owner cancellation, or degraded remembered-pair save stops the sequence. Do
+   not begin the next checkpoint. After a closed terminal channel, a changed
+   artifact uses a fresh channel. An open native gate thread may use its normal
+   fix-report/verdict loop until it closes, with the original pair still pinned.
+5. Every resumed checkpoint starts with fresh preparation. Record the latest
+   completed checkpoint, channel id, typed result, artifact/ref, and next
+   checkpoint in the session handover. Never edit a plan body while a reviewer is
+   working; reviewer sections remain dated, attributed, and append-only.
+
+## Flow 4 — correct a falsified terminal finding
 
 When fresh evidence disproves a finding in a terminal channel, do not edit or
 reopen that history. Draft a supervisor `close`-typed post under a fresh correction slug.

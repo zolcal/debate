@@ -118,14 +118,18 @@ def main() -> int:
     codex_interactive = bool(os.environ.get("PLUGIN_ROOT")) and not quiet
     base_context = (
         f"Debate onboarding state: {json.dumps(report)} | launcher: {launcher} | "
-        "To set up or start debates, use the debate-onboarding skill after the user "
-        "consents; discovery and approval make zero model calls."
+        "Use the debate-onboarding skill for every direct request to start a new "
+        "debate or debate checkpoint; it prepares the current-project pair menu "
+        "before opening. Discovery, approval, and start preparation make zero Debate "
+        "seat calls. A plugin installed or repaired in this process requires a fresh "
+        "host process before this routing is available."
     )
     if attention == "ready":
         _emit(_out(
             None,
             f"Debate is installed and this project is ready ({seat_count} approved "
-            f"seat(s)). The start-debate skill is available. launcher: {launcher}",
+            f"seat(s)). The debate-onboarding skill handles every new channel start. "
+            f"launcher: {launcher}",
         ))
         return 0
     if attention == "offer_setup":

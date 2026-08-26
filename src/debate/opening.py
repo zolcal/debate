@@ -11,6 +11,7 @@ writes the wizard's defaults cache as a side effect (plan fold H2).
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import sys
@@ -29,8 +30,9 @@ _SLUG_KEEP = re.compile(r"[^a-z0-9-]+")
 # Below it a quick pair is enough; at or above it the strongest pair is worth
 # its cost. A per-debate setting: every open may say its own number.
 QUICK_REVIEW_MAX_BYTES = 16384
-ORDINARY_THREAD_CAP = 5
-RELEASE_GATE_THREAD_CAP = 12
+PRODUCT_THREAD_CAP = 12
+ORDINARY_THREAD_CAP = PRODUCT_THREAD_CAP
+RELEASE_GATE_THREAD_CAP = PRODUCT_THREAD_CAP
 
 
 class _LoadedConfig(Protocol):
@@ -77,7 +79,7 @@ class BrokeredOpenSpec:
     author_vendor: str  # the interactive author's vendor (e.g. "claude", "codex")
     runtime_root: Path | None = None
     supervisor: str = "owner"
-    thread_cap: int = ORDINARY_THREAD_CAP
+    thread_cap: int = PRODUCT_THREAD_CAP
     allow_identical_seats: bool = False
     allow_mismatched_pair: bool = False
     docket_files: tuple[str, ...] = ()  # project-relative review inputs for the seats
@@ -91,6 +93,12 @@ class BrokeredOpenSpec:
     review_domain: str = ""
     stop_rule: str = ""
     review_mode: str = "ordinary"
+    # The installed host echoes these values from the immediately preceding
+    # read-only preparation. Direct library callers may omit them for
+    # compatibility, but the product CLI requires both and the engine always
+    # re-prepares the selected pair before the first write.
+    preparation_revision: str | None = None
+    confirmed_budget: ReviewBudget | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +106,17 @@ class ReviewBudget:
     thread_cap: int
     seat_turn_ceiling: int
     nested_launch_ceiling: int
+    clean_seat_turns: int = 2
+    clean_nested_launches: int = 2
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "thread_cap": self.thread_cap,
+            "clean_seat_turns": self.clean_seat_turns,
+            "clean_nested_launches": self.clean_nested_launches,
+            "seat_turn_ceiling": self.seat_turn_ceiling,
+            "nested_launch_ceiling": self.nested_launch_ceiling,
+        }
 
 
 def resolve_review_thread_cap(review_mode: str, requested: int | None) -> int:
@@ -105,14 +124,12 @@ def resolve_review_thread_cap(review_mode: str, requested: int | None) -> int:
         raise channel.ChannelError(
             f"refused: review mode must be one of {channel.REVIEW_MODES}, got {review_mode!r}"
         )
-    if review_mode == "ordinary":
-        if requested not in (None, ORDINARY_THREAD_CAP):
-            raise channel.ChannelError(
-                f"refused: ordinary review uses thread cap {ORDINARY_THREAD_CAP} exactly; "
-                f"got {requested}"
-            )
-        return ORDINARY_THREAD_CAP
-    return RELEASE_GATE_THREAD_CAP if requested is None else requested
+    if requested not in (None, PRODUCT_THREAD_CAP):
+        raise channel.ChannelError(
+            f"refused: new product reviews use thread cap {PRODUCT_THREAD_CAP} exactly; "
+            f"got {requested}"
+        )
+    return PRODUCT_THREAD_CAP
 
 
 def review_budget(thread_cap: int, retry_limits: Sequence[int]) -> ReviewBudget:
@@ -257,6 +274,7 @@ PAIR_MENU_LIMIT = 6
 QUICK_PAIR_REASON = "small review, quick pair"
 FULL_PAIR_REASON = "full review, strongest pair"
 REMEMBERED_PAIR_REASON = "the pair you picked last time"
+PREVIOUS_PROJECT_PAIR_REASON = "previous-project-pair"
 
 
 def _fallback_pair_reason(wanted: str, actual: str) -> str:
@@ -461,6 +479,7 @@ def remembered_pair(
     allowlist: tuple[str, ...] | None,
     real_home: Path | None = None,
     require_admissible: bool = True,
+    include_global: bool = True,
 ) -> tuple[str, str] | None:
     """The pair this project used last time, if it can still be seated.
 
@@ -471,7 +490,10 @@ def remembered_pair(
     NOT drop it: it is the user's own last choice, offered as exactly that.
     """
     home = _home(real_home)
-    for default in (registry.last_pair.get(project), registry.last_pair.get("")):
+    candidates = [registry.last_pair.get(project)]
+    if include_global:
+        candidates.append(registry.last_pair.get(""))
+    for default in candidates:
         if not default or len(default) != 2:
             continue
         if allowlist is not None and not all(seat_id in allowlist for seat_id in default):
@@ -480,6 +502,8 @@ def remembered_pair(
             first = _seatable(registry, default[0])
             second = _seatable(registry, default[1])
         except channel.ChannelError:
+            continue
+        if not _pairable(first, second):
             continue
         if require_admissible and any(
             admission_problem(seat, real_home=home) is not None for seat in (first, second)
@@ -1057,6 +1081,267 @@ def _brokered_adapter(
     }
 
 
+def _validate_author_vendor(registry: Registry, author_vendor: str) -> str:
+    normalized = author_vendor.strip().lower()
+    if not normalized:
+        raise channel.ChannelError(
+            "refused: a fully managed debate needs --author-vendor (the interactive "
+            "author's vendor), so the recorded author relationship is declared, "
+            "never guessed"
+        )
+    from .seat_catalog import CATALOG
+
+    known_vendors = {entry.vendor for entry in CATALOG}
+    known_vendors.update(seat.vendor.strip().lower() for seat in registry.seats.values())
+    if normalized not in known_vendors:
+        raise channel.ChannelError(
+            f"refused: --author-vendor {author_vendor!r} matches no catalog or "
+            f"registry vendor; known vendors: {', '.join(sorted(known_vendors))}"
+        )
+    return normalized
+
+
+def _accepted_product_allowlist(
+    registry: Registry,
+    *,
+    project: str,
+) -> tuple[str, ...]:
+    """Current-project seats whose profile and current policy revision agree."""
+    from .seats import PROFILE_NAME, load_profile
+
+    profile = load_profile(project, registry)
+    if profile is None:
+        raise channel.ChannelError(
+            "refused: this project has no approved seats "
+            f"(no {Path(project) / PROFILE_NAME}); the product path starts only "
+            "after onboarding approval -- run the setup flow first"
+        )
+    accepted: list[str] = []
+    for seat_id in profile.allowlist:
+        selected = registry.seats[seat_id]
+        revision = selected.data_policy_revision
+        if revision is not None and profile.data_policy_acceptances.get(seat_id) != revision:
+            continue
+        accepted.append(seat_id)
+    return tuple(accepted)
+
+
+def _preparation_reason(suggestion: PairSuggestion | None) -> tuple[str | None, str | None]:
+    if suggestion is None:
+        return None, None
+    if suggestion.reason == REMEMBERED_PAIR_REASON:
+        return PREVIOUS_PROJECT_PAIR_REASON, suggestion.reason
+    if suggestion.reason == QUICK_PAIR_REASON:
+        return "docket-size-light", suggestion.reason
+    if suggestion.reason == FULL_PAIR_REASON:
+        return "docket-size-frontier", suggestion.reason
+    return "capability-fallback", suggestion.reason
+
+
+def _pair_warning_metadata(first: Seat, second: Seat) -> list[dict[str, object]]:
+    kind = classify_pair(first, second)
+    if kind == "mismatched":
+        return [{
+            "code": "mismatched-capability",
+            "message": _uneven_pair_sentence(first, second),
+            "requires_confirmation": True,
+            "open_flag": "--allow-mismatched-pair",
+        }]
+    if kind == "undeclared":
+        return [{
+            "code": "undeclared-capability",
+            "message": "one of these seats has no declared capability class; pairing may be uneven",
+            "requires_confirmation": False,
+        }]
+    return []
+
+
+def prepare_brokered_open(
+    *,
+    root: Path,
+    registry: Registry,
+    review_mode: str,
+    requested_cap: int | None,
+    docket_files: Sequence[str],
+    quick_review_max_bytes: int,
+    author_vendor: str,
+    tool_version: str,
+    real_home: Path | None = None,
+    deliberation_input: str = "verdicts",
+) -> dict[str, object]:
+    """Build the product's authoritative, read-only start menu.
+
+    The object is safe to discard on cancel. It performs admission and adapter
+    construction in memory so every choice carries the retry budget the engine
+    would actually record, but it creates no channel/runtime state and invokes
+    no seat.
+    """
+    from .seats import screen_credentials
+
+    thread_cap = resolve_review_thread_cap(review_mode, requested_cap)
+    screen_credentials(registry)
+    project = project_key(root)
+    allowlist = _accepted_product_allowlist(registry, project=project)
+    from .seats import load_profile
+
+    profile = load_profile(project, registry)
+    assert profile is not None  # _accepted_product_allowlist already refused otherwise
+    state_rows: list[dict[str, object]] = []
+    for seat_id in profile.allowlist:
+        seat = registry.seats[seat_id]
+        state_rows.append({
+            "seat_id": seat_id,
+            "vendor": seat.vendor,
+            "submodel": seat.submodel,
+            "effort": seat.effort,
+            "commands": seat.commands,
+            "present": seat.present,
+            "capability_class": seat.capability_class,
+            "isolation_argv": seat.isolation_argv,
+            "no_persistence_argv": seat.no_persistence_argv,
+            "config_home": seat.config_home,
+            "verification_argv": seat.verification_argv,
+            "verification_basis": seat.verification_basis,
+            "result_schema_version": seat.result_schema_version,
+            "credential_env": seat.credential_env,
+            "data_policy_revision": seat.data_policy_revision,
+            "accepted_policy_revision": profile.data_policy_acceptances.get(seat_id),
+        })
+    state_canonical = json.dumps(
+        {"profile_allowlist": profile.allowlist, "seats": state_rows},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    state_revision = hashlib.sha256(state_canonical.encode("utf-8")).hexdigest()
+    home = Path.home() if real_home is None else real_home
+    normalized_author = _validate_author_vendor(registry, author_vendor)
+    review_bytes = docket_byte_size(project, docket_files)
+    previous = remembered_pair(
+        registry,
+        project=project,
+        allowlist=allowlist,
+        real_home=home,
+        require_admissible=True,
+        include_global=False,
+    )
+    suggestion: PairSuggestion | None
+    if previous is not None:
+        suggestion = PairSuggestion(previous, REMEMBERED_PAIR_REASON)
+    else:
+        suggestion = suggest_pair_with_reason(
+            registry,
+            allowlist=allowlist,
+            docket_bytes=review_bytes,
+            quick_review_max_bytes=quick_review_max_bytes,
+            last_pair=None,
+            real_home=home,
+            require_admissible=True,
+        )
+    pairs = pair_choices(
+        registry,
+        allowlist=allowlist,
+        suggestion=None if suggestion is None else suggestion.pair,
+        docket_bytes=review_bytes,
+        quick_review_max_bytes=quick_review_max_bytes,
+        real_home=home,
+        require_admissible=True,
+    )
+    reason, reason_text = _preparation_reason(suggestion)
+    choices: list[dict[str, object]] = []
+    for number, pair in enumerate(pairs, start=1):
+        first, second = (registry.seats[pair[0]], registry.seats[pair[1]])
+        adapters = (
+            _brokered_adapter(
+                first,
+                tool_version=tool_version,
+                author_vendor=normalized_author,
+                real_home=home,
+                deliberation_input=deliberation_input,
+            ),
+            _brokered_adapter(
+                second,
+                tool_version=tool_version,
+                author_vendor=normalized_author,
+                real_home=home,
+                deliberation_input=deliberation_input,
+            ),
+        )
+        budget = review_budget(
+            thread_cap,
+            [cast(int, adapter["retry_limit"]) for adapter in adapters],
+        )
+        is_lead = number == 1 and suggestion is not None
+        choices.append({
+            "number": number,
+            "pair": [pair[0], pair[1]],
+            "default": previous is not None and pair == previous,
+            "reason": reason if is_lead else None,
+            "reason_text": reason_text if is_lead else None,
+            "warnings": _pair_warning_metadata(first, second),
+            "budget": budget.as_dict(),
+        })
+    default_budget = choices[0]["budget"] if previous is not None and choices else None
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "project": project,
+        "review_mode": review_mode,
+        "thread_cap": thread_cap,
+        "docket_bytes": review_bytes,
+        "state_revision": state_revision,
+        "choices": choices,
+        "default_pair": None if previous is None else [previous[0], previous[1]],
+        "default_reason": PREVIOUS_PROJECT_PAIR_REASON if previous is not None else None,
+        "budget": default_budget,
+        "budget_scope": "default-pair" if default_budget is not None else "per-choice",
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    payload["preparation_revision"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return payload
+
+
+def brokered_preparation_lines(preparation: dict[str, object]) -> list[str]:
+    """Human-readable rendering derived only from the structured result."""
+    lines = [
+        f"project: {preparation['project']}",
+        f"review mode: {preparation['review_mode']}; thread cap: {preparation['thread_cap']}",
+    ]
+    default_pair = preparation.get("default_pair")
+    if isinstance(default_pair, list) and len(default_pair) == 2:
+        lines.append(
+            f"Enter keeps {default_pair[0]} + {default_pair[1]}; "
+            "choose a number to change; cancel stops."
+        )
+    else:
+        lines.append("Pick one numbered pair; cancel stops.")
+    choices = preparation.get("choices")
+    if not isinstance(choices, list) or not choices:
+        lines.append("No approved, currently seatable pair is available.")
+    else:
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            pair = choice["pair"]
+            budget = choice["budget"]
+            if not isinstance(pair, list) or not isinstance(budget, dict):
+                continue
+            marker = " [default]" if choice.get("default") else ""
+            reason_text = choice.get("reason_text")
+            reason_suffix = f" -- {reason_text}" if reason_text else ""
+            lines.append(
+                f"{choice['number']}  {pair[0]} + {pair[1]}{marker}{reason_suffix}; "
+                f"clean {budget['clean_nested_launches']} launches; maximum "
+                f"{budget['seat_turn_ceiling']} seat turns / "
+                f"{budget['nested_launch_ceiling']} retry-inclusive launches"
+            )
+            warnings = choice.get("warnings")
+            if isinstance(warnings, list):
+                for warning in warnings:
+                    if isinstance(warning, dict):
+                        lines.append(f"   warning: {warning.get('message', '')}")
+    lines.append(f"preparation revision: {preparation['preparation_revision']}")
+    return lines
+
+
 def _recorded_isolation(profile: dict[str, object]) -> tuple[str, str]:
     """What the debate record says about one seat's run, read back off the
     command that was actually recorded: where its isolation settings came
@@ -1101,6 +1386,84 @@ def open_debate_brokered(
             f"refused: {spec.review_mode} review resolved to thread cap {expected_cap}, "
             f"got {spec.thread_cap}"
         )
+    if len(spec.pair) != 2:
+        raise channel.ChannelError("refused: a debate seats exactly two")
+    current_preparation = prepare_brokered_open(
+        root=spec.root,
+        registry=registry,
+        review_mode=spec.review_mode,
+        requested_cap=spec.thread_cap,
+        docket_files=spec.docket_files,
+        quick_review_max_bytes=spec.quick_review_max_bytes,
+        author_vendor=spec.author_vendor,
+        tool_version=tool_version,
+        real_home=home,
+        deliberation_input=spec.deliberation_input,
+    )
+    if (
+        spec.preparation_revision is not None
+        and spec.preparation_revision != current_preparation["preparation_revision"]
+    ):
+        raise channel.ChannelError(
+            "refused: the approved profile, seat state, menu, or budget changed after "
+            "confirmation; prepare a fresh menu"
+        )
+    selected_choice = next(
+        (
+            choice
+            for choice in cast(list[dict[str, object]], current_preparation["choices"])
+            if set(cast(list[str], choice["pair"])) == set(spec.pair)
+        ),
+        None,
+    )
+    if selected_choice is None:
+        from .seats import PROFILE_NAME, load_profile
+
+        current_profile = load_profile(project_key(spec.root), registry)
+        if current_profile is None:
+            raise channel.ChannelError(
+                "refused: this project has no approved seats "
+                f"(no {Path(project_key(spec.root)) / PROFILE_NAME})"
+            )
+        for seat_id in spec.pair:
+            if seat_id not in current_profile.allowlist:
+                raise channel.ChannelError(
+                    f"refused: {seat_id!r} is outside this project's allowlist"
+                )
+        first_selected = _seatable(registry, spec.pair[0])
+        second_selected = _seatable(registry, spec.pair[1])
+        for selected in (first_selected, second_selected):
+            if (
+                selected.data_policy_revision is not None
+                and current_profile.data_policy_acceptances.get(selected.seat_id)
+                != selected.data_policy_revision
+            ):
+                raise channel.ChannelError(
+                    f"refused: seat {selected.seat_id!r} needs project acceptance of "
+                    f"data policy {selected.data_policy_revision!r}; re-run onboarding "
+                    "inspect and approve"
+                )
+        _identity_guard(
+            first_selected,
+            second_selected,
+            allow_identical=spec.allow_identical_seats,
+        )
+        for selected in (first_selected, second_selected):
+            problem = admission_problem(selected, real_home=home)
+            if problem is not None:
+                raise channel.ChannelError(problem)
+        raise channel.ChannelError(
+            "refused: the selected pair is not in the current prepared menu; "
+            "prepare a fresh menu"
+        )
+    if (
+        spec.confirmed_budget is not None
+        and spec.confirmed_budget.as_dict() != selected_choice["budget"]
+    ):
+        raise channel.ChannelError(
+            "refused: the confirmed review budget does not match the engine's current "
+            "selected-pair budget; prepare and confirm again"
+        )
     screen_credentials(registry)
     project = project_key(spec.root)
     profile = load_profile(project, registry)
@@ -1110,8 +1473,6 @@ def open_debate_brokered(
             f"(no {Path(project) / PROFILE_NAME}); the product path starts only "
             "after onboarding approval -- run the setup flow first"
         )
-    if len(spec.pair) != 2:
-        raise channel.ChannelError("refused: a debate seats exactly two")
     for seat_id in spec.pair:
         if seat_id not in profile.allowlist:
             raise channel.ChannelError(
@@ -1149,25 +1510,7 @@ def open_debate_brokered(
         raise channel.ChannelError(
             "refused: a fully managed debate needs the commit its seats will review"
         )
-    author_vendor = spec.author_vendor.strip().lower()
-    if not author_vendor:
-        raise channel.ChannelError(
-            "refused: a fully managed debate needs --author-vendor (the interactive "
-            "author's vendor), so the recorded author relationship is declared, "
-            "never guessed"
-        )
-    # A typo must refuse, never silently degrade to the PERMISSIVE
-    # author-independent reading: the declaration is only meaningful against
-    # the vendors this open can actually see.
-    from .seat_catalog import CATALOG
-
-    known_vendors = {entry.vendor for entry in CATALOG}
-    known_vendors.update(seat.vendor.strip().lower() for seat in registry.seats.values())
-    if author_vendor not in known_vendors:
-        raise channel.ChannelError(
-            f"refused: --author-vendor {spec.author_vendor!r} matches no catalog or "
-            f"registry vendor; known vendors: {', '.join(sorted(known_vendors))}"
-        )
+    author_vendor = _validate_author_vendor(registry, spec.author_vendor)
 
     name = channel.generate_channel_id(spec.root, label=spec.label)
     project_path = Path(project)
@@ -1352,7 +1695,6 @@ def open_debate_brokered(
     record_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
     registry.last_pair[project] = [first.seat_id, second.seat_id]
-    registry.last_pair[""] = [first.seat_id, second.seat_id]
 
     hints = [
         f"opened {name} at {spec.root} (parties {parties[0]!r}/{parties[1]!r}, "

@@ -33,7 +33,7 @@ from typing import Iterator
 
 import pytest
 
-from debate import bridge, channel, seats
+from debate import bridge, channel, opening, seats
 from debate.__main__ import main
 
 NOW = "2026-08-20T12:00:00+00:00"
@@ -228,6 +228,28 @@ def _run_case(
         world.says("othertool", "NO_PASS")
     else:
         world.says("othertool", "NO_PASS", "PASS")
+    from debate import __version__
+
+    preparation = opening.prepare_brokered_open(
+        root=root,
+        registry=seats.load_registry(),
+        review_mode="ordinary",
+        requested_cap=None,
+        docket_files=("docket.md",),
+        quick_review_max_bytes=opening.QUICK_REVIEW_MAX_BYTES,
+        author_vendor="claude",
+        tool_version=__version__,
+        deliberation_input=mode or "verdicts",
+    )
+    choices = preparation["choices"]
+    assert isinstance(choices, list)
+    selected = next(
+        row for row in choices
+        if isinstance(row, dict)
+        and row["pair"] == ["mytool/model", "othertool/model"]
+    )
+    budget = selected["budget"]
+    assert isinstance(budget, dict)
     argv = [
         "open",
         "--root", str(root),
@@ -241,6 +263,9 @@ def _run_case(
         "--review-domain", "project_module.py and docket.md at the pinned commit.",
         "--stop-rule", "Stop after the recorded criterion is resolved.",
         "--review-mode", "ordinary",
+        "--preparation-revision", str(preparation["preparation_revision"]),
+        "--confirmed-budget",
+        f"{budget['seat_turn_ceiling']},{budget['nested_launch_ceiling']}",
         "--yes",
     ]
     if mode is not None:
@@ -364,7 +389,7 @@ def test_the_whole_review_material_is_re_read_when_the_operator_asks_for_it(
         assert "- deliberation-input:" not in entry.body
 
 
-def test_persistent_ordinary_disagreement_stops_at_four_launches_and_cap_five(
+def test_persistent_ordinary_disagreement_uses_the_recorded_cap_twelve(
     persistent_case: Case,
 ) -> None:
     closing = _closing_body(persistent_case)
@@ -377,11 +402,11 @@ def test_persistent_ordinary_disagreement_stops_at_four_launches_and_cap_five(
         )
         if entry.entry_type == "verdict"
     ]
-    assert len(verdicts) == 4
+    assert len(verdicts) == 11
     invocations = sorted(
         (persistent_case.runtime_root / "cases" / THREAD / "invocations").iterdir()
     )
-    assert len(invocations) == 4
+    assert len(invocations) == 11
     assert all(path.name.endswith("-1") for path in invocations), "no retry was spent"
 
 

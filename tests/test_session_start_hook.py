@@ -126,6 +126,7 @@ def test_fresh_project_gets_the_setup_notice(tmp_path: Path) -> None:
     assert isinstance(context, str)
     assert "offer_setup" in context
     assert "debate-plugin" in context  # launcher path is injected
+    assert "fresh host process" in context
     assert "continue" not in payload
     assert "stopReason" not in payload
 
@@ -186,6 +187,7 @@ def test_healthy_project_is_quiet(tmp_path: Path) -> None:
     assert isinstance(context, str)
     assert "ready" in context
     assert "debate-plugin" in context
+    assert "every new channel start" in context
     assert "continue" not in payload
     assert "stopReason" not in payload
 
