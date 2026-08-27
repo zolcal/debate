@@ -519,9 +519,34 @@ def catalog_declares_isolation(vendor: str) -> bool:
     return entry is not None and bool(entry.isolation_argv) and bool(entry.no_persistence_argv)
 
 
+def _is_windows() -> bool:
+    """Seam for the two Windows-only discovery rules (F27/F28): tests patch
+    THIS, because patching os.name globally makes pathlib itself explode."""
+    return os.name == "nt"
+
+
+def _windows_native_binary(name: str, resolved: str) -> str:
+    """Resolve past an npm ``.cmd`` batch shim to the vendored native exe.
+
+    A batch shim re-parses its arguments and destroys everything after the
+    first newline: the codex seat received only the docket's opening line
+    (field finding F28), while single-line smoke prompts sailed through.
+    Discovery therefore pins the real executable when the npm layout offers
+    one; when none is found the shim stands, honestly, and multi-line
+    prompts remain at risk there."""
+    if not _is_windows() or not resolved.lower().endswith((".cmd", ".bat")):
+        return resolved
+    modules = Path(resolved).parent / "node_modules"
+    for candidate in sorted(
+        modules.glob(f"@*/{name}/node_modules/@*/*/vendor/*/bin/{name}.exe")
+    ):
+        return str(candidate)
+    return resolved
+
+
 def _assemble_argv(binary_path: str, invocation: tuple[str, ...], extra: list[str]) -> list[str]:
     argv = [binary_path if part == "{binary}" else part for part in invocation]
-    if os.name == "nt":
+    if _is_windows():
         # Windows codex has no granular sandbox: workspace-write blocks ALL
         # shell execution, read-only access included (field finding F27,
         # model-verified on the box), so the only runnable policy there is
@@ -561,6 +586,7 @@ def discover(
         )
         if binary_path is None:
             continue
+        binary_path = _windows_native_binary(entry.binaries[0], binary_path)
         for submodel in entry.submodels:
             seat_id = f"{entry.vendor}/{submodel}"
             seen_ids.add(seat_id)

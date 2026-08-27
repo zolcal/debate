@@ -1186,10 +1186,8 @@ def test_windows_discovery_substitutes_a_runnable_codex_sandbox(
     workspace-write blocks ALL shell execution there (model-verified on the
     box), so discovery pins danger-full-access on nt and the seat command
     records the truth. POSIX keeps workspace-write."""
-    import os
-
     _registry_env(tmp_path, monkeypatch)
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(seats, "_is_windows", lambda: True)
     reg = seats.load_registry()
     reg, _ = seats.discover(
         reg, which=_which_from({"codex": "/x/codex"}), now="t-nt"
@@ -1197,3 +1195,30 @@ def test_windows_discovery_substitutes_a_runnable_codex_sandbox(
     argv = reg.seats["codex/gpt-5.6-terra"].commands[0]
     assert "danger-full-access" in argv
     assert "workspace-write" not in argv
+
+
+def test_windows_discovery_resolves_past_a_batch_shim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Field finding F28: an npm .cmd batch shim re-parses argv and feeds a
+    seat only the first line of a multi-line prompt. When the npm layout
+    ships the vendored native exe, discovery pins THAT; a shim with no exe
+    behind it stands as resolved."""
+    shim_dir = tmp_path / "npm"
+    exe = (
+        shim_dir / "node_modules" / "@openai" / "codex" / "node_modules"
+        / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc"
+        / "bin" / "codex.exe"
+    )
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"MZ")
+    shim = shim_dir / "codex.cmd"
+    shim.write_text("@echo shim\r\n", encoding="utf-8")
+
+    _registry_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(seats, "_is_windows", lambda: True)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(
+        reg, which=_which_from({"codex": str(shim)}), now="t-shim"
+    )
+    assert reg.seats["codex/gpt-5.6-terra"].commands[0][0] == str(exe)
