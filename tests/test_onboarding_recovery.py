@@ -3,13 +3,28 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+
+
 from debate import channel, onboarding
+
+def _hermetic_path() -> str:
+    """Discovery must find no agent CLIs. POSIX keeps the literal system
+    dirs; Windows substitutes git's own directory (git shims and nothing
+    else), because /usr/bin does not exist there and the fixtures' git
+    subprocesses still need to resolve (field finding F25)."""
+    if os.name == "nt":
+        git = shutil.which("git")
+        return str(Path(git).parent) if git else ""
+    return "/usr/bin:/bin"
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 NOW = "2026-08-19T12:00:00+00:00"
@@ -21,7 +36,7 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pat
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(registry))
-    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("PATH", _hermetic_path())
     return registry, project
 
 
@@ -158,7 +173,7 @@ def test_bundled_engine_wins_over_a_path_debate(tmp_path: Path) -> None:
         [str(launcher), "onboarding", "status", "--project", str(tmp_path), "--json"],
         capture_output=True, text=True, timeout=30,
         env={
-            "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
+            "PATH": os.pathsep.join([str(Path(sys.executable).parent), _hermetic_path()]),
             "PYTHONPATH": str(decoy),
             "DEBATE_SEATS_REGISTRY": str(tmp_path / "reg.json"),
         },

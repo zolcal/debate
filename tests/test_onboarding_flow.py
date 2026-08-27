@@ -8,6 +8,8 @@ absolute command heads (/bin/sh, python3) that resolve without PATH.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import stat
 import sys
 from pathlib import Path
@@ -15,8 +17,21 @@ from typing import Any
 
 import pytest
 
+
+
 from debate import channel, onboarding, opening, seats
 from debate.__main__ import _watcher_config
+
+def _hermetic_path() -> str:
+    """Discovery must find no agent CLIs. POSIX keeps the literal system
+    dirs; Windows substitutes git's own directory (git shims and nothing
+    else), because /usr/bin does not exist there and the fixtures' git
+    subprocesses still need to resolve (field finding F25)."""
+    if os.name == "nt":
+        git = shutil.which("git")
+        return str(Path(git).parent) if git else ""
+    return "/usr/bin:/bin"
+
 
 NOW = "2026-08-19T12:00:00+00:00"
 REVIEW_CONTRACT: dict[str, Any] = {
@@ -71,7 +86,7 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pat
     monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(registry))
     # System dirs keep git/sh available while excluding the user-level agent
     # CLIs (~/.local/bin), so catalog discovery finds nothing it can seat.
-    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("PATH", _hermetic_path())
     return registry, project
 
 
@@ -739,7 +754,7 @@ def test_stub_debate_reaches_typed_close(
 
     src_dir = Path(__file__).resolve().parent.parent / "src"
     env = {
-        "PATH": "/usr/bin:/bin",
+        "PATH": _hermetic_path(),
         "PYTHONPATH": str(src_dir),
         "DEBATE_SEATS_REGISTRY": str(registry),
         "HOME": str(tmp_path),

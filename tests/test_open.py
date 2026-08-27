@@ -4,14 +4,28 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Mapping
 
 import pytest
 
+
+
 from debate import channel, opening, seats
 from debate.__main__ import _watcher_config, main
+
+
+def _hermetic_path() -> str:
+    """Discovery must find no agent CLIs. POSIX keeps the literal system
+    dirs; Windows substitutes git's own directory (git shims and nothing
+    else), because /usr/bin does not exist there and the fixtures' git
+    subprocesses still need to resolve (field finding F25)."""
+    if os.name == "nt":
+        git = shutil.which("git")
+        return str(Path(git).parent) if git else ""
+    return "/usr/bin:/bin"
 
 
 def _stub_tool(path: Path) -> Path:
@@ -19,8 +33,11 @@ def _stub_tool(path: Path) -> Path:
     finding F25): a shebang script on POSIX; a .cmd twin on Windows, where
     CreateProcess cannot run shebang files and chmod grants nothing."""
     if os.name == "nt":
-        path = path.with_suffix(".cmd")
+        # The ORIGINAL path stays the seat's identity (tests reconstruct it
+        # by name); the .cmd twin beside it exists for anything that spawns
+        # via PATHEXT resolution.
         path.write_text("@exit /b 0\r\n", encoding="utf-8")
+        path.with_suffix(".cmd").write_text("@exit /b 0\r\n", encoding="utf-8")
         return path
     path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     path.chmod(0o755)
@@ -713,7 +730,7 @@ def managed_project(
     """
     registry_path = tmp_path / "config" / "seats.json"
     monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(registry_path))
-    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("PATH", _hermetic_path())
     project = tmp_path / "project"
     head = _git_project(project)
     _write_raw_registry(registry_path, rows)

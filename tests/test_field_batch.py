@@ -8,6 +8,8 @@ post-open bookkeeping crash that orphaned a channel.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,10 +17,23 @@ from typing import Any
 
 import pytest
 
+
+
 from debate import opening, seats
 from debate.__main__ import _watcher_config, main
 from debate.controller import AdapterProfile, BrokerConfig, TimingPolicy
 from debate.watcher import LockState, WatcherConfig, status
+
+def _hermetic_path() -> str:
+    """Discovery must find no agent CLIs. POSIX keeps the literal system
+    dirs; Windows substitutes git's own directory (git shims and nothing
+    else), because /usr/bin does not exist there and the fixtures' git
+    subprocesses still need to resolve (field finding F25)."""
+    if os.name == "nt":
+        git = shutil.which("git")
+        return str(Path(git).parent) if git else ""
+    return "/usr/bin:/bin"
+
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -181,7 +196,7 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pat
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(registry))
-    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("PATH", _hermetic_path())
     return registry, project
 
 
