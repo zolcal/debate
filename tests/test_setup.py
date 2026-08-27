@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -302,14 +301,13 @@ sig = json.load(open(os.path.join(root, chan + ".signal.json"), encoding="utf-8"
 resolved = shutil.which("debate")
 assert resolved and "debate-smoke-" in resolved, resolved
 assert "debate-smoke-" in os.getcwd(), os.getcwd()
-subprocess.run(["debate", "post", "--root", root,
+subprocess.run([resolved, "post", "--root", root,
                 "--channel", chan, "--from", {party!r}, "--type", "info",
                 "--thread", sig["thread"], "--body", "pong"], check=True)
 """)
     return [sys.executable, str(script), "{prompt}"]
 
 
-@pytest.mark.skipif(os.name != "posix", reason="the smoke PATH shim is POSIX-only")
 def test_smoke_puts_this_engine_on_the_seats_path(tmp_path: Path) -> None:
     root, name = make_channel(tmp_path)
     argv = path_resolving_seat(tmp_path)

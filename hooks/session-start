@@ -78,7 +78,10 @@ def main() -> int:
         ))
         return 0
     root = _plugin_root()
-    launcher = root / "scripts" / "debate-plugin"
+    # Windows ships a .cmd twin of the POSIX launcher (field finding F24):
+    # advertising the sh script on win32 hands the user a file cmd cannot run.
+    launcher_name = "debate-plugin.cmd" if sys.platform == "win32" else "debate-plugin"
+    launcher = root / "scripts" / launcher_name
     engine = root / "src"
     if not (engine / "debate" / "__init__.py").is_file():
         print(f"debate session-start: bundled engine missing under {engine}", file=sys.stderr)

@@ -343,11 +343,10 @@ def smoke(spec: SetupSpec, *, scratch_base: Path | None = None,
             # F9, 2026-08-26 Mac preflight). POSIX hosts therefore get a
             # scratch shim pinning THIS interpreter and THIS package first on
             # the seat's PATH; the seat contract itself stays bare `debate`.
-            env = None
+            shim_dir = scratch / "bin"
+            shim_dir.mkdir()
+            src_root = Path(channel.__file__).resolve().parent.parent
             if os.name == "posix":
-                shim_dir = scratch / "bin"
-                shim_dir.mkdir()
-                src_root = Path(channel.__file__).resolve().parent.parent
                 shim = shim_dir / "debate"
                 shim.write_text(
                     "#!/bin/sh\n"
@@ -355,8 +354,17 @@ def smoke(spec: SetupSpec, *, scratch_base: Path | None = None,
                     f'exec "{sys.executable}" -m debate "$@"\n'
                 )
                 shim.chmod(0o755)
-                env = dict(os.environ)
-                env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
+            else:
+                # Windows twin (field finding F24): cmd resolves `debate` via
+                # PATHEXT, and the shim pins THIS interpreter the same way.
+                shim = shim_dir / "debate.cmd"
+                shim.write_text(
+                    "@echo off\n"
+                    f'set "PYTHONPATH={src_root};%PYTHONPATH%"\n'
+                    f'"{sys.executable}" -m debate %*\n'
+                )
+            env = dict(os.environ)
+            env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
             try:
                 # cwd is the scratch channel: a sandboxing CLI (codex exec
                 # seatbelt, field finding F10) scopes writes to its workspace,

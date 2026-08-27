@@ -425,7 +425,14 @@ def test_manifests_parse_and_carry_the_command(manifest: str) -> None:
     hook = entries[0]["hooks"][0]
     assert hook["type"] == "command"
     assert "${CLAUDE_PLUGIN_ROOT}/hooks/session-start" in hook["command"]
-    assert hook["command"].startswith("python3 ")
+    # Field finding F24: the Microsoft Store "python3" shim prints an ad and
+    # EXITS 0, so python3 must come LAST -- any chain it appears earlier in
+    # is swallowed on Windows. py.exe and python.exe report honest failures,
+    # so the chain resolves left to right on every platform.
+    assert hook["command"].startswith("py -3 ")
+    assert " || python " in hook["command"]
+    assert hook["command"].rstrip().count("|| python3 ") == 1
+    assert hook["command"].index("py -3") < hook["command"].index("|| python ") < hook["command"].index("|| python3 ")
     assert hook["timeout"] == 10
     assert hook["async"] is False
 
