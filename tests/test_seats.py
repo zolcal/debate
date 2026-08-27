@@ -839,6 +839,29 @@ def test_cli_seats_add_records_explicit_verification_and_v2(
     assert seat.result_schema_version == 2
 
 
+def test_cli_seats_add_accepts_result_schema_v3(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The engine's own refusal text tells operators to register with
+    # --result-schema-version 3; the parser must accept it (release-gate
+    # finding, 2026-08-27: choices=(1, 2) rejected the documented value).
+    from debate.__main__ import main
+
+    _registry_env(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    tool = Path(_real_tool(tmp_path))
+    assert main([
+        "seats", "add", "custom/verifier",
+        "--command", f"{tool} {{input_path}} {{result_path}}",
+        "--verification-capable",
+        "--verification-argv=--allow-read --allow-shell",
+        "--result-schema-version", "3",
+    ]) == 0
+    seat = seats.load_registry().seats["custom/verifier"]
+    assert seat.verification_basis == "declared"
+    assert seat.result_schema_version == 3
+
+
 def test_v2_manual_adapter_needs_explicit_verification_declaration(tmp_path: Path) -> None:
     tool = Path(_real_tool(tmp_path))
     with pytest.raises(channel.ChannelError, match="verification-capable"):

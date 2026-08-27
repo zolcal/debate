@@ -636,9 +636,10 @@ def main(argv: list[str] | None = None) -> int:
         "--result-schema-version",
         dest="seats_add_result_schema_version",
         type=int,
-        choices=(1, 2),
+        choices=(1, 2, 3),
         default=None,
-        help="result protocol spoken by a hand-authored file adapter; v2 is required for new product opens",
+        help="result protocol spoken by a hand-authored file adapter; a new product "
+        "open requires v2 or v3 (v3 recommended: contract-safe publication)",
     )
     p_seats_add.add_argument(
         "--credential-env",

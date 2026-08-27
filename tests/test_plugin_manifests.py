@@ -86,7 +86,7 @@ def test_installed_onboarding_skill_carries_the_field_fold_contract() -> None:
         "supervisor posts consume the same entry cap",
         "seat-declared evidence",
         "isolation remains advisory",
-        "--verification-capable --result-schema-version 2",
+        "--verification-capable --result-schema-version 3",
         "historical verdict remains in the append-only record",
         "fresh correction slug",
         "Enter keeps A + B; choose a number to change; cancel stops",
@@ -115,12 +115,17 @@ def test_public_docs_name_upgrade_compatibility_and_safe_pruning() -> None:
         "invocation `home/build/tmp`",
     ):
         assert phrase in combined
-    # The shipped product default is schema v3; each public doc must say so on its
-    # own — a combined check let the CHANGELOG drift to v2 (release-gate finding,
-    # 2026-08-27).
+    # The shipped product default is schema v3 for bundled seats, and a custom
+    # file adapter may declare v2 or v3; each public doc must state BOTH rules on
+    # its own — a combined check let the CHANGELOG drift to v2, and an unqualified
+    # universal v3 claim contradicted the (2, 3) admission logic (release-gate
+    # findings, 2026-08-27).
     for document in (readme, changelog):
-        assert "result schema v3" in document.lower()
-        assert "schema v2 with" not in document.lower()
+        lowered = document.lower()
+        assert "result schema v3" in lowered
+        assert "from a bundled seat" in lowered
+        assert "v2 or v3" in lowered
+        assert "schema v2 with" not in lowered
     assert "hostile-code safe" not in combined.lower()
 
 

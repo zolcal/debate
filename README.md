@@ -400,11 +400,12 @@ hand-authored custom file adapter may declare v2 or v3, and a new product open
 admits either. The seat still returns the
 typed `decision` plus full structured verification — each command, exit status,
 and bounded output — and the controller validates the shape and limits. What the
-CHANNEL publishes is contract-safe: a `Controller-Verification` block carrying the
-verification status, the evidence basis, the sha256 of the canonical seat-declared
-evidence, and the item count, with the exact commands and outputs retained in the
-private invocation result rather than inlined into the public record. What the
-seat returns:
+CHANNEL publishes for a v3 seat is contract-safe: a `Controller-Verification` block
+carrying the verification status, the evidence basis, the sha256 of the canonical
+seat-declared evidence, and the item count, with the exact commands and outputs
+retained in the private invocation result rather than inlined into the public
+record. (A v2 seat keeps the frozen v2 publication, which inlines the
+seat-declared evidence.) What the seat returns:
 
 ```json
 {
@@ -478,7 +479,7 @@ This is a pre-release CLI break for new product opens: `open --brokered` now req
 normally derives them). Re-run `debate seats discover` to refresh catalogued
 verification capability with zero model calls. Manual prompt seats need an explicit
 verification declaration; hand-authored file adapters need that declaration plus result
-schema v2.
+schema v2 or v3 (v3 recommended).
 
 If fresh evidence later falsifies a terminal finding, history stays append-only. The
 supervisor may add a `close`-typed correction under a fresh slug, citing the original

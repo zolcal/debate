@@ -123,14 +123,16 @@ Core rules, non-negotiable:
    or 3, say plainly that the seat can still act as a reviewer in a classic
    debate. A small command of your own is a fully managed option only when you
    can make it speak the current evidence contract: it reads the request file,
-   writes a version-2 answer file, and supplies either performed verification
+   writes a version-3 (or version-2) answer file, and supplies either performed verification
    items (`command`, integer `exit_status`, non-empty `output`) or an `unable`
    reason with a `NO_PASS` decision. Show that result shape and the declarations
-   `--verification-capable --result-schema-version 2` in the SAME approval.
+   `--verification-capable --result-schema-version 3` (or `2`; v3 recommended)
+   in the SAME approval.
    Never offer to write a wrapper that the product will then refuse or whose
    answer lacks evidence. (Engine fact for YOU: a prompt-style seat is wrapped
    when isolation, no-persistence, and verification capability are recorded;
-   a hand-authored file adapter additionally needs declared result schema v2.)
+   a hand-authored file adapter additionally needs declared result schema v2 or
+   v3; recommend v3, whose publication is contract-safe.)
 4. Ask which seats to approve for THIS project, listing the user-named
    wrappers from step 3 as pending rows labelled "will be registered on
    approval". Prefer the host's structured question tool (multi-select); fall
@@ -147,7 +149,7 @@ Core rules, non-negotiable:
    --cost-mode <their answer or unknown> [--isolation-argv=<args>]
    [--no-persistence-argv=<args>] [--config-home VAR=dir]
    --verification-capable [--verification-argv=<args>]
-   [--result-schema-version 2]`
+   [--result-schema-version 3]` (or `2`)
    (the last three only where step 3 confirmed them; an unselected pending
    wrapper is never registered at all), then re-run inspect for the fresh
    candidate revision, then run:
@@ -256,9 +258,9 @@ Core rules, non-negotiable:
    If the engine refuses a seat because it does not know how that tool turns
    off its settings, plugins and session saving, relay the two ways forward as
    a numbered question: "1 tell me those arguments and I'll record them once
-   2 let me write a version-2 review wrapper for this tool". On answer 1,
+   2 let me write a version-3 review wrapper for this tool". On answer 1,
    collect isolation, persistence and verification declarations exactly as in
-   Flow 1 step 3. On answer 2, show the mandatory v2 verification result shape
+   Flow 1 step 3. On answer 2, show the mandatory verification result shape
    and both registration declarations before writing/registering anything.
 6. If the engine says the preparation changed, stop and render a fresh menu; never
    reuse the old confirmation. If it reports `DEGRADED`, the channel exists but
