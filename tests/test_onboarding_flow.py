@@ -77,7 +77,7 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pat
 
 def test_inspect_is_read_only_and_labels_existing(isolated: tuple[Path, Path], tmp_path: Path) -> None:
     registry, project = isolated
-    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    _write_registry(registry, {"probe/fake": _seat([sys.executable, "{prompt}"])})
     before = _snapshot(tmp_path)
     report = onboarding.inspect(str(project), now=NOW)
     assert _snapshot(tmp_path) == before
@@ -107,7 +107,7 @@ def test_manual_bridge_seat_is_addable(isolated: tuple[Path, Path], tmp_path: Pa
     )
     assert registry.seats["gamma/fake"].source == "manual"
     with pytest.raises(channel.ChannelError, match="marker"):
-        seats.add_seat(registry, "delta/fake", "/bin/sh -c true")
+        seats.add_seat(registry, "delta/fake", f'"{sys.executable}" -c pass')
 
 
 def test_inspect_fresh_machine_has_no_candidates(isolated: tuple[Path, Path]) -> None:
@@ -119,7 +119,7 @@ def test_inspect_fresh_machine_has_no_candidates(isolated: tuple[Path, Path]) ->
 
 def test_approve_requires_confirmed_and_nonempty(isolated: tuple[Path, Path]) -> None:
     registry, project = isolated
-    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    _write_registry(registry, {"probe/fake": _seat([sys.executable, "{prompt}"])})
     report = onboarding.inspect(str(project), now=NOW)
     revision = str(report["candidate_revision"])
     with pytest.raises(channel.ChannelError, match="--confirmed"):
@@ -135,7 +135,7 @@ def test_approve_requires_confirmed_and_nonempty(isolated: tuple[Path, Path]) ->
 
 def test_approve_revision_mismatch_is_refused(isolated: tuple[Path, Path]) -> None:
     registry, project = isolated
-    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    _write_registry(registry, {"probe/fake": _seat([sys.executable, "{prompt}"])})
     with pytest.raises(channel.ChannelError, match="candidate set changed"):
         onboarding.approve(
             str(project), allow=["probe/fake"], candidate_revision="0" * 64,
@@ -145,7 +145,7 @@ def test_approve_revision_mismatch_is_refused(isolated: tuple[Path, Path]) -> No
 
 def test_approve_writes_both_files_and_status_reports_ready(isolated: tuple[Path, Path]) -> None:
     registry, project = isolated
-    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    _write_registry(registry, {"probe/fake": _seat([sys.executable, "{prompt}"])})
     report = onboarding.inspect(str(project), now=NOW)
     after = onboarding.approve(
         str(project), allow=["probe/fake"],
@@ -165,7 +165,7 @@ def test_approve_refuses_unknown_and_unrunnable_seats(isolated: tuple[Path, Path
     _write_registry(
         registry,
         {
-            "probe/fake": _seat(["/bin/sh", "{prompt}"]),
+            "probe/fake": _seat([sys.executable, "{prompt}"]),
             "gone/fake": _seat(["/nonexistent/debate-test-binary", "{prompt}"]),
         },
     )
@@ -187,7 +187,7 @@ def test_approve_transaction_failure_leaves_both_files_byte_identical(
     isolated: tuple[Path, Path],
 ) -> None:
     registry, project = isolated
-    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    _write_registry(registry, {"probe/fake": _seat([sys.executable, "{prompt}"])})
     (project / "debate-profile.json").write_text(
         json.dumps({"profile_version": 1, "allowlist": ["probe/fake"]}) + "\n",
         encoding="utf-8",
@@ -329,10 +329,14 @@ def test_brokered_open_refuses_prompt_style_seats(isolated: tuple[Path, Path], t
     _write_registry(
         registry,
         {
-            "alpha/fake": _seat(["/bin/sh", "{prompt}"]),
+            # Explicit vendors: both heads are sys.executable (portable fake
+            # seats), and the derived-vendor default would trip the
+            # identical-weights guard before the refusal under test.
+            "alpha/fake": _seat([sys.executable, "{prompt}"], vendor="alpha"),
             "beta/fake": _seat(
                 [sys.executable, str(_fake_adapter_script(tmp_path, "beta")),
-                 "{input_path}", "{result_path}"]
+                 "{input_path}", "{result_path}"],
+                vendor="beta",
             ),
         },
     )
@@ -483,7 +487,7 @@ def test_cli_brokered_open_requires_author_vendor(
 def test_approved_profile_is_world_readable(isolated: tuple[Path, Path]) -> None:
     """The profile is a COMMITTABLE project file: 0644, not mkstemp's 0600."""
     registry, project = isolated
-    _write_registry(registry, {"probe/fake": _seat(["/bin/sh", "{prompt}"])})
+    _write_registry(registry, {"probe/fake": _seat([sys.executable, "{prompt}"])})
     report = onboarding.inspect(str(project), now=NOW)
     onboarding.approve(
         str(project), allow=["probe/fake"],

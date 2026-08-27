@@ -59,7 +59,7 @@ def test_upgrade_from_07_registry_shows_candidates_but_approves_nothing(
             _registry_payload(
                 "0.6.0",
                 {
-                    "old/one": _seat(["/bin/sh", "{prompt}"], vendor="old"),
+                    "old/one": _seat([sys.executable, "{prompt}"], vendor="old"),
                     "old/two": _seat(["/bin/dash", "{prompt}"], vendor="older"),
                 },
             )
@@ -107,7 +107,7 @@ def test_stale_smoke_offers_refresh_and_is_labelled(isolated: tuple[Path, Path])
     registry, project = isolated
     _approved_project(
         registry, project,
-        {"probe/fake": _seat(["/bin/sh", "{prompt}"], vendor="probe",
+        {"probe/fake": _seat([sys.executable, "{prompt}"], vendor="probe",
                              smoke={"at": "2026-01-01T00:00:00+00:00", "result": "pass"})},
         ["probe/fake"],
     )
@@ -124,8 +124,8 @@ def test_duplicate_selected_command_is_explained(isolated: tuple[Path, Path]) ->
     _approved_project(
         registry, project,
         {
-            "a/fake": _seat(["/bin/sh", "{prompt}"], vendor="a"),
-            "b/fake": _seat(["/bin/sh", "{prompt}"], vendor="b"),
+            "a/fake": _seat([sys.executable, "{prompt}"], vendor="a"),
+            "b/fake": _seat([sys.executable, "{prompt}"], vendor="b"),
         },
         ["a/fake", "b/fake"],
     )

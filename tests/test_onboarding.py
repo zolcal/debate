@@ -9,6 +9,7 @@ filesystem writes for every state it can report.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -73,7 +74,7 @@ def test_fresh_machine_offers_setup(isolated: tuple[Path, Path]) -> None:
 
 def test_registry_without_profile_still_offers_setup(isolated: tuple[Path, Path]) -> None:
     registry, project = isolated
-    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat(sys.executable)})
     report = onboarding.status(str(project))
     assert report["registry_state"] == "current"
     assert report["profile_state"] == "missing"
@@ -82,7 +83,7 @@ def test_registry_without_profile_still_offers_setup(isolated: tuple[Path, Path]
 
 def test_approved_and_present_is_ready_and_quiet(isolated: tuple[Path, Path]) -> None:
     registry, project = isolated
-    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat(sys.executable)})
     (project / "debate-profile.json").write_text(
         json.dumps({"profile_version": 1, "allowlist": ["probe/fake"]}), encoding="utf-8"
     )
@@ -96,7 +97,7 @@ def test_approved_and_present_is_ready_and_quiet(isolated: tuple[Path, Path]) ->
 
 def test_stale_registry_offers_refresh(isolated: tuple[Path, Path]) -> None:
     registry, project = isolated
-    _write_registry(registry, tool_version="0.0.1", seats_obj={"probe/fake": _seat("/bin/sh")})
+    _write_registry(registry, tool_version="0.0.1", seats_obj={"probe/fake": _seat(sys.executable)})
     (project / "debate-profile.json").write_text(
         json.dumps({"profile_version": 1, "allowlist": ["probe/fake"]}), encoding="utf-8"
     )
@@ -132,7 +133,7 @@ def test_failed_smoke_offers_refresh(isolated: tuple[Path, Path]) -> None:
         tool_version=__version__,
         seats_obj={
             "probe/fake": _seat(
-                "/bin/sh", smoke={"at": "2026-08-19T00:00:00+00:00", "result": "fail"}
+                sys.executable, smoke={"at": "2026-08-19T00:00:00+00:00", "result": "fail"}
             )
         },
     )
@@ -157,7 +158,7 @@ def test_broken_registry_requires_repair(isolated: tuple[Path, Path]) -> None:
 
 def test_broken_profile_requires_repair(isolated: tuple[Path, Path]) -> None:
     registry, project = isolated
-    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat(sys.executable)})
     (project / "debate-profile.json").write_text(
         json.dumps({"profile_version": 1, "allowlist": []}), encoding="utf-8"
     )
@@ -184,7 +185,7 @@ def test_relative_project_is_refused(isolated: tuple[Path, Path]) -> None:
 
 def test_status_never_writes(isolated: tuple[Path, Path], tmp_path: Path) -> None:
     registry, project = isolated
-    _write_registry(registry, tool_version="0.0.1", seats_obj={"probe/fake": _seat("/bin/sh")})
+    _write_registry(registry, tool_version="0.0.1", seats_obj={"probe/fake": _seat(sys.executable)})
     (project / "debate-profile.json").write_text(
         json.dumps({"profile_version": 1, "allowlist": ["probe/fake"]}), encoding="utf-8"
     )
@@ -229,7 +230,7 @@ def test_inspect_lists_sibling_as_candidate_row(
     isolated: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     registry, project = isolated
-    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat(sys.executable)})
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     sibling = _sibling()
     monkeypatch.setattr(seats, "scan_siblings", lambda: [sibling])
@@ -270,7 +271,7 @@ def test_inspect_with_sibling_present_writes_nothing(
     isolated: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     registry, project = isolated
-    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat(sys.executable)})
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.setattr(seats, "scan_siblings", lambda: [_sibling()])
     before = _snapshot(tmp_path)
@@ -282,7 +283,7 @@ def test_approve_refuses_sibling_id_with_declaration_hint(
     isolated: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     registry, project = isolated
-    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat(sys.executable)})
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     sibling = _sibling()
     monkeypatch.setattr(seats, "scan_siblings", lambda: [sibling])
@@ -307,7 +308,7 @@ def test_approve_refuses_mixed_allow_of_real_seat_and_sibling(
     isolated: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     registry, project = isolated
-    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat(sys.executable)})
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     sibling = _sibling()
     monkeypatch.setattr(seats, "scan_siblings", lambda: [sibling])
@@ -330,7 +331,7 @@ def test_sibling_never_appears_in_status_approved_seats(
     is correct -- a profile can never contain one because approve refuses it
     before any write, so status() can never surface it."""
     registry, project = isolated
-    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat("/bin/sh")})
+    _write_registry(registry, tool_version=__version__, seats_obj={"probe/fake": _seat(sys.executable)})
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     sibling = _sibling()
     monkeypatch.setattr(seats, "scan_siblings", lambda: [sibling])

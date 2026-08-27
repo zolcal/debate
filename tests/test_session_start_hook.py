@@ -79,7 +79,7 @@ def _write_ready_state(project: Path, registry: Path) -> None:
                         "vendor": "probe",
                         "submodel": "fake",
                         "effort": None,
-                        "commands": [["/bin/sh", "{prompt}"]],
+                        "commands": [[sys.executable, "{prompt}"]],
                         "source": "manual",
                         "present": True,
                         "smoke": None,
