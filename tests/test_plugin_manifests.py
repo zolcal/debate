@@ -115,6 +115,12 @@ def test_public_docs_name_upgrade_compatibility_and_safe_pruning() -> None:
         "invocation `home/build/tmp`",
     ):
         assert phrase in combined
+    # The shipped product default is schema v3; each public doc must say so on its
+    # own — a combined check let the CHANGELOG drift to v2 (release-gate finding,
+    # 2026-08-27).
+    for document in (readme, changelog):
+        assert "result schema v3" in document.lower()
+        assert "schema v2 with" not in document.lower()
     assert "hostile-code safe" not in combined.lower()
 
 

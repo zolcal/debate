@@ -21,15 +21,14 @@ The field fold was gated on `plan-v080-field-fold-14206` (PASS, MSG-20).
 - **Optional Ox Alpha frontier seat** — a pre-existing `claude-ox` launcher is
   discovered as `stealth/ox-alpha`, pinned at max effort, isolated in
   `~/.claude-ox`, and admitted only as frontier/API-backed. Approval displays and
-  records the exact Stealth-policy revision; a changed revision returns onboarding
-  attention. (Historical note: on 2026-08-26 OpenRouter revealed Ox Alpha as
-  GLM-5.3-Flash and retired the stealth endpoint; the seat exists only where a
-  claude-ox launcher survives, and the acceptance machinery it introduced is
-  general.)
+  records the exact Stealth-policy revision; a changed revision returns the seat
   to attention and blocks a product open. The notice uses the binding EULA's strict
   retention/sharing/training terms rather than the model page's softer summary. The
   launcher refuses explicit settings, model/fallback, agent and effort overrides
-  rather than allowing a caller to escape the declared Ox/max route.
+  rather than allowing a caller to escape the declared Ox/max route. (Historical
+  note: on 2026-08-26 OpenRouter revealed Ox Alpha as GLM-5.3-Flash and retired
+  the stealth endpoint; the seat exists only where a claude-ox launcher survives,
+  and the acceptance machinery it introduced is general.)
 - **Code-known credential-name transport** — a catalog or manual seat may declare
   `--credential-env` only for a source-controlled name (initially
   `OPENROUTER_API_KEY`). The controller copies its current value directly into that
@@ -49,8 +48,12 @@ The field fold was gated on `plan-v080-field-fold-14206` (PASS, MSG-20).
   or budget refuse before open. Multi-checkpoint plans repeat this choice at every fresh
   channel and stop on failure or cancellation. Existing persisted caps and historical
   configurations remain readable; mode-absent history keeps its `legacy-absent` basis.
-- **Result schema v2 with falsifiable verification evidence** — bundled product seats
-  must return bounded `performed` command/status/output items or `unable` plus `NO_PASS`.
+- **Result schema v3 with falsifiable verification evidence** — every new product
+  verdict uses result schema v3: bundled product seats must return bounded `performed`
+  command/status/output items or `unable` plus `NO_PASS`, and publication is
+  contract-safe — the evidence digest and item count are published while the exact
+  commands stay in the private invocation result. Schema v2 remains the frozen floor
+  for legacy and custom adapters, with its own smaller limits.
   The bridge and controller independently validate the dependency-free shape and limits;
   provenance labels it seat-declared, never “verified by the schema.” Claude receives its
   catalogued read/search/shell arguments and Codex is recorded inherently capable. A
