@@ -7,6 +7,7 @@ touches a bare CLI (claude, kimi) and never reads a candidate's contents.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Callable
 
@@ -99,6 +100,10 @@ def test_claude_and_kimi_never_scan(tmp_path: Path) -> None:
     assert candidates == []
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows has no executable bit: a 0644 file cannot be made non-executable",
+)
 def test_non_executable_file_is_ignored(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

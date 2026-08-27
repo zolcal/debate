@@ -178,6 +178,11 @@ def test_unable_cannot_pass_in_both_validators(tmp_path: Path) -> None:
         ("output", "\U0001f642" * 8192 + "x", "8192 Unicode scalar"),
         ("command", "\ud800", "isolated surrogate"),
     ],
+    # Short ids on purpose (field finding F25): pytest exports the full test
+    # id via PYTEST_CURRENT_TEST, and an 8192-emoji id blows the Windows
+    # 32767-character environment limit before the test even runs — and made
+    # every log unreadable everywhere.
+    ids=["cmd-ascii-over", "cmd-emoji-over", "out-ascii-over", "out-emoji-over", "cmd-surrogate"],
 )
 def test_scalar_utf8_and_surrogate_limits(
     tmp_path: Path, field: str, value: str, match: str

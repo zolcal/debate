@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Mapping
@@ -11,6 +12,19 @@ import pytest
 
 from debate import channel, opening, seats
 from debate.__main__ import _watcher_config, main
+
+
+def _stub_tool(path: Path) -> Path:
+    """Present, executable, instantly-exiting stub tool -- portable (field
+    finding F25): a shebang script on POSIX; a .cmd twin on Windows, where
+    CreateProcess cannot run shebang files and chmod grants nothing."""
+    if os.name == "nt":
+        path = path.with_suffix(".cmd")
+        path.write_text("@exit /b 0\r\n", encoding="utf-8")
+        return path
+    path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
 
 
 def _registry_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -41,11 +55,8 @@ def _smoked(at: str = "2026-08-16T00:00:00+00:00") -> seats.SmokeStatus:
 
 def _two_seat_registry(tmp_path: Path) -> seats.Registry:
     reg = seats.Registry()
-    a = tmp_path / "agent-a"
-    b = tmp_path / "agent-b"
-    for tool in (a, b):
-        tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        tool.chmod(0o755)
+    a = _stub_tool(tmp_path / "agent-a")
+    b = _stub_tool(tmp_path / "agent-b")
     reg.seats["alpha/one"] = _seat("alpha/one", [str(a), "{prompt}"], smoke=_smoked())
     reg.seats["beta/two"] = _seat("beta/two", [str(b), "{prompt}"], smoke=_smoked())
     return reg
@@ -242,9 +253,7 @@ def test_open_debate_shared_vendor_party_names_are_slugs(
 ) -> None:
     _registry_env(tmp_path, monkeypatch)
     reg = seats.Registry()
-    a = tmp_path / "agent-a"
-    a.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    a.chmod(0o755)
+    a = _stub_tool(tmp_path / "agent-a")
     reg.seats["codex/gpt-5.6-sol@low"] = _seat(
         "codex/gpt-5.6-sol@low", [str(a), "{prompt}", "--effort", "low"],
         smoke=_smoked(), effort="low",
@@ -373,9 +382,7 @@ def test_load_profile_fail_closed(tmp_path: Path) -> None:
 
 def test_pick_pair_profile_restricts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     reg = _two_seat_registry(tmp_path)
-    tool = tmp_path / "agent-c"
-    tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    tool.chmod(0o755)
+    tool = _stub_tool(tmp_path / "agent-c")
     reg.seats["gamma/three"] = _seat("gamma/three", [str(tool), "{prompt}"], smoke=_smoked())
     _write_profile(tmp_path, {"profile_version": 1, "allowlist": ["alpha/one", "beta/two"]})
     # --pair outside the allowlist: refused naming the profile file
@@ -475,9 +482,7 @@ def test_cli_seats_list_shows_notes_and_efforts(
 ) -> None:
     _registry_env(tmp_path, monkeypatch)
     reg = seats.Registry()
-    tool = tmp_path / "claude"
-    tool.write_text("#!/bin/sh\n", encoding="utf-8")
-    tool.chmod(0o755)
+    tool = _stub_tool(tmp_path / "claude")
     reg.seats["claude/opus"] = _seat("claude/opus", [str(tool), "-p", "{prompt}"], smoke=_smoked())
     seats.save_registry(reg)
     monkeypatch.chdir(tmp_path)
@@ -519,19 +524,14 @@ def test_discover_never_clobbers_manual_custom_effort_seat(
     """Round-3 salvaged codex finding: derived-refresh touches only seats
     actually DERIVED from the old base argv; a manual custom command stays."""
     monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(tmp_path / "r.json"))
-    wrapper = tmp_path / "claude"
-    wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
-    wrapper.chmod(0o755)
-    custom = tmp_path / "echo-agent"
-    custom.write_text("#!/bin/sh\n", encoding="utf-8")
-    custom.chmod(0o755)
+    wrapper = _stub_tool(tmp_path / "claude")
+    custom = _stub_tool(tmp_path / "echo-agent")
     reg = seats.Registry()
     reg, _ = seats.discover(reg, which=lambda n: {"claude": str(wrapper)}.get(n), now="t1")
     seats.add_seat(reg, "claude/opus@high", f"{custom} {{prompt}}")
     moved = tmp_path / "elsewhere" / "claude"
     moved.parent.mkdir()
-    moved.write_text("#!/bin/sh\n", encoding="utf-8")
-    moved.chmod(0o755)
+    moved = _stub_tool(moved)
     reg, _ = seats.discover(reg, which=lambda n: {"claude": str(moved)}.get(n), now="t2")
     assert reg.seats["claude/opus@high"].commands[0] == [str(custom), "{prompt}"], (
         "a manual custom-command @effort seat is the operator's own"
@@ -545,9 +545,7 @@ def test_discover_preserves_manual_seat_that_merely_extends_base_argv(
     STARTS WITH the base argv is not derived and is never re-derived; only
     the exact base+fragment shape is."""
     monkeypatch.setenv("DEBATE_SEATS_REGISTRY", str(tmp_path / "r.json"))
-    old = tmp_path / "claude"
-    old.write_text("#!/bin/sh\n", encoding="utf-8")
-    old.chmod(0o755)
+    old = _stub_tool(tmp_path / "claude")
     reg = seats.Registry()
     reg, _ = seats.discover(reg, which=lambda n: {"claude": str(old)}.get(n), now="t0")
     base = list(reg.seats["claude/opus"].commands[0])
@@ -561,8 +559,7 @@ def test_discover_preserves_manual_seat_that_merely_extends_base_argv(
     seats.add_effort_seat(reg, "claude/opus@low")
     new = tmp_path / "moved" / "claude"
     new.parent.mkdir()
-    new.write_text("#!/bin/sh\n", encoding="utf-8")
-    new.chmod(0o755)
+    new = _stub_tool(new)
     reg, _ = seats.discover(reg, which=lambda n: {"claude": str(new)}.get(n), now="t1")
     assert reg.seats["claude/opus@high"].commands[0][-1] == "--manual-wrapper-flag", (
         "the operator's command is never clobbered"
@@ -637,10 +634,7 @@ NINE_INHERITED_NAMES = [
 
 
 def _fake_tool(tmp_path: Path, name: str) -> Path:
-    tool = tmp_path / name
-    tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    tool.chmod(0o755)
-    return tool
+    return _stub_tool(tmp_path / name)
 
 
 def _raw_seat(

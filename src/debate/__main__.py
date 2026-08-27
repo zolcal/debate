@@ -430,9 +430,12 @@ def _delta_round_docket(
             / f"delta-docket-{args.thread}-{number}.md"
         ).exists():
             number += 1
-        relative = str(
+        # Recorded relative paths are platform-neutral POSIX text (field
+        # finding F26): str() would bake backslashes into the permanent
+        # record on Windows and split it from every other platform's reading.
+        relative = (
             runtime_relative / f"delta-docket-{args.thread}-{number}.md"
-        )
+        ).as_posix()
 
     diffs: dict[str, str] = {}
     for current, prior in pairs:
