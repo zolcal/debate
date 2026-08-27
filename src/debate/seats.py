@@ -638,6 +638,13 @@ def discover(
                 existing.credential_env = list(entry.credential_env)
                 existing.data_policy_revision = entry.data_policy_revision
                 existing.data_policy_notice = entry.data_policy_notice
+                if base_changed and existing.smoke is not None:
+                    # A smoke record certifies the argv it actually ran; the
+                    # field pass showed a stale pass surviving a command
+                    # rework and overstating provenance (Codex-leg
+                    # observation, batched fold). A changed pin clears it.
+                    existing.smoke = None
+                    diff.append(f"~ {seat_id} command changed; smoke record cleared")
                 if base_changed:
                     for derived in registry.seats.values():
                         if derived.source != "derived":

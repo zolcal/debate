@@ -137,7 +137,10 @@ CATALOG: tuple[CatalogEntry, ...] = (
         effort_argv=(),
         notes=(
             "claude-ox pins OpenRouter stealth/ox-alpha at max effort; anonymous-provider "
-            "limited preview, checked 2026-08-23; current zero price is not guaranteed"
+            "limited preview, checked 2026-08-23; current zero price is not guaranteed. "
+            "HISTORICAL since 2026-08-26: OpenRouter revealed ox-alpha as GLM-5.3-Flash "
+            "(MIT weights, priced API) and retired the stealth endpoint, so this entry "
+            "seeds nothing unless a claude-ox launcher exists; kept for record continuity"
         ),
         sibling_pattern=None,
         capability_classes={"ox-alpha": "frontier"},

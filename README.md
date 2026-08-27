@@ -143,7 +143,19 @@ starting a fresh host process; same-process behavior is not an installation test
 
 Uninstalling the plugin removes the host integration only: your registry
 (`~/.config/debate/seats.json`), project profiles (`debate-profile.json`), and channel
-records are user data and are never deleted.
+records are user data and are never deleted. The marketplace registration and its
+cache are the host's own and survive an uninstall; a full cleanup also runs
+`claude plugin marketplace remove debate` (or the codex equivalent).
+
+**Windows is supported natively.** Two prerequisites the installers cannot fix for
+you: install Python 3.10+ from python.org (the Microsoft Store `python3` alias is
+an ad, not a Python — it even exits 0), and know that codex seats run with
+`--sandbox danger-full-access` there, recorded honestly in the pinned seat command,
+because the Windows codex build has no granular sandbox; Debate's own layers
+(read-only exports, the result contract, controller-owned writes) remain the
+working isolation, as the protocol's advisory mode states. When codex is installed
+through npm, Debate resolves past the `.cmd` shim to the vendored native
+executable — batch shims truncate multi-line prompts.
 
 ## Try it from the shell (manual and automation path)
 

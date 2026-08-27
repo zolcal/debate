@@ -325,11 +325,18 @@ def test_smoke_fails_loudly_for_prose_echo_and_silent_seats(tmp_path: Path) -> N
     spec = smoke_spec(root, name, tmp_path,
                       {"alpha": [sys.executable, str(prose), "{prompt}"],
                        "beta": [sys.executable, str(silent), "{prompt}"]})
-    failures = setup.smoke(spec, scratch_base=tmp_path, emit=lambda _line: None)
+    lines: list[str] = []
+    failures = setup.smoke(spec, scratch_base=tmp_path, emit=lines.append)
     assert len(failures) == 2
     assert all("no reply landed" in reason for reason in failures)
     assert any("sure, I will" in reason for reason in failures), "output tail shown"
-    assert not list(tmp_path.glob("debate-smoke-*"))
+    # Batched field fold: failed smokes RETAIN their scratch with the seat's
+    # full output, because the tail in the terminal was the only forensic
+    # record and it vanished with the scrollback.
+    retained = sorted(tmp_path.glob("debate-smoke-*"))
+    assert len(retained) == 2
+    assert all((d / "seat-output.txt").is_file() for d in retained)
+    assert any("forensics retained" in line for line in lines)
 
 
 # ---- Slice 3: the scheduler ------------------------------------------------

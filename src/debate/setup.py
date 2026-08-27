@@ -365,6 +365,9 @@ def smoke(spec: SetupSpec, *, scratch_base: Path | None = None,
                 )
             env = dict(os.environ)
             env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
+            emit(f"smoke {party}: seat running (a frontier seat can take "
+                 f"minutes; timeout {spec.timeout_seconds}s)")
+            keep_forensics = False
             try:
                 # cwd is the scratch channel: a sandboxing CLI (codex exec
                 # seatbelt, field finding F10) scopes writes to its workspace,
@@ -375,6 +378,7 @@ def smoke(spec: SetupSpec, *, scratch_base: Path | None = None,
                                       timeout=spec.timeout_seconds, check=False)
             except (OSError, subprocess.SubprocessError) as error:
                 failures.append(f"{party}: seat command failed to run: {error}")
+                keep_forensics = True
                 continue
             replies = [e for e in channel.read_entries(scratch, sid)
                        if e.sender == party]
@@ -387,8 +391,20 @@ def smoke(spec: SetupSpec, *, scratch_base: Path | None = None,
                 failures.append(
                     f"{party}: no reply landed in the scratch mailbox "
                     f"(exit {proc.returncode}; output tail: {tail!r})")
+                keep_forensics = True
+                (scratch / "seat-output.txt").write_text(
+                    f"--- stdout ---\n{proc.stdout or ''}\n"
+                    f"--- stderr ---\n{proc.stderr or ''}\n",
+                    encoding="utf-8",
+                )
         finally:
-            shutil.rmtree(scratch, ignore_errors=True)
+            # A failed smoke's evidence used to vanish with the terminal
+            # scrollback (batched field fold): the scratch is now RETAINED on
+            # failure, with the seat's full output beside the channel files.
+            if keep_forensics:
+                emit(f"smoke {party}: forensics retained at {scratch}")
+            else:
+                shutil.rmtree(scratch, ignore_errors=True)
     return failures
 
 
