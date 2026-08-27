@@ -521,6 +521,16 @@ def catalog_declares_isolation(vendor: str) -> bool:
 
 def _assemble_argv(binary_path: str, invocation: tuple[str, ...], extra: list[str]) -> list[str]:
     argv = [binary_path if part == "{binary}" else part for part in invocation]
+    if os.name == "nt":
+        # Windows codex has no granular sandbox: workspace-write blocks ALL
+        # shell execution, read-only access included (field finding F27,
+        # model-verified on the box), so the only runnable policy there is
+        # danger-full-access — substituted at discovery and therefore
+        # recorded honestly in the seat's pinned command. The product's own
+        # layers (read-only exports, result contract, controller-owned
+        # writes) remain the working isolation, exactly as the protocol's
+        # advisory mode states.
+        argv = ["danger-full-access" if part == "workspace-write" else part for part in argv]
     return argv + extra
 
 

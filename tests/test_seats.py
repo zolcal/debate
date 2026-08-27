@@ -1177,3 +1177,23 @@ def test_no_catalog_entry_repeats_a_flag_across_its_argv_layers() -> None:
         ]
         flags = [part for part in composed if part.startswith("--")]
         assert len(flags) == len(set(flags)), (entry.vendor, sorted(flags))
+
+
+def test_windows_discovery_substitutes_a_runnable_codex_sandbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Field finding F27: Windows codex has no granular sandbox --
+    workspace-write blocks ALL shell execution there (model-verified on the
+    box), so discovery pins danger-full-access on nt and the seat command
+    records the truth. POSIX keeps workspace-write."""
+    import os
+
+    _registry_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(os, "name", "nt")
+    reg = seats.load_registry()
+    reg, _ = seats.discover(
+        reg, which=_which_from({"codex": "/x/codex"}), now="t-nt"
+    )
+    argv = reg.seats["codex/gpt-5.6-terra"].commands[0]
+    assert "danger-full-access" in argv
+    assert "workspace-write" not in argv
