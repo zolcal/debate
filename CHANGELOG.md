@@ -6,7 +6,7 @@ Every release from v0.2.0 onward went through this project's own review channel 
 record is under [`collab/`](collab/), and the message numbers cited below are entries in
 it.
 
-## v0.8.0 — unreleased
+## v0.8.0 — 2026-08-27
 
 **Debate becomes an installed product inside Codex and Claude Code.** Until now the
 plugin was metadata plus a reactive skill wrapped around a pip-installed CLI; setup
@@ -22,6 +22,10 @@ The field fold was gated on `plan-v080-field-fold-14206` (PASS, MSG-20).
   discovered as `stealth/ox-alpha`, pinned at max effort, isolated in
   `~/.claude-ox`, and admitted only as frontier/API-backed. Approval displays and
   records the exact Stealth-policy revision; a changed revision returns onboarding
+  attention. (Historical note: on 2026-08-26 OpenRouter revealed Ox Alpha as
+  GLM-5.3-Flash and retired the stealth endpoint; the seat exists only where a
+  claude-ox launcher survives, and the acceptance machinery it introduced is
+  general.)
   to attention and blocks a product open. The notice uses the binding EULA's strict
   retention/sharing/training terms rather than the model page's softer summary. The
   launcher refuses explicit settings, model/fallback, agent and effort overrides

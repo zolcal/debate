@@ -180,7 +180,7 @@ def test_generic_key_reaches_only_the_nested_ox_environment(
         args=[str(launcher)],
         returncode=3,
         stdout=f"seat leaked {secret}",
-        stderr=f"seat leaked digest {digest}",
+        stderr=f"seat leaked digest {digest} and shouted {digest.upper()}",
     )
     redacted = bridge.redact_seat_output(
         completed,
@@ -190,6 +190,10 @@ def test_generic_key_reaches_only_the_nested_ox_environment(
     retained = redacted.stdout + redacted.stderr
     assert secret not in retained
     assert digest not in retained
+    # Release-gate finding 2026-08-27: an UPPERCASE hexadecimal spelling of
+    # the digest identifies the credential just as well and slipped both
+    # redaction layers.
+    assert digest.upper() not in retained
     assert "[redacted credential OPENROUTER_API_KEY]" in retained
     assert "[redacted digest OPENROUTER_API_KEY]" in retained
     controller_retained = controller._redact_credential_material(
@@ -197,6 +201,7 @@ def test_generic_key_reaches_only_the_nested_ox_environment(
     )
     assert secret not in controller_retained
     assert digest not in controller_retained
+    assert digest.upper() not in controller_retained
     with patch.dict("os.environ", {}, clear=True):
         with pytest.raises(controller.AdapterError, match="needs credential environment"):
             controller._adapter_environment(config, profile, tmp_path / "missing-key-runtime")

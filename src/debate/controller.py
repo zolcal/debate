@@ -915,10 +915,13 @@ def _redact_credential_material(
         value = environment.get(name, "")
         if not value:
             continue
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
         replacements.extend(
             [
                 (value, f"[redacted credential {name}]"),
-                (hashlib.sha256(value.encode("utf-8")).hexdigest(), f"[redacted digest {name}]"),
+                # Both hexadecimal cases (release-gate finding, 2026-08-27).
+                (digest, f"[redacted digest {name}]"),
+                (digest.upper(), f"[redacted digest {name}]"),
             ]
         )
     for material, replacement in sorted(replacements, key=lambda item: len(item[0]), reverse=True):

@@ -257,9 +257,13 @@ Which seats can take part in a fully managed debate:
   onboarding hook cannot stop a controller-launched review. Ordinary interactive
   Codex does not use that managed launcher and retains its visible unready first-turn
   stop.
-- **Ox Alpha is an optional frontier seat when `claude-ox` is already installed.**
-  Discovery records `stealth/ox-alpha` as an anonymous-provider, API-backed
-  limited preview; it never classifies Ox as lightweight. Before project approval,
+- **Ox Alpha (historical since 2026-08-26).** OpenRouter has revealed Ox Alpha as
+  GLM-5.3-Flash and retired the anonymous stealth endpoint, so this seat exists
+  only where a pre-existing `claude-ox` launcher still resolves; the observed
+  zero price is history. The machinery below is kept as shipped -- it is the
+  template for any anonymous-preview seat. Discovery records `stealth/ox-alpha`
+  as an anonymous-provider, API-backed limited preview; it never classifies Ox
+  as lightweight. Before project approval,
   onboarding displays the exact revisioned Stealth data-use notice and requires a
   matching explicit acceptance. The binding
   [Stealth terms](https://openrouter.ai/terms/stealth) permit retention, sharing,
@@ -391,20 +395,25 @@ JSON, may not contain `sender`, and is posted under the bound seat by the contro
 revision was only half-recorded; verdict provenance therefore never points only at a mutable
 gitignored filename.
 
-Every new product `verdict` uses result schema v2 and carries a typed `decision`
-plus bounded structured verification:
+Every new product `verdict` uses result schema v3. The seat still returns the
+typed `decision` plus full structured verification — each command, exit status,
+and bounded output — and the controller validates the shape and limits. What the
+CHANNEL publishes is contract-safe: a `Controller-Verification` block carrying the
+verification status, the evidence basis, the sha256 of the canonical seat-declared
+evidence, and the item count, with the exact commands and outputs retained in the
+private invocation result rather than inlined into the public record. What the
+seat returns:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "entry_type": "verdict",
   "decision": "PASS",
-  "body": "APPROVE - fresh export run: 412 passed.",
-  "runtime_model": "resolved-model-id",
+  "body": "APPROVE - fresh export run: 911 passed.",
   "verification": {
     "status": "performed",
     "items": [
-      {"command": "python -m pytest -q", "exit_status": 0, "output": "412 passed"}
+      {"command": "python -m pytest -q", "exit_status": 0, "output": "bounded output excerpt"}
     ]
   }
 }
@@ -708,8 +717,8 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
   does not have. Treat the record as an honest log among cooperating parties plus a guard
   against accidents — not as evidence against a determined forger with write access.
 - **Young.** Extracted from a working production setup, generalized, and tested — but
-  read the code before trusting it; it's about 5,500 lines including the CLI, the
-  broker and the setup wizard, with 413 tests as of this writing.
+  read the code before trusting it; it's about 13,000 lines including the CLI,
+  the broker and the setup wizard, with 911 tests as of this writing.
 
 ## Where this comes from
 

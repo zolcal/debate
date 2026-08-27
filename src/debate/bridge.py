@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, NoReturn, Sequence
 
 from . import channel, result_contract, seats, telemetry
+from .seat_catalog import VENDOR_CONFIG_HOME_VARS
 
 
 # The one place in a recorded seat argv where the question text goes.
@@ -645,6 +646,12 @@ def seat_environment(spec: BridgeSpec) -> dict[str, str]:
     environment = {
         name: value for name, value in os.environ.items() if name not in OUR_OWN_ENV
     }
+    # A vendor config pointer is BRIDGE-DECIDED, never inherited: an ambient
+    # CLAUDE_CONFIG_DIR defeated F19's omission guarantee (release-gate
+    # finding B1, 2026-08-27) -- implementing "never set" is not the same as
+    # guaranteeing "absent".
+    for pointer in VENDOR_CONFIG_HOME_VARS:
+        environment.pop(pointer, None)
     if spec.vendor == "codex":
         environment["DEBATE_ONBOARDING_QUIET"] = "1"
     if spec.config_home is None:
@@ -763,10 +770,14 @@ def redact_seat_output(
         value = environment.get(name, "")
         if not value:
             continue
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
         replacements.extend(
             [
                 (value, f"[redacted credential {name}]"),
-                (hashlib.sha256(value.encode("utf-8")).hexdigest(), f"[redacted digest {name}]"),
+                # Both hexadecimal cases: an uppercase spelling identifies the
+                # credential just as well (release-gate finding, 2026-08-27).
+                (digest, f"[redacted digest {name}]"),
+                (digest.upper(), f"[redacted digest {name}]"),
             ]
         )
 

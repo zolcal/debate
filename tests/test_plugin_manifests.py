@@ -107,7 +107,7 @@ def test_public_docs_name_upgrade_compatibility_and_safe_pruning() -> None:
     changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
     combined = readme + "\n" + changelog
     for phrase in (
-        "result schema v2",
+        "result schema v3",
         "legacy-absent",
         "seat-declared",
         ".debate/runtime/<channel>/",

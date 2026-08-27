@@ -785,12 +785,15 @@ def test_a_config_home_pointer_reaches_the_seat_as_an_environment_variable(
 def test_without_a_pointer_the_seat_sees_no_vendor_variable(
     tmp_path: Path, seat: FakeSeat, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    # Ambient pointers, not merely unset ones (release-gate finding B1).
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/somewhere/ambient/.claude")
+    monkeypatch.setenv("CODEX_HOME", "/somewhere/ambient/.codex")
     monkeypatch.setenv("HOME", str(tmp_path / "sandbox-home"))
     case = _make_case(tmp_path)
     assert main(_argv(case, seat)) == 0
     call = seat.calls()[0]
     assert call["config_dir"] is None
+    assert call["codex_home"] is None
     assert call["home"] == str(tmp_path / "sandbox-home")
 
 
@@ -807,6 +810,10 @@ def test_darwin_restores_the_real_home_for_an_operator_configured_seat(
     the pointer is redundant (field finding F19)."""
     home = _real_home(tmp_path, monkeypatch)
     monkeypatch.setenv("HOME", str(tmp_path / "sandbox-home"))
+    # Release-gate finding B1 (2026-08-27): an AMBIENT pointer defeated the
+    # F19 omission guarantee — "never set" is not "absent". The bridge now
+    # drops inherited vendor config pointers before deciding.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/somewhere/ambient/.claude")
     monkeypatch.setattr(sys, "platform", "darwin")
     case = _make_case(tmp_path)
     assert main(_argv(case, seat, extra=["--config-home", "CLAUDE_CONFIG_DIR=.claude"])) == 0
