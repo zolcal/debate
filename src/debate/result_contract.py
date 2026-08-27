@@ -83,8 +83,9 @@ def _bounded_text(
     field_name: str,
     scalar_limit: int,
     byte_limit: int,
+    allow_empty: bool = False,
 ) -> str:
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or (not value and not allow_empty):
         raise VerificationContractError(
             f"verification {field_name} must be non-empty text"
         )
@@ -155,11 +156,17 @@ def validate_verification(
                         byte_limit=limits.command_bytes,
                     ),
                     "exit_status": exit_status,
+                    # Empty output is honest evidence: a silent-success probe
+                    # (an assert chain that prints nothing and exits 0) has
+                    # its command and exit status as the evidence. Refusing
+                    # the empty string refused the truth and killed a live
+                    # case (field finding F21); it would teach seats to pad.
                     "output": _bounded_text(
                         item.get("output"),
                         field_name=f"item {index} output",
                         scalar_limit=limits.output_scalars,
                         byte_limit=limits.output_bytes,
+                        allow_empty=True,
                     ),
                 }
             )

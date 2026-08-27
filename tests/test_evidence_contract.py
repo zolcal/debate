@@ -109,9 +109,9 @@ def test_performed_and_unable_are_accepted_and_labelled(tmp_path: Path) -> None:
         (
             {
                 "status": "performed",
-                "items": [{"command": "probe", "exit_status": 0, "output": ""}],
+                "items": [{"command": "", "exit_status": 0, "output": "ok"}],
             },
-            "output must be non-empty",
+            "command must be non-empty",
         ),
         ({"status": "unable", "reason": ""}, "reason must be non-empty"),
     ],
@@ -130,6 +130,31 @@ def test_controller_rejects_missing_extra_empty_and_bad_types(
         bridge.parse_answer_with_verification(
             _seat_answer(_seat_payload(payload)), schema_version=2
         )
+
+
+def test_empty_output_is_honest_evidence(tmp_path: Path) -> None:
+    """Field finding F21 (gate-5, 2026-08-27): a silent-success probe -- an
+    assert chain that prints nothing and exits 0 -- is legitimate evidence;
+    the executed command and its exit status carry it. Refusing the empty
+    string refused the truth, ERROR-closed a live case, and would teach
+    seats to pad output. The empty COMMAND stays refused (test above)."""
+    payload = _result(
+        verification={
+            "status": "performed",
+            "items": [
+                {
+                    "command": "python3 -c \"import slugify; assert slugify.slugify('') == 'untitled'\"",
+                    "exit_status": 0,
+                    "output": "",
+                }
+            ],
+        }
+    )
+    parsed = _parse(tmp_path, payload)
+    assert parsed.verification is not None
+    items = parsed.verification["items"]
+    assert isinstance(items, list)
+    assert items[0]["output"] == ""
 
 
 def test_unable_cannot_pass_in_both_validators(tmp_path: Path) -> None:
