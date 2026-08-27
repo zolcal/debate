@@ -287,8 +287,8 @@ Which seats can take part in a fully managed debate:
   [--config-home MYTOOL_HOME=.mytool]`. Until that is on record the seat is
   refused, with the two ways forward named: declare those arguments, or record
   a seat command of your own that reads a request file and writes a version-2
-  answer file. A hand-authored file adapter also needs the explicit
-  `--result-schema-version 2` declaration; older v1 adapters keep working on
+  (or version-3) answer file. A hand-authored file adapter also needs the explicit
+  `--result-schema-version 2` (or `3`) declaration; older v1 adapters keep working on
   historical configurations but are evidence-absent and cannot enter a new
   product review.
 - **Launcher scripts next to a tool Debate knows are detected**, listed as
@@ -395,7 +395,9 @@ JSON, may not contain `sender`, and is posted under the bound seat by the contro
 revision was only half-recorded; verdict provenance therefore never points only at a mutable
 gitignored filename.
 
-Every new product `verdict` uses result schema v3. The seat still returns the
+Every new product `verdict` from a bundled seat uses result schema v3; a
+hand-authored custom file adapter may declare v2 or v3, and a new product open
+admits either. The seat still returns the
 typed `decision` plus full structured verification — each command, exit status,
 and bounded output — and the controller validates the shape and limits. What the
 CHANNEL publishes is contract-safe: a `Controller-Verification` block carrying the

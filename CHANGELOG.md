@@ -49,11 +49,13 @@ The field fold was gated on `plan-v080-field-fold-14206` (PASS, MSG-20).
   channel and stop on failure or cancellation. Existing persisted caps and historical
   configurations remain readable; mode-absent history keeps its `legacy-absent` basis.
 - **Result schema v3 with falsifiable verification evidence** — every new product
-  verdict uses result schema v3: bundled product seats must return bounded `performed`
-  command/status/output items or `unable` plus `NO_PASS`, and publication is
-  contract-safe — the evidence digest and item count are published while the exact
-  commands stay in the private invocation result. Schema v2 remains the frozen floor
-  for legacy and custom adapters, with its own smaller limits.
+  verdict from a bundled seat uses result schema v3: bundled product seats must return
+  bounded `performed` command/status/output items or `unable` plus `NO_PASS`, and
+  publication is contract-safe — the evidence digest and item count are published
+  while the exact commands stay in the private invocation result. A hand-authored
+  custom file adapter may declare schema v2 or v3 and a new product open admits
+  either; v2 remains frozen, with its own smaller limits, as the floor for legacy
+  and custom adapters.
   The bridge and controller independently validate the dependency-free shape and limits;
   provenance labels it seat-declared, never “verified by the schema.” Claude receives its
   catalogued read/search/shell arguments and Codex is recorded inherently capable. A
