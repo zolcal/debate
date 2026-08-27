@@ -711,3 +711,35 @@ def test_typed_terminal_close_repairs_crash_between_mailbox_and_signal(
     assert entry_id == "MSG-2"
     assert len(channel.read_entries(root, name)) == 2
     assert channel.read_signal(root, name)["phase"] == "terminal"
+
+
+def test_atomic_replace_retries_through_a_sharing_violation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Field finding F25 (Windows leg): os.replace over a file another handle
+    still has open raises PermissionError on Windows, and doorbell/case
+    readers hold handles only momentarily -- the write path must retry
+    briefly instead of dying. Simulated here so the behavior is pinned on
+    every platform; the final attempt still raises honestly."""
+    source = tmp_path / "new.tmp"
+    target = tmp_path / "signal.json"
+    source.write_text("after")
+    target.write_text("before")
+    real_replace = Path.replace
+    denials = {"left": 2}
+
+    def flaky_replace(self: Path, other: Path) -> Path:
+        if self == source and denials["left"] > 0:
+            denials["left"] -= 1
+            raise PermissionError(5, "sharing violation")
+        return real_replace(self, other)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+    channel.atomic_replace(source, target)
+    assert target.read_text() == "after"
+    assert denials["left"] == 0
+
+    source.write_text("again")
+    denials["left"] = 99
+    with pytest.raises(PermissionError):
+        channel.atomic_replace(source, target)

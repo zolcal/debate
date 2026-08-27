@@ -1466,10 +1466,27 @@ def exclusive(root: Path, name: str | None = None) -> Iterator[None]:
         lock.unlink(missing_ok=True)
 
 
+def atomic_replace(tmp: Path, path: Path) -> None:
+    """``os.replace`` with a brief backoff (field finding F25): Windows
+    refuses to replace a file another handle still has open (sharing
+    violation, ``PermissionError``), and doorbell/case readers hold their
+    handles only momentarily — so a short retry clears it. POSIX rename
+    never takes the except path. The final attempt raises honestly."""
+    import time  # local import keeps module load light
+
+    for delay in (0.01, 0.05, 0.1, 0.2, 0.5):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+    tmp.replace(path)
+
+
 def _atomic_write(path: Path, content: str) -> None:
     # newline="" writes content byte-for-byte: a mailbox rewrite must never
     # translate line endings (Windows text mode would turn LF into CRLF).
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", encoding="utf-8", newline="") as handle:
         handle.write(content)
-    tmp.replace(path)
+    atomic_replace(tmp, path)

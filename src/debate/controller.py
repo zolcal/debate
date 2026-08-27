@@ -103,7 +103,7 @@ def _atomic_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.name}.tmp{os.getpid()}")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    temporary.replace(path)
+    channel.atomic_replace(temporary, path)
 
 
 def _string_list(raw: object, field_name: str, *, allow_empty: bool = True) -> tuple[str, ...]:

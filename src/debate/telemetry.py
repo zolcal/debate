@@ -46,7 +46,11 @@ def storage_metrics(root: Path) -> StorageMetrics:
         stat = path.stat()
         file_count += 1
         apparent_bytes += stat.st_size
-        allocated_bytes += stat.st_blocks * 512
+        # st_blocks is POSIX-only (field finding F25): Windows stat carries no
+        # allocation figure, so the apparent size stands in — a size metric
+        # must degrade, never crash the runtime accounting that reads it.
+        blocks = getattr(stat, "st_blocks", None)
+        allocated_bytes += stat.st_size if blocks is None else blocks * 512
     return StorageMetrics(file_count, apparent_bytes, allocated_bytes)
 
 

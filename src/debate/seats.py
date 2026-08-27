@@ -457,7 +457,7 @@ def save_registry(registry: Registry) -> Path:
             handle.write(json.dumps(registry_payload(registry), indent=2) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        channel.atomic_replace(Path(tmp), path)
     except OSError:
         try:
             os.unlink(tmp)

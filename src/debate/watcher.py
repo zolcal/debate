@@ -1147,7 +1147,9 @@ def _load_state(path: Path) -> dict[str, Any]:
 
 
 def _save_state(path: Path, state: dict[str, Any]) -> None:
+    from debate import channel  # local import keeps module load light
+
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp{os.getpid()}")
     tmp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)
+    channel.atomic_replace(tmp, path)
