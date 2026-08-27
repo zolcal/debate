@@ -26,6 +26,9 @@ def _which(mapping: dict[str, str]) -> Callable[[str], str | None]:
 def _launcher(path: Path, name: str = "claude-ox") -> Path:
     launcher = path / name
     launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    # Windows which() resolves via PATHEXT only: a .cmd twin makes the same
+    # binary name discoverable there (field finding F25).
+    launcher.with_suffix(".cmd").write_text("@exit /b 0\r\n", encoding="utf-8")
     launcher.chmod(0o755)
     return launcher
 

@@ -198,6 +198,11 @@ def test_approve_refuses_unknown_and_unrunnable_seats(isolated: tuple[Path, Path
         )
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows chmod cannot revoke directory write permission, so the "
+    "forced transaction failure cannot be staged (field finding F25)",
+)
 def test_approve_transaction_failure_leaves_both_files_byte_identical(
     isolated: tuple[Path, Path],
 ) -> None:
@@ -509,7 +514,10 @@ def test_approved_profile_is_world_readable(isolated: tuple[Path, Path]) -> None
         candidate_revision=str(report["candidate_revision"]), confirmed=True, now=NOW,
     )
     mode = (project / "debate-profile.json").stat().st_mode & 0o777
-    assert mode == 0o644
+    # Windows mode bits know only the write toggle: readable-by-all reads
+    # back as 0o666 there, 0o644 on POSIX. The intent under test is
+    # world-READABLE, which both values satisfy (field finding F25).
+    assert mode == (0o666 if os.name == "nt" else 0o644)
 
 
 def test_cost_mode_declaration_paths(isolated: tuple[Path, Path], tmp_path: Path) -> None:

@@ -168,7 +168,9 @@ def test_bundled_engine_wins_over_a_path_debate(tmp_path: Path) -> None:
     (decoy / "debate" / "__init__.py").write_text(
         "raise SystemExit('decoy debate package must never load')", encoding="utf-8"
     )
-    launcher = REPO_ROOT / "scripts" / "debate-plugin"
+    launcher = REPO_ROOT / "scripts" / (
+        "debate-plugin.cmd" if os.name == "nt" else "debate-plugin"
+    )
     proc = subprocess.run(
         [str(launcher), "onboarding", "status", "--project", str(tmp_path), "--json"],
         capture_output=True, text=True, timeout=30,

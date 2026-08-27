@@ -2720,8 +2720,13 @@ def test_sealed_adapter_input_matches_its_golden_payload(tmp_path: Path) -> None
     )
 
     encoded = json.dumps(payload, indent=2, sort_keys=True)
+    # The runtime root appears in both spellings on Windows (backslash from
+    # str(), forward slash where the product records POSIX text — field
+    # finding F26), and json.dumps doubles the backslashes; replace every
+    # form so the golden stays platform-neutral.
     for actual, token in (
-        (str(broker.runtime_root), "<runtime>"),
+        (json.dumps(str(broker.runtime_root))[1:-1], "<runtime>"),
+        (broker.runtime_root.as_posix(), "<runtime>"),
         (sha, "<ref>"),
         (docket.revision_sha256, "<docket>"),
         (exports["bob"].manifest_sha256, "<manifest>"),
