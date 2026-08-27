@@ -85,3 +85,28 @@ def test_status_corrupted_signal_no_traceback(tmp_path: Path, capsys: pytest.Cap
     assert main(["status", "--root", str(root)]) == 1
     err = capsys.readouterr().err
     assert "unreadable signal" in err
+
+
+def test_windows_console_never_crashes_on_record_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Field finding F29: `debate read` printed a verdict quoting CJK and
+    Cyrillic probe strings and a cp1252 Windows console killed the command.
+    On nt the CLI reconfigures stdout/stderr to UTF-8 with replacement --
+    output may degrade, the command survives."""
+    import os
+    import sys
+
+    from debate.__main__ import _stable_console
+
+    calls: list[tuple[str, str]] = []
+
+    class _Stream:
+        def reconfigure(self, *, encoding: str, errors: str) -> None:
+            calls.append((encoding, errors))
+
+    monkeypatch.setattr(os, "name", "nt", raising=False)
+    monkeypatch.setattr(sys, "stdout", _Stream())
+    monkeypatch.setattr(sys, "stderr", _Stream())
+    _stable_console()
+    assert calls == [("utf-8", "replace"), ("utf-8", "replace")]

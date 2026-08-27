@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -512,7 +513,22 @@ def _add_docket_files(config_path: Path, additions: list[str]) -> None:
     config_path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
 
 
+def _stable_console() -> None:
+    """``debate read`` prints RECORD content, which is legitimately
+    non-ASCII (verdicts quote arbitrary titles and probe strings); a cp1252
+    Windows console crashed the reader on it (field finding F29). UTF-8
+    with replacement means output can degrade but never kill the command;
+    the ASCII discipline elsewhere covers only the tool's OWN strings."""
+    if os.name != "nt":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _stable_console()
     parser = argparse.ArgumentParser(prog="debate", description=__doc__)
     # metavar: the auto-generated choices line would list every subcommand,
     # including the hidden one below, which is the one thing it must not do.
