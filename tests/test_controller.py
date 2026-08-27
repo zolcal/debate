@@ -135,8 +135,15 @@ def make_repository(tmp_path: Path) -> tuple[Path, str]:
     assert _run(["git", "commit", "-m", "fixture"], repo).returncode == 0
     sha = _run(["git", "rev-parse", "HEAD"], repo).stdout.strip()
     (repo / "docs" / "plans").mkdir(parents=True)
-    (repo / "docs" / "plans" / "superseded.md").write_text("# Untracked plan revision\n", encoding="utf-8")
-    (repo / "watcher.json").write_text('{"commands": {"old": ["agent"]}}\n', encoding="utf-8")
+    # newline="\n" keeps these docket files byte-identical on Windows, where
+    # text mode would write CRLF and change every golden sha256 (field
+    # finding F25) — the product's byte-honest hashing is the part under test.
+    (repo / "docs" / "plans" / "superseded.md").write_text(
+        "# Untracked plan revision\n", encoding="utf-8", newline="\n"
+    )
+    (repo / "watcher.json").write_text(
+        '{"commands": {"old": ["agent"]}}\n', encoding="utf-8", newline="\n"
+    )
     return repo, sha
 
 
