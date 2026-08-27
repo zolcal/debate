@@ -2733,6 +2733,13 @@ def test_sealed_adapter_input_matches_its_golden_payload(tmp_path: Path) -> None
     ):
         encoded = encoded.replace(actual, token)
 
+    # Runtime-LOCAL paths (docket/source roots) are native by design -- the
+    # seat opens them on this machine -- so the golden normalizes separators
+    # instead of demanding POSIX from the product (field finding F25). In
+    # this JSON text a backslash exists only as the \\ escape inside those
+    # paths.
+    encoded = encoded.replace("\\\\", "/")
+
     assert json.loads(encoded) == {
         "schema_version": 1,
         "phase": "sealed",

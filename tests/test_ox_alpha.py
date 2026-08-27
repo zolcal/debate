@@ -10,6 +10,8 @@ from types import SimpleNamespace
 from typing import Callable, cast
 from unittest.mock import patch
 
+import sys
+
 import pytest
 
 from debate import bridge, channel, controller, onboarding, opening, seats
@@ -46,7 +48,7 @@ def _other_seat() -> seats.Seat:
         vendor="other",
         submodel="frontier",
         effort=None,
-        commands=[["/bin/sh", "{input_path}", "{result_path}"]],
+        commands=[[sys.executable, "{input_path}", "{result_path}"]],
         source="manual",
         present=True,
         smoke=None,
@@ -121,8 +123,8 @@ def test_credential_name_is_bounded_and_value_never_serialized(
     seats.add_seat(
         manual,
         "stealth/manual-ox",
-        "/bin/sh {prompt}",
-        which=_which({"/bin/sh": "/bin/sh"}),
+        f"{sys.executable} {{prompt}}",
+        which=_which({sys.executable: sys.executable}),
         credential_env=["OPENROUTER_API_KEY"],
     )
     assert manual.seats["stealth/manual-ox"].credential_env == ["OPENROUTER_API_KEY"]
@@ -130,8 +132,8 @@ def test_credential_name_is_bounded_and_value_never_serialized(
         seats.add_seat(
             manual,
             "stealth/bad",
-            "/bin/sh {prompt}",
-            which=_which({"/bin/sh": "/bin/sh"}),
+            f"{sys.executable} {{prompt}}",
+            which=_which({sys.executable: sys.executable}),
             credential_env=["LD_PRELOAD"],
         )
 
