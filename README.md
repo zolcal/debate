@@ -286,9 +286,9 @@ Which seats can take part in a fully managed debate:
   --verification-capable [--verification-argv=<documented args>]
   [--config-home MYTOOL_HOME=.mytool]`. Until that is on record the seat is
   refused, with the two ways forward named: declare those arguments, or record
-  a seat command of your own that reads a request file and writes a version-2
-  (or version-3) answer file. A hand-authored file adapter also needs the explicit
-  `--result-schema-version 2` (or `3`) declaration; older v1 adapters keep working on
+  a seat command of your own that reads a request file and writes a version-3
+  (or version-2) answer file. A hand-authored file adapter also needs the explicit
+  `--result-schema-version 3` (or `2`) declaration; older v1 adapters keep working on
   historical configurations but are evidence-absent and cannot enter a new
   product review.
 - **Launcher scripts next to a tool Debate knows are detected**, listed as
@@ -721,7 +721,7 @@ Each of these is encoded in the tool or the shipped watcher, and each one was pa
   against accidents — not as evidence against a determined forger with write access.
 - **Young.** Extracted from a working production setup, generalized, and tested — but
   read the code before trusting it; it's about 13,000 lines including the CLI,
-  the broker and the setup wizard, with 911 tests as of this writing.
+  the broker and the setup wizard, with 912 tests as of this writing.
 
 ## Where this comes from
 
