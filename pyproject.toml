@@ -24,7 +24,8 @@ dependencies = []
 [project.urls]
 Homepage = "https://github.com/zolcal/debate"
 Issues = "https://github.com/zolcal/debate/issues"
-"Case study" = "https://github.com/zolcal/debate/blob/main/docs/case-study.md"
+"Case study" = "https://github.com/zolcal/debate/blob/e7a8c924abd1156bc1cb99ae56a4c96f0ccf4d39/docs/case-study.md"
+Changelog = "https://github.com/zolcal/debate/blob/e7a8c924abd1156bc1cb99ae56a4c96f0ccf4d39/CHANGELOG.md"
 
 [project.optional-dependencies]
 # ruff is PINNED to a minor range on purpose: an unpinned linter makes CI
