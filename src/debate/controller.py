@@ -23,6 +23,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import tarfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -859,7 +860,7 @@ def _kill_adapter_tree(process: subprocess.Popen[str]) -> None:
     Windows there is no such call and only the direct child can be reached,
     which is exactly what happened before.
     """
-    if os.name == "nt":  # pragma: no cover - POSIX-only test environment
+    if sys.platform == "win32":  # pragma: no cover - POSIX-only test environment
         process.kill()
         return
     try:

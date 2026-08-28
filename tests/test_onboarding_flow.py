@@ -20,6 +20,7 @@ import pytest
 
 
 from debate import channel, onboarding, opening, seats
+from debate.controller import _baseline_environment
 from debate.__main__ import _watcher_config
 
 def _hermetic_path() -> str:
@@ -762,6 +763,7 @@ def test_stub_debate_reaches_typed_close(
 
     src_dir = Path(__file__).resolve().parent.parent / "src"
     env = {
+        **_baseline_environment(),
         "PATH": _hermetic_path(),
         "PYTHONPATH": str(src_dir),
         "DEBATE_SEATS_REGISTRY": str(registry),
