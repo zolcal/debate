@@ -1,0 +1,11 @@
+{
+  "parties": [
+    "opus",
+    "codex"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "slice4-review-17725",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 1
+}

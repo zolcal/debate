@@ -1,0 +1,27 @@
+{
+  "parties": [
+    "claude",
+    "stealth"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "automatic-start-branch-gate-76079",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 2,
+  "review_mode": "release-gate",
+  "review_contract_basis": "recorded",
+  "goal": "Determine whether the complete automatic Debate-start branch is merge-ready.",
+  "review_domain": "The exact branch commit and pinned Slice D docket.",
+  "stop_rule": "PASS only if the exact branch is merge-ready; otherwise batch actionable findings.",
+  "review_contract": {
+    "goal": "Determine whether the complete automatic Debate-start branch is merge-ready.",
+    "review_domain": "The exact branch commit and pinned Slice D docket.",
+    "stop_rule": "PASS only if the exact branch is merge-ready; otherwise batch actionable findings.",
+    "review_mode": "release-gate",
+    "review_contract_basis": "recorded",
+    "thread_cap": 12,
+    "seat_turn_ceiling": 11,
+    "nested_launch_ceiling": 22,
+    "supervisor_entries_consume_cap": true
+  }
+}

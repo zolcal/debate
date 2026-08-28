@@ -3055,3 +3055,176 @@ REGISTRATION ANCHOR (one-shot close idiom; content stays private). sha256 of eve
 2026-08-10-amendment-7-pool-extension-and-field-log.md: 798550a9d720fb80928b414ac876deedcd26704b0a63e37e4965e282b0b32b29
 2026-08-11-amendment-8-cheap-seat-process-experiment.md: 73b807548994344a4b17fedd1e66c5e657bb71ff659f3a0e0a5083eb986a2446
 DEVIATION-LEDGER.md: e7e8ea3dd87e87cad5ee393ea04d833ff8e766abd777aff3789ddc017978fc30
+
+## MSG-102 | 2026-08-19T18:44:50+00:00 | from: owner | type: review-request | thread: plan-v080-onboarding-1 | refs: main@ee1e99a0e35e93dea1029609fdcf65c7683fa680
+
+Review request: the v0.8.0 plan doc `docs/plans/2026-08-19-installation-driven-agent-onboarding-v0.8.0.md` (materialized in the case docket by content — docs/plans/ is untracked by design). Round 1 of the plan gate; the doc header is `Status: DRAFT — pending debate review`.
+
+The plan makes Debate an installation-driven product inside Codex and Claude: native plugin per host bundling the engine, an automatic read-only session-start notice, explicit project-scoped seat approval (detected is never approved), and a managed-v2 brokered start path. Authored by Codex; amended 2026-08-19 by the session seat with pre-gate review findings (per-host hook manifests, Slice 1A/1B split, Windows scope, uninstall semantics, distribution/cache/headless notes) folded into the body.
+
+Verify per the docket `plan-v080-docket.md`: (1) section-2.1 repo-evidence claims against the export at the pinned ref; (2) whole-document internal coherence; (3) safety/trust invariants; (4) honesty of capability claims; (5) gate/lifecycle compliance; (6) the docket's exact pytest command. Verdicts cite your own fresh evidence from the export, never this request. Name every blocking finding establishable in your pass, not the first one.
+
+
+Controller-Docket-Provenance:
+- topology: recommended-three-agent
+- controller-config-sha256: 35eefc59e59e4a812373bd39356baee1eda10ad4f5a8d0adc25fd991daa2355a
+- source-ref: ee1e99a0e35e93dea1029609fdcf65c7683fa680
+- docket-revision-sha256: 72288d5a2ed4b3c94de52a087bd5ee592b5d39d558e8f0bc48fb73124776a9b2
+- docket-files: [{"path": "collab/PROTOCOL.md", "sha256": "dfb3950a24d38ac308632baa117e961ae9da00ed1b8aac8a48261d8cbeaeb9c6", "tracked_at_source_ref": true}, {"path": "collab/repository-unattended-02750.debate.json", "sha256": "e6dc6ecd4e7e0b67f3fe318492c883a65786b97717efe334a1d0f5ad0272bbb2", "tracked_at_source_ref": true}, {"path": "docs/plans/2026-08-19-installation-driven-agent-onboarding-v0.8.0.md", "sha256": "71ccc6a2413c7ade784e04fa6f587b1018797b5ca66d71b8382125c285d80331", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-v080-docket.md", "sha256": "ca4bb06324acfc0dc32caee4bbd46b31b3826552258ff389cdc9784fe6f2b980", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat-result.schema.json", "sha256": "0f03c5e1f0be74c320750c3c2baf5a5a14c39622e34babe8c0b30781578161b1", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/seat_adapter.py", "sha256": "059023723e14c448598515c21dcff9c4acbc844f711edb36667fa48b8064543c", "tracked_at_source_ref": false}, {"path": "var/debate/repository-unattended-02750/plan-v080-watcher.json", "sha256": "35eefc59e59e4a812373bd39356baee1eda10ad4f5a8d0adc25fd991daa2355a", "tracked_at_source_ref": false}]
+- profile-sha256: {"codex": "19c9c82ba51d212ca51e43fdea7d140e566447c8e7ebb563d2dd7abcfabbd7c0", "opus": "9fa18acb64705aa931a8c6b7bd251674d7c685c99587d3a637eb5d1f3baaaa2c"}
+- sanitized-profile-manifests: {"codex": {"authentication_mode": "Codex subscription OAuth state exposed only to the local wrapper; user config and rules ignored", "author_relationship": "author-independent", "cli_version": "codex-cli 0.148.0", "command_sha256": "ffbf7832ae53855f2de3a7aebb968a791e2b32403ec81bc58fe389d4756ae3bb", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "gpt-5.6-terra", "isolation_mode": "advisory", "party": "codex", "permission_policy": "read-only source export at filesystem layer; workspace-write sandbox limited to controller invocation output/build path", "provider": "openai", "reasoning_effort": "high", "requested_model": "gpt-5.6-terra", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 1200}, "opus": {"authentication_mode": "subscription OAuth state exposed only to the local wrapper; safe mode and settings sources disabled", "author_relationship": "author-independent", "cli_version": "claude-code 2.1.235", "command_sha256": "6e8cf0800354f4a0dfe04684b92f41cfa1cb90a78be45fb63ebffb26b2d352c3", "cost_mode": "subscription", "environment_additions": {"PYTHONPATH": "25a6634263c1b1f6fc4697a04e2b9904ea4b042a89af59dc93ec1f5d44848a26"}, "environment_allowlist": ["PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"], "expected_runtime_model": "claude-opus-5", "isolation_mode": "advisory", "party": "opus", "permission_policy": "read-only source export; result path controller-owned; Read/Grep/Glob plus test-only Bash allowlist", "provider": "anthropic", "reasoning_effort": "high", "requested_model": "claude-opus-5", "result_schema_version": 1, "retry_limit": 0, "schema_version": 1, "session_persistence": false, "settings_sources": [], "timeout_seconds": 1200}}
+- source-manifest-sha256: {"codex": "63a70e313455198f7beac0ed5f9b93cb299056eeb76760c1b1c7384f48f24d49", "opus": "51c179f2c6ca5873d7597a93b8379f44b41b8f0aa96ff4ba7a6aa8544e1ea9cc"}
+
+## MSG-103 | 2026-08-19T18:52:42+00:00 | from: opus | type: verdict | thread: plan-v080-onboarding-1 | refs: -
+
+VERDICT: PASS — the v0.8.0 onboarding plan is evidence-grounded, internally coherent, and safe enough to become the implementation contract. No blocking finding established in this pass.
+
+COMMAND RUN (literal, from the export root /home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/ee1e99a0e35e93dea1029609fdcf65c7683fa680/opus):
+`python -m pytest -q tests/test_release_sync.py tests/test_open.py tests/test_seats.py`
+RESULT: `.........................................................  [100%]` / `57 passed in 0.54s` (exit 0). No prefixes, suffixes, pipes or environment diagnostics were attached; a separate provenance probe of the imported package was attempted and denied by the environment, so the only test evidence I cite is the literal run above. Note that test_release_sync.py itself asserts `debate.__version__` equals the `version` in the export's pyproject.toml, which ties the imported engine to the export's declared 0.7.0.
+
+CRITERION 1 — section 2.1 repo-evidence claims, checked against the pinned export (all confirmed; none contradicted):
+- pyproject.toml:37-38 declares exactly one console script, `debate = "debate.__main__:main"`, under `[project.scripts]`.
+- `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` exist; a full recursive listing of the export contains no `hooks/hooks.json`, no `.codex-plugin/`, and no `.agents/plugins/marketplace.json`.
+- skills/debate/SKILL.md:3 triggers only on an existing channel triple, a scheduler wake-up, or an explicit review request; SKILL.md:20-24 fails closed ("STOP — fail closed") when `debate --help` fails.
+- src/debate/opening.py:280 and :297 write `channel.MANAGED_VERSION`; src/debate/channel.py:54 sets `MANAGED_VERSION = 1` (BROKERED_MANAGED_VERSION = 2 at :55). The only place v2 is selected is `debate init --brokered` (__main__.py:685), not the `open` picker — so "the existing picker creates managed-version-1 channels" is accurate.
+- src/debate/opening.py:131 consults `registry.last_pair.get(project)` then `registry.last_pair.get("")` (project then global), and :325-326 writes both.
+- src/debate/seats.py:562-568 (`load_profile`): "A missing file is simply no restriction" — returns None, i.e. unrestricted; :596-600 refuses an empty allowlist, which independently corroborates plan §3.2's "zero approved seats … without creating a misleading empty profile".
+- `adapter-doctor` exists: __main__.py:452 (parser), :877 (dispatch), controller.py:1803.
+- README.md:135-165 does present `debate seats discover/list/check/smoke` and `debate open` as the user journey, and README.md:180 states "Version 2 is the brokered path for new isolated gates".
+
+CRITERION 2 — internal coherence: Slice 1A/1B split is consistent with §6 (matrix carries "per-host manifest parse", "non-interactive suppression", uninstall, changed candidate revision), §7 (file list covers both 1A hook artifacts and 1B onboarding.py/onboarding skill), and §10.5-10 ("The first post-approval task is Slice 1A"); a grep for stale unsplit "Slice 1" references found only the amendment-log line 12. Per-host hook manifests agree across §2.2, §4.1 and §7, each with the same single escape hatch (collapse only if the Slice 1A parse spike proves both hosts accept one file). Windows is out of scope in Slice 3 and the §6 Paths row is scoped "(Linux and macOS only — see Slice 3)". Uninstall semantics agree between Slice 3 and §8 (no interactive retention offer exists; the invariant is that `plugin remove` never touches user data). Managed-v2 default agrees with §9's non-goal ("No removal of managed-version-1 compatibility; it simply stops being the product default") and §1.5. §3.2's approval rules match §4.2's state machine: detection is never approval (`approve` needs explicit `--allow` ids plus `--confirmed`), `last_pair` is never approval (§3.3.3 allows it only as a labelled convenience after project approval exists), and zero approved seats creates no profile (§4.2 "Presence of a valid nonempty allowlist is the project approval record").
+
+CRITERION 3 — safety invariants: zero-model-call discovery is stated at every point discovery appears (§1.6, §3.1 notice text, §3.2, §3.4, §4.1 hook "never … runs discovery", §4.2 inspect, §6 invariants, §8). No path writes before validation: the hook is read-only by construction (§4.1), `approve` verifies the candidate revision and validates ids before an atomic replace and leaves prior files byte-identical on failure (§4.2), and brokered open runs all loader/adapter-doctor validation before the first target write, leaving targets byte-empty on pre-write failure (§4.3), reinforced by the §6 invariant. Smoke is bounded to one confirmed call per selected seat with cost mode named (§1.6, §3.2, §8, Slice 4.5) and defaults to "not now". `/tmp` appears only in prohibitions (lines 440 and 484); every acceptance root is project-local. No credential values in any surface (§4.2 refuses credential-shaped argv and never prints it; §6; §8 hook does not source ~/.secrets; Slice 4.7 redaction). Hook trust is explicitly not approval (§8 first bullet, §1.3).
+
+CRITERION 4 — honesty: §2.2 fourth bullet and §4.4 both forbid manufacturing a model turn and fix the claim at "automatic visible onboarding notice, followed by in-host guided approval". The header is Status: DRAFT, §2.1 states current absence rather than claiming shipped work, and the Codex hooks citation is held to its own hedge (§2.2 marks it unverified; Slice 1A.1 makes verification the first act and says the citation "is not trusted until this spike confirms it"). Acceptance is executable as written: isolated roots under the project (§3.1, Slice 1A.4, Slice 4.4), real trust prompts accepted rather than edited around (Slice 1A.4, with the correct warning that Codex regenerates plugin caches), and explicit no-live-state-inheritance.
+
+CRITERION 5 — gate/lifecycle: §10 matches the docket's PROTOCOL.md and channel config. The channel `repository-unattended-02750.debate.json` is parties opus/codex, supervisor owner, managed_version 2, so §10.1's "using that channel's configured two seats" is accurate; PROTOCOL.md:63-77 and :128-130 give controller-managed close and supervisor-only merges/publication, which §10.4 (header flip only on channel-proven PASS), §10.6 (branch gate at branch@sha with --verify-refs, human merges) and §10.7 (separate publication gate) respect.
+
+NON-BLOCKING OBSERVATIONS (named, not held as blockers):
+1. Gitignore gap: the export's .gitignore:30 ignores `.claude/worktrees/` only, while §5 puts a worktree at `.worktrees/installation-onboarding-v080`, §3.1 puts acceptance roots at `.acceptance/v080/`, and Slice 4 puts `.release-acceptance/v080/` in the repo — none ignored, and §7's change list does not include a .gitignore amendment. The .gitignore comment at :28-30 exists precisely because an in-repo worktree can be swept up by `git add -A`. Add .gitignore to §7.
+2. §4.1 heads its bundle inventory "Create and release these host artifacts" while listing `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, which already exist; §7 correctly says "amend". Wording only.
+3. §10.2's "reviewers append `## Review — …` sections; reviewers do not edit this body" is a managed-v1 direct-CLI convention. Under this channel's managed_version 2 the seats read a read-only export and cannot write the artifact at all; folding happens through §10.3 by the owner/session. Not a conflict with PROTOCOL.md, but §10.2 would be clearer scoped to that reality.
+4. §2.1 and §4.3 cite `docs/plans/2026-07-15-skill-distribution-research.md` and `docs/plans/2026-08-15-seat-registry-and-debate-open.md`, which are absent from the export. This is expected rather than contradictory: .gitignore:40 ignores `docs/plans/` wholesale (the docket likewise marks the plan under review as not tracked at the source ref). Uncheckable here, so not voted on.
+5. Monolithic structure, addressed rather than assumed waived: this plan carries its slices instead of being a contract plus mini-plans. I do not judge that a blocking defect here — the owner directed the shape explicitly on 2026-08-19, PROTOCOL.md:56-59 puts artifact size in the owner's hands and bars length alone as a blocking finding, and each slice states its own independently demonstrable done-when, so the gate does not lose slice-level granularity in practice.
+
+Per the docket's honest-scoping, I did not vote on the live-host observations (`codex plugin list` / `claude plugin list`, the 2026-06-26 Codex hook-parser incident, superpowers' split manifests), the debate-bench 0.7.0 sdist failure record, or the external documentation URLs.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 67ca4746f729ca5a9ca2d438bb96b3ae999bf5cdee9d3cafe2de135183cd7475
+- phase: sealed
+- captured-at: 2026-08-19T18:49:02+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: 9fa18acb64705aa931a8c6b7bd251674d7c685c99587d3a637eb5d1f3baaaa2c
+- controller-config-sha256: 35eefc59e59e4a812373bd39356baee1eda10ad4f5a8d0adc25fd991daa2355a
+- source-ref: ee1e99a0e35e93dea1029609fdcf65c7683fa680
+- source-manifest-sha256: 51c179f2c6ca5873d7597a93b8379f44b41b8f0aa96ff4ba7a6aa8544e1ea9cc
+- docket-revision-sha256: 72288d5a2ed4b3c94de52a087bd5ee592b5d39d558e8f0bc48fb73124776a9b2
+- input-sha256: 02ce65344fe75e4a53ab6a1ec768b3d8c9a9ebd0037e57553ad7930e2b966369
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.235
+- isolation-mode: advisory
+
+## MSG-104 | 2026-08-19T18:52:42+00:00 | from: codex | type: verdict | thread: plan-v080-onboarding-1 | refs: -
+
+Blocking finding: the isolated-install acceptance is not executable as written. The plan requires no live registry inheritance but never specifies an isolated registry path or how the hook/launcher supplies it. Fresh source evidence: `sed -n '1,130p' src/debate/seats.py` shows `registry_path()` uses `DEBATE_SEATS_REGISTRY` or `~/.config/debate/seats.json`; `rg -n 'DEBATE_SEATS_REGISTRY|registry path|registry root|XDG|\.config/debate|acceptance/v080' <docket-plan>` found only the prohibition at lines 108–109 and says users must not set `DEBATE_SEATS_REGISTRY` at line 119, with no implementation mechanism. Thus an isolated Codex/Claude config root alone can still read the live registry and `last_pair`, violating sections 3.1 and 6.
+
+Required verification passed: `python -m pytest -q tests/test_release_sync.py tests/test_open.py tests/test_seats.py` → `57 passed in 0.50s`. Repo-evidence claims checked in the docket match the pinned export.
+
+Controller-Decision:
+- decision: NO_PASS
+
+Controller-Sealed-Reveal:
+- reveal-id: 67ca4746f729ca5a9ca2d438bb96b3ae999bf5cdee9d3cafe2de135183cd7475
+- phase: sealed
+- captured-at: 2026-08-19T18:52:42+00:00
+
+Controller-Provenance:
+- phase: sealed
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: 19c9c82ba51d212ca51e43fdea7d140e566447c8e7ebb563d2dd7abcfabbd7c0
+- controller-config-sha256: 35eefc59e59e4a812373bd39356baee1eda10ad4f5a8d0adc25fd991daa2355a
+- source-ref: ee1e99a0e35e93dea1029609fdcf65c7683fa680
+- source-manifest-sha256: 63a70e313455198f7beac0ed5f9b93cb299056eeb76760c1b1c7384f48f24d49
+- docket-revision-sha256: 72288d5a2ed4b3c94de52a087bd5ee592b5d39d558e8f0bc48fb73124776a9b2
+- input-sha256: 48464321c63d09533b8038e44de10eabf60efaf5bd2c261e643e9af0a50d6e83
+- requested-model: gpt-5.6-terra
+- runtime-model: gpt-5.6-terra
+- reasoning-effort: high
+- cli-version: codex-cli 0.148.0
+- isolation-mode: advisory
+
+## MSG-105 | 2026-08-19T18:58:07+00:00 | from: opus | type: verdict | thread: plan-v080-onboarding-1 | refs: -
+
+VERDICT: PASS — I hold my position after weighing the opposing seat's blocking finding on fresh evidence. The registry-isolation gap it names is real and should be folded in, but it is a specification gap in the acceptance harness, not a defect that makes the plan unexecutable or unsafe as an implementation contract.
+
+COMMAND RUN (literal, from the export root /home/zoltan/Projects/debate/var/debate/repository-unattended-02750/controller/exports/ee1e99a0e35e93dea1029609fdcf65c7683fa680/opus):
+`python -m pytest -q tests/test_release_sync.py tests/test_open.py tests/test_seats.py`
+RESULT: `.........................................................  [100%]` / `57 passed in 0.51s` (exit 0). No prefixes, suffixes, pipes or diagnostics attached.
+
+ON THE OPPOSING SEAT'S BLOCKER (registry isolation). I verified the underlying source fact and it is correct: src/debate/seats.py:24 sets `REGISTRY_PATH = Path("~/.config/debate/seats.json")` and :56-57 `registry_path()` returns `os.environ.get("DEBATE_SEATS_REGISTRY", REGISTRY_PATH).expanduser()`; src/debate/setup.py:48 has the same HOME-derived shape for setup defaults. So an isolated Codex/Claude *config* root alone does not isolate the seat registry — HOME or `DEBATE_SEATS_REGISTRY` must also be scoped, and the plan names no mechanism. I disagree that this blocks, on three grounds established in this pass:
+
+1. The plan does not claim the config roots alone achieve isolation. §3.1 (lines 107-110) states the roots and then states the requirement as an obligation ("it must not read the live `/home/zoltan/.config/debate/seats.json`, live plugin caches, live `last_pair`, or an existing project profile"), and Slice 4.4 (lines 442-443) makes it a proof obligation: "Prove no live registry, profile, plugin cache, or `PATH` package is inherited." A stated proof obligation with an unstated mechanism is under-specified, not false; §5's slices deliberately leave harness mechanics to implementation, as they do for the marketplace install path and the isolated project roots.
+2. Nothing in the plan forbids the fix. The only `DEBATE_SEATS_REGISTRY` prohibition is §3.1 lines 118-120, and it is scoped to the first-run product experience ("The user must not first run `debate seats discover`, set `DEBATE_SEATS_REGISTRY`, find a plugin cache path, source an environment file, or open a second terminal") — a constraint on the onboarding UX, not on how the acceptance harness launches an isolated host. Scoping HOME/XDG or `DEBATE_SEATS_REGISTRY` when launching the isolated host is the same class of harness setup as creating `.acceptance/v080/codex/` itself, and does not touch the "without the user typing a shell command" done-when, which governs the in-host Debate flow after install (Slice 1A.5, Slice 1B.4).
+3. The engine already supports both isolation levers (seats.py:57 env override; `.expanduser()` under a scoped HOME), and controller.py:40-44 and :693-696 show the codebase already scopes `HOME`/`XDG_CONFIG_HOME`/`XDG_CACHE_HOME`/`XDG_DATA_HOME` per seat — so the mechanism is present in-tree, not speculative.
+I therefore record it as a fold-in finding: §3.1 and Slice 4.4 should name the isolation lever (scoped HOME/XDG or `DEBATE_SEATS_REGISTRY`) because the registry is HOME-derived and host-config isolation does not cover it. That is a one-sentence amendment, not a redesign, and Slice 1B.4's "nothing was read from or written to the live Debate registry" already fails the slice if it is skipped.
+
+CRITERION 1 — section 2.1 repo-evidence, re-checked fresh against the pinned export; all confirmed, none contradicted:
+- pyproject.toml:37-38 declares exactly one console script, `debate = "debate.__main__:main"`.
+- `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` exist; a full recursive listing of the export contains no `hooks/hooks.json`, no `.codex-plugin/`, no `.agents/plugins/marketplace.json`.
+- skills/debate/SKILL.md:3 triggers only on an existing channel triple, a scheduler wake-up, or an explicit review request; :20-24 fails closed ("STOP — fail closed") when `debate --help` fails.
+- src/debate/opening.py:280 and :297 write `channel.MANAGED_VERSION`; channel.py:54-55 sets MANAGED_VERSION = 1, BROKERED_MANAGED_VERSION = 2; v2 is selected only by `debate init --brokered` (__main__.py:685), never by the picker — so "the existing picker creates managed-version-1 channels" is accurate.
+- opening.py:131 consults `registry.last_pair.get(project)` then `.get("")`; :325-326 writes both.
+- seats.py:562-568 `load_profile`: "A missing file is simply no restriction" (returns None); :596-600 refuses an EMPTY allowlist, corroborating §3.2's "zero approved seats … without creating a misleading empty profile".
+- `adapter-doctor` exists: __main__.py:452 (parser), :877 (dispatch), controller.py:1803. README.md:135-165 presents `debate seats discover/list/check/smoke` and `debate open` as the user journey; README.md:180 says "Version 2 is the brokered path for new isolated gates".
+
+CRITERION 2 — internal coherence: Slice 1A/1B split is consistent with §6 (matrix carries per-host manifest parse, non-interactive suppression, uninstall, changed candidate revision), §7 (covers both 1A hook artifacts and 1B onboarding.py/onboarding skill) and §10.5-10 ("The first post-approval task is Slice 1A"); the only stale unsplit "Slice 1" reference is the amendment log at line 12. Per-host hook manifests agree across §2.2, §4.1 and §7 with one identical escape hatch. Windows is out of scope in Slice 3 and the §6 Paths row is scoped to Linux/macOS. Uninstall agrees between Slice 3 (lines 408-412) and §8 (line 532). Managed-v2 default agrees with §9's non-goal and §1.5. §3.2's approval rules match §4.2's state machine: detection is never approval (`approve` requires explicit `--allow` ids plus `--confirmed`), `last_pair` is never approval, zero approved seats creates no profile.
+
+CRITERION 3 — safety invariants: zero-model-call discovery is stated wherever discovery appears (§1.6, §3.1 notice text, §3.2, §3.4, §4.1, §4.2, §6, §8). No write-before-validation path: the hook is read-only by construction (§4.1 lines 212-215), `approve` verifies the candidate revision and validates ids before an atomic replace and leaves prior files byte-identical on failure (§4.2), brokered open runs all loader/adapter-doctor validation before the first target write and leaves targets byte-empty on pre-write failure (§4.3). Smoke is bounded to one confirmed call per selected seat with cost mode named and defaults to "not now". `/tmp` appears only in prohibitions (lines 440, 484); every acceptance root is project-local. No credential values in any surface (§4.2, §6, §8, Slice 4.7). Hook trust is explicitly not approval (§8 first bullet, §1.3).
+
+CRITERION 4 — honesty: §2.2 (lines 94-97) and §4.4 (lines 305-307) both forbid manufacturing a model turn and fix the claim at "automatic visible onboarding notice, followed by in-host guided approval". Header is Status: DRAFT; §2.1 states current absence rather than shipped work; the Codex hooks citation is held to its own hedge (§2.2 marks it unverified, Slice 1A.1 makes verification the first act and says the citation "is not trusted until this spike confirms it"). Acceptance is executable as written, with the registry-isolation lever left unnamed as recorded above.
+
+CRITERION 5 — gate/lifecycle: the docket channel config is parties opus/codex, supervisor owner, managed_version 2, so §10.1's "using that channel's configured two seats" is accurate; PROTOCOL.md:45, :67-77 and :128 give controller-managed typed close and supervisor-only merges/publication, which §10.4 (header flip only on channel-proven PASS), §10.6 (branch@sha with --verify-refs, human merges) and §10.7 (separate publication gate) respect.
+
+NON-BLOCKING FINDINGS (complete list from this pass):
+1. Registry isolation lever unnamed in §3.1/Slice 4.4 — see above.
+2. Gitignore gap: .gitignore:30 ignores `.claude/worktrees/` only, while §5 puts a worktree at `.worktrees/installation-onboarding-v080`, §3.1 puts acceptance roots at `.acceptance/v080/` and Slice 4 puts `.release-acceptance/v080/` in the repo; none are ignored and §7's change list omits a .gitignore amendment. The comment at .gitignore:28-30 exists precisely because an in-repo worktree gets swept up by `git add -A`. Add .gitignore to §7.
+3. §4.1 heads its inventory "Create and release these host artifacts" while listing `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, which already exist; §7 correctly says "amend". Wording only.
+4. §10.2's "reviewers append `## Review — …` sections; reviewers do not edit this body" is a managed-v1 direct-CLI convention; under this channel's managed_version 2 the seats read a read-only export and cannot write the artifact at all, so folding happens via §10.3. Not a PROTOCOL.md conflict, but §10.2 would be clearer scoped to that reality.
+5. §2.1 and §4.3 cite `docs/plans/2026-07-15-skill-distribution-research.md` and `docs/plans/2026-08-15-seat-registry-and-debate-open.md`, absent from the export because .gitignore:40 ignores `docs/plans/` wholesale. Uncheckable here, not voted on.
+6. Monolithic structure, addressed rather than assumed waived: the owner directed this shape on 2026-08-19, PROTOCOL.md:56-59 puts artifact size in the owner's hands and bars length alone as a blocking finding, and each slice carries its own independently demonstrable done-when, so slice-level gate granularity is not lost.
+
+Per the docket's honest scoping I did not vote on the live-host observations (`codex plugin list` / `claude plugin list`, the 2026-06-26 Codex hook-parser incident, superpowers' split manifests), the debate-bench 0.7.0 sdist failure record, or the external documentation URLs.
+
+Controller-Decision:
+- decision: PASS
+
+Controller-Provenance:
+- phase: deliberation
+- topology: recommended-three-agent
+- author-relationship: author-independent
+- profile-sha256: 9fa18acb64705aa931a8c6b7bd251674d7c685c99587d3a637eb5d1f3baaaa2c
+- controller-config-sha256: 35eefc59e59e4a812373bd39356baee1eda10ad4f5a8d0adc25fd991daa2355a
+- source-ref: ee1e99a0e35e93dea1029609fdcf65c7683fa680
+- source-manifest-sha256: 51c179f2c6ca5873d7597a93b8379f44b41b8f0aa96ff4ba7a6aa8544e1ea9cc
+- docket-revision-sha256: 72288d5a2ed4b3c94de52a087bd5ee592b5d39d558e8f0bc48fb73124776a9b2
+- input-sha256: eee56bdd4808428b400cb67acade0792638012326b0d430f3f2303d3361fc31f
+- requested-model: claude-opus-5
+- runtime-model: claude-opus-5
+- reasoning-effort: high
+- cli-version: claude-code 2.1.235
+- isolation-mode: advisory
+
+## MSG-106 | 2026-08-19T19:01:24+00:00 | from: owner | type: close | thread: plan-v080-onboarding-1 | refs: -
+
+Case closed by the supervisor without a gate result: the owner directed (2026-08-19) that each debate run on its own dedicated channel, so this case migrates to a fresh brokered-v2 channel seated for the v0.8.0 plan gate. The three verdicts on record (MSG-103 opus sealed PASS; MSG-104 codex sealed NO_PASS, one blocker: the acceptance harness's registry-isolation lever is unnamed in the plan; MSG-105 opus deliberation PASS holding with fold-in findings) are salvaged as author-verified findings to fold before the new channel's round 1 — they carry no verdict weight. This close is a venue migration, not a PASS and not a NO_PASS.

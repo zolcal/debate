@@ -1,0 +1,10 @@
+{
+  "parties": [
+    "opus",
+    "codex"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "isolation-rereview-21589",
+  "project": "/home/zoltan/Projects/debate"
+}

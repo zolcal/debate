@@ -1,0 +1,27 @@
+{
+  "parties": [
+    "claude",
+    "codex"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "release-gate-v080-r6-08043",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 2,
+  "review_mode": "release-gate",
+  "review_contract_basis": "recorded",
+  "goal": "Establish whether the pinned v0.8.0 source tree is release-ready for the tag.",
+  "review_domain": "The complete pinned export at the source ref. Gate r5 (39515) closed NO_PASS on the v3 custom-adapter path: the seats-add parser rejected --result-schema-version 3 while every engine layer and the engine's own refusal text admit it, plus three bare-v2 doc sites. All fixed at this revision: parser accepts (1,2,3), a CLI test registers a v3 adapter, README/CHANGELOG/onboarding-skill sites swept to v2-or-v3 with v3 recommended, README's private-publication claim v3-scoped. Verify those fixes; re-verify the rest only as far as your own judgment requires.",
+  "stop_rule": "PASS only if your own fresh suite run is green and you find no release-blocking defect; otherwise NO_PASS with bounded actionable findings. Stop at terminal agreement or the cap.",
+  "review_contract": {
+    "goal": "Establish whether the pinned v0.8.0 source tree is release-ready for the tag.",
+    "review_domain": "The complete pinned export at the source ref. Gate r5 (39515) closed NO_PASS on the v3 custom-adapter path: the seats-add parser rejected --result-schema-version 3 while every engine layer and the engine's own refusal text admit it, plus three bare-v2 doc sites. All fixed at this revision: parser accepts (1,2,3), a CLI test registers a v3 adapter, README/CHANGELOG/onboarding-skill sites swept to v2-or-v3 with v3 recommended, README's private-publication claim v3-scoped. Verify those fixes; re-verify the rest only as far as your own judgment requires.",
+    "stop_rule": "PASS only if your own fresh suite run is green and you find no release-blocking defect; otherwise NO_PASS with bounded actionable findings. Stop at terminal agreement or the cap.",
+    "review_mode": "release-gate",
+    "review_contract_basis": "recorded",
+    "thread_cap": 12,
+    "seat_turn_ceiling": 11,
+    "nested_launch_ceiling": 22,
+    "supervisor_entries_consume_cap": true
+  }
+}

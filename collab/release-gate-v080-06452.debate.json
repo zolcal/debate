@@ -1,0 +1,27 @@
+{
+  "parties": [
+    "claude",
+    "codex"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "release-gate-v080-06452",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 2,
+  "review_mode": "release-gate",
+  "review_contract_basis": "recorded",
+  "goal": "Establish whether the pinned v0.8.0 source tree is release-ready for the tag.",
+  "review_domain": "The complete pinned export at the source ref: engine, tests, hooks, launchers, plugin manifests, README. The 23 field findings F7-F29 are context; the artifact under review is the current tree, not its history.",
+  "stop_rule": "PASS only if your own fresh suite run is green and you find no release-blocking defect in code, manifests, or README claims; otherwise NO_PASS with bounded actionable findings. Stop at terminal agreement or the cap.",
+  "review_contract": {
+    "goal": "Establish whether the pinned v0.8.0 source tree is release-ready for the tag.",
+    "review_domain": "The complete pinned export at the source ref: engine, tests, hooks, launchers, plugin manifests, README. The 23 field findings F7-F29 are context; the artifact under review is the current tree, not its history.",
+    "stop_rule": "PASS only if your own fresh suite run is green and you find no release-blocking defect in code, manifests, or README claims; otherwise NO_PASS with bounded actionable findings. Stop at terminal agreement or the cap.",
+    "review_mode": "release-gate",
+    "review_contract_basis": "recorded",
+    "thread_cap": 12,
+    "seat_turn_ceiling": 11,
+    "nested_launch_ceiling": 22,
+    "supervisor_entries_consume_cap": true
+  }
+}

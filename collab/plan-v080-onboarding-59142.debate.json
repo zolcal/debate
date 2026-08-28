@@ -1,0 +1,11 @@
+{
+  "parties": [
+    "opus",
+    "codex"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "plan-v080-onboarding-59142",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 2
+}

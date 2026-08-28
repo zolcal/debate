@@ -1,0 +1,27 @@
+{
+  "parties": [
+    "claude",
+    "codex"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "v080-collab-retag-push-57533",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 2,
+  "review_mode": "ordinary",
+  "review_contract_basis": "recorded",
+  "goal": "Establish whether the v0.8.0 collab-records + local-retag + main-then-tag-push procedure is safe to execute as written: tagged tree, GitHub main, GitHub Release, and PyPI self-consistent, with CHANGELOG channel citations resolving at the tag, without an agent pushing or moving a public tag.",
+  "review_domain": "The plan file docs/plans/2026-08-28-v080-collab-records-tag-push.md plus live git/tag/remote state of /home/zoltan/Projects/debate as evidence. Out of scope: v0.8.0 source quality, test adequacy, Ox Alpha product design, debate-collateral marketing.",
+  "stop_rule": "Close with a typed verdict once criteria 1-5 are each affirmed or refuted with cited commands/lines. No scope beyond the review domain. Thread cap 12.",
+  "review_contract": {
+    "goal": "Establish whether the v0.8.0 collab-records + local-retag + main-then-tag-push procedure is safe to execute as written: tagged tree, GitHub main, GitHub Release, and PyPI self-consistent, with CHANGELOG channel citations resolving at the tag, without an agent pushing or moving a public tag.",
+    "review_domain": "The plan file docs/plans/2026-08-28-v080-collab-records-tag-push.md plus live git/tag/remote state of /home/zoltan/Projects/debate as evidence. Out of scope: v0.8.0 source quality, test adequacy, Ox Alpha product design, debate-collateral marketing.",
+    "stop_rule": "Close with a typed verdict once criteria 1-5 are each affirmed or refuted with cited commands/lines. No scope beyond the review domain. Thread cap 12.",
+    "review_mode": "ordinary",
+    "review_contract_basis": "recorded",
+    "thread_cap": 12,
+    "seat_turn_ceiling": 11,
+    "nested_launch_ceiling": 22,
+    "supervisor_entries_consume_cap": true
+  }
+}

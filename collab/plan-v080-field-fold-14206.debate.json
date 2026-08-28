@@ -1,0 +1,11 @@
+{
+  "parties": [
+    "opus",
+    "codex"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "plan-v080-field-fold-14206",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 2
+}

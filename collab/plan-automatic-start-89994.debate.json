@@ -1,0 +1,27 @@
+{
+  "parties": [
+    "claude",
+    "stealth"
+  ],
+  "supervisor": "owner",
+  "thread_cap": 12,
+  "name": "plan-automatic-start-89994",
+  "project": "/home/zoltan/Projects/debate",
+  "managed_version": 2,
+  "review_mode": "release-gate",
+  "review_contract_basis": "recorded",
+  "goal": "Establish whether the automatic Debate start and sequential plan-gate design is safe, coherent, implementable, and complete.",
+  "review_domain": "The complete 2026-08-25 plan, its captured review docket, and relevant source/tests at exact implementation base 8b74f1b65ada428bd9a5eb7f0a6583f70686ee5e; historical records are read-only evidence.",
+  "stop_rule": "APPROVE only on independently supported agreement; otherwise return bounded actionable findings, deliberate only as needed, and stop at terminal agreement or the persisted 12-entry cap. Do not execute the plan.",
+  "review_contract": {
+    "goal": "Establish whether the automatic Debate start and sequential plan-gate design is safe, coherent, implementable, and complete.",
+    "review_domain": "The complete 2026-08-25 plan, its captured review docket, and relevant source/tests at exact implementation base 8b74f1b65ada428bd9a5eb7f0a6583f70686ee5e; historical records are read-only evidence.",
+    "stop_rule": "APPROVE only on independently supported agreement; otherwise return bounded actionable findings, deliberate only as needed, and stop at terminal agreement or the persisted 12-entry cap. Do not execute the plan.",
+    "review_mode": "release-gate",
+    "review_contract_basis": "recorded",
+    "thread_cap": 12,
+    "seat_turn_ceiling": 11,
+    "nested_launch_ceiling": 22,
+    "supervisor_entries_consume_cap": true
+  }
+}
