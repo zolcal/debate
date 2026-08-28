@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from debate import __version__
+from debate.controller import _baseline_environment
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOK = REPO_ROOT / "hooks" / "session-start"
@@ -36,6 +37,9 @@ def _run(
         {"session_id": "t", "cwd": str(project), "hook_event_name": "SessionStart"}
     )
     env = {
+        # A Windows Python child cannot even boot without SYSTEMROOT and its
+        # peers (release CI, 2026-08-28); empty on POSIX.
+        **_baseline_environment(),
         "PATH": "/usr/bin:/bin",
         "CLAUDE_PLUGIN_ROOT": str(plugin_root if plugin_root is not None else REPO_ROOT),
         "DEBATE_SEATS_REGISTRY": str(registry),

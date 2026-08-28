@@ -14,6 +14,7 @@ import pytest
 
 
 from debate import channel, onboarding
+from debate.controller import _baseline_environment
 
 def _hermetic_path() -> str:
     """Discovery must find no agent CLIs. POSIX keeps the literal system
@@ -175,6 +176,7 @@ def test_bundled_engine_wins_over_a_path_debate(tmp_path: Path) -> None:
         [str(launcher), "onboarding", "status", "--project", str(tmp_path), "--json"],
         capture_output=True, text=True, timeout=30,
         env={
+            **_baseline_environment(),
             "PATH": os.pathsep.join([str(Path(sys.executable).parent), _hermetic_path()]),
             "PYTHONPATH": str(decoy),
             "DEBATE_SEATS_REGISTRY": str(tmp_path / "reg.json"),

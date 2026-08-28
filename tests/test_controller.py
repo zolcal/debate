@@ -2435,15 +2435,19 @@ class SealedRun(NamedTuple):
 
 
 def read_adapter_log(path: Path) -> list[AdapterCall]:
-    """Every fake-adapter invocation, in completion order: party, start, end."""
-    if not path.exists():
-        return []
+    """Every fake-adapter invocation, in completion order: party, start, end.
+
+    Each party appends to its own shard (`<name>.<party>`): two processes
+    appending to one file interleave non-atomically on Windows, which lost a
+    line under real sealed concurrency (release CI, 2026-08-28)."""
     calls: list[AdapterCall] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        raw = json.loads(line)
-        calls.append(AdapterCall(str(raw["party"]), float(raw["start"]), float(raw["end"])))
+    for shard in sorted(path.parent.glob(path.name + ".*")):
+        for line in shard.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            raw = json.loads(line)
+            calls.append(AdapterCall(str(raw["party"]), float(raw["start"]), float(raw["end"])))
+    calls.sort(key=lambda call: call.end)
     return calls
 
 
@@ -2474,8 +2478,8 @@ def drive_one_sealed_pair(base: Path, mode: str) -> SealedRun:
         sha,
         alice_mode="slow",
         bob_mode="slow",
-        alice_additions={"FAKE_LOG_PATH": str(log), "FAKE_SLEEP": "1.5"},
-        bob_additions={"FAKE_LOG_PATH": str(log), "FAKE_SLEEP": "1.5"},
+        alice_additions={"FAKE_LOG_PATH": str(log) + ".alice", "FAKE_SLEEP": "1.5"},
+        bob_additions={"FAKE_LOG_PATH": str(log) + ".bob", "FAKE_SLEEP": "1.5"},
         sealed_concurrency=mode,
     )
     controller = BrokerController(broker)
@@ -2557,8 +2561,8 @@ def test_concurrent_sealed_capture_keeps_the_survivor_and_retries_only_the_faili
         sha,
         alice_mode="timeout",
         alice_timeout=1,
-        alice_additions={"FAKE_LOG_PATH": str(log)},
-        bob_additions={"FAKE_LOG_PATH": str(log)},
+        alice_additions={"FAKE_LOG_PATH": str(log) + ".alice"},
+        bob_additions={"FAKE_LOG_PATH": str(log) + ".bob"},
     )
     controller = BrokerController(broker)
     controller.open_case(
@@ -2643,8 +2647,8 @@ def test_concurrent_mode_does_not_reinvoke_an_already_sealed_seat(tmp_path: Path
     broker = make_broker(
         repo,
         sha,
-        alice_additions={"FAKE_LOG_PATH": str(log)},
-        bob_additions={"FAKE_LOG_PATH": str(log)},
+        alice_additions={"FAKE_LOG_PATH": str(log) + ".alice"},
+        bob_additions={"FAKE_LOG_PATH": str(log) + ".bob"},
     )
     controller = BrokerController(broker)
     controller.open_case(

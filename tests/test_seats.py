@@ -680,6 +680,9 @@ def test_discover_fills_catalog_seat_declarations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _registry_env(tmp_path, monkeypatch)
+    # The catalog's canonical POSIX argv is the subject here; the Windows
+    # sandbox pin (danger-full-access) has its own test below.
+    monkeypatch.setattr(seats, "_is_windows", lambda: False)
     reg = seats.load_registry()
     reg, _ = seats.discover(
         reg,
