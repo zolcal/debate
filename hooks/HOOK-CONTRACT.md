@@ -78,7 +78,13 @@ Product behavior is therefore host-specific:
   `continue: false`.
 - Codex prompt-free startup is silent. Its first submitted prompt is stopped only
   when onboarding reports `offer_setup`, `offer_refresh`, or `repair_required`, and
-  only when `PLUGIN_ROOT` is present and quiet mode is off.
+  only when `PLUGIN_ROOT` is present, quiet mode is off, AND the event's `source`
+  is positively `startup`. Codex fires `SessionStart` for `startup`, `resume`,
+  `clear`, and `compact`; the latter three arrive mid-conversation, and a stopped
+  turn's prompt is discarded, not replayed (observed post-compaction, 2026-08-31),
+  so those sources — and an unknown or missing `source` — surface the same notice
+  as visible non-blocking context and let the pending turn continue (fail open: a
+  lost banner costs nothing, a wrongly stopped turn costs the user's prompt).
 - The stopped prompt is not replayed or retained by Debate. The user must repeat it
   to continue normally or reply `set up Debate`.
 - Ready projects remain silent. Malformed input, missing engine, import failure, and
