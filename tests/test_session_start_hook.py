@@ -191,6 +191,7 @@ def test_codex_lifecycle_sources_warn_without_stopping(
     assert "Codex stopped" not in message
     assert 'set up Debate' in message
     context = payload["hookSpecificOutput"]
+    assert isinstance(context, dict)
     assert '"attention": "offer_setup"' in str(context["additionalContext"])
 
 
