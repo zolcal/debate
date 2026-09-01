@@ -102,6 +102,22 @@ def test_installed_onboarding_skill_carries_the_field_fold_contract() -> None:
     assert "cap 5" not in skill.lower()
 
 
+def test_cli_docstring_names_every_command_family() -> None:
+    # The 0.8.0 release shipped a --help docstring still advertising the 0.3
+    # surface (release-gate r3 observation): the prose rotted while the
+    # generated table stayed correct. The docstring must name every family.
+    import debate.__main__ as cli
+
+    doc = cli.__doc__ or ""
+    for family in (
+        "seats", "onboarding", "setup", "open", "init", "post", "read",
+        "status", "verify", "compact", "migrate", "broker-open",
+        "broker-revise", "adapter-doctor", "watch", "watch-once",
+        "watch-status", "runtime",
+    ):
+        assert f"``{family}``" in doc, family
+
+
 def test_public_docs_name_upgrade_compatibility_and_safe_pruning() -> None:
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")

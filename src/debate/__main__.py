@@ -1,10 +1,17 @@
-"""CLI: ``python -m debate <init|post|broker-open|watch-once|status|read|compact>``.
+"""CLI: ``python -m debate <command>``.
 
-Deliberately stdlib-only and deliberately small: the protocol is the
-product; this is just a convenient way to speak it from a shell. Version 1
-agents post through ``post``; version 2 adapters return a controller-owned
-result file and never self-post. Humans check ``status``, and any scheduler
-runs ``watch-once`` every 60s.
+The v0.8 surface spans seat setup (``seats``, ``onboarding``, ``setup``),
+minting debates (``open``, ``init``), the channel protocol (``post``,
+``read``, ``status``, ``verify``, ``compact``, ``migrate``), and managed
+operation (``broker-open``, ``broker-revise``, ``adapter-doctor``,
+``watch``, ``watch-once``, ``watch-status``, ``runtime``). The generated
+command table below this text is the authoritative list.
+
+Deliberately stdlib-only: the protocol is the product; this is just a
+convenient way to speak it from a shell. Version 1 agents post through
+``post``; version 2 adapters return a controller-owned result file and
+never self-post. Humans check ``status``, and any scheduler runs
+``watch-once`` every 60s.
 """
 
 from __future__ import annotations

@@ -119,6 +119,13 @@ def main() -> int:
     attention = report["attention"]
     seat_count = len(report["approved_seats"]) if isinstance(report["approved_seats"], list) else 0
     codex_interactive = bool(os.environ.get("PLUGIN_ROOT")) and not quiet
+    # Only a POSITIVELY identified fresh startup may stop the pending turn.
+    # Codex fires SessionStart for startup, resume, clear, and compact; a
+    # compact/resume/clear event arrives MID-conversation, and a stopped turn's
+    # prompt is discarded, not replayed (observed post-compaction, 2026-08-31).
+    # Unknown or missing sources fail open: a lost notice costs one banner, a
+    # wrongly stopped turn costs the user's prompt.
+    codex_stop = codex_interactive and event.get("source") == "startup"
     base_context = (
         f"Debate onboarding state: {json.dumps(report)} | launcher: {launcher} | "
         "Use the debate-onboarding skill for every direct request to start a new "
@@ -136,7 +143,7 @@ def main() -> int:
         ))
         return 0
     if attention == "offer_setup":
-        if codex_interactive:
+        if codex_stop:
             notice = (
                 "Debate is installed and this project needs setup. Codex stopped this "
                 "first prompt before it reached the model; repeat it to continue normally "
@@ -149,7 +156,7 @@ def main() -> int:
                 "model calls."
             )
     elif attention == "offer_refresh":
-        if codex_interactive:
+        if codex_stop:
             notice = (
                 "Debate needs to refresh this project's agent approvals. Codex stopped "
                 "this first prompt before it reached the model; repeat it to continue "
@@ -165,7 +172,7 @@ def main() -> int:
         reasons = report.get("reasons")
         if isinstance(reasons, list) and reasons:
             first = f" ({reasons[0]})"
-        if codex_interactive:
+        if codex_stop:
             notice = (
                 f"Debate setup needs repair{first}. Codex stopped this first prompt before "
                 "it reached the model; repeat it to continue normally or reply "
@@ -176,7 +183,7 @@ def main() -> int:
     _emit(_out(
         None if quiet else notice,
         base_context,
-        stop_before_model=codex_interactive,
+        stop_before_model=codex_stop,
     ))
     return 0
 

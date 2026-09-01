@@ -145,7 +145,11 @@ def test_codex_attention_stops_first_turn_before_model(
     _write_attention_state(project, registry, attention)
     before = _snapshot(tmp_path)
 
-    payload, _, _ = _run(project, registry, extra_env=CODEX_ENV)
+    event = json.dumps(
+        {"session_id": "t", "cwd": str(project), "hook_event_name": "SessionStart",
+         "source": "startup"}
+    )
+    payload, _, _ = _run(project, registry, stdin=event, extra_env=CODEX_ENV)
 
     assert _snapshot(tmp_path) == before
     assert payload["continue"] is False
@@ -160,6 +164,35 @@ def test_codex_attention_stops_first_turn_before_model(
     context = payload["hookSpecificOutput"]
     assert isinstance(context, dict)
     assert f'"attention": "{attention}"' in str(context["additionalContext"])
+
+
+@pytest.mark.parametrize("source", ["compact", "resume", "clear", "later", None])
+def test_codex_lifecycle_sources_warn_without_stopping(
+    tmp_path: Path, source: str | None
+) -> None:
+    """A SessionStart with source compact/resume/clear arrives MID-conversation;
+    stopping it discards the user's pending prompt (observed post-compaction,
+    2026-08-31). Only a positively identified fresh startup may stop; unknown
+    or missing sources fail open."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    registry = tmp_path / "reg" / "seats.json"
+    _write_attention_state(project, registry, "offer_setup")
+
+    body = {"session_id": "t", "cwd": str(project), "hook_event_name": "SessionStart"}
+    if source is not None:
+        body["source"] = source
+    payload, _, _ = _run(project, registry, stdin=json.dumps(body), extra_env=CODEX_ENV)
+
+    assert "continue" not in payload
+    assert "stopReason" not in payload
+    message = payload.get("systemMessage")
+    assert isinstance(message, str)
+    assert "Codex stopped" not in message
+    assert 'set up Debate' in message
+    context = payload["hookSpecificOutput"]
+    assert isinstance(context, dict)
+    assert '"attention": "offer_setup"' in str(context["additionalContext"])
 
 
 @pytest.mark.parametrize("attention", ["offer_setup", "offer_refresh", "repair_required"])

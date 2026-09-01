@@ -130,6 +130,19 @@ def test_discover_selectable_entry_seeds_one_seat_per_submodel(
     assert any("kimi" in line for line in diff)
 
 
+def test_discover_seeds_fable_as_frontier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Roadmap 2026-08-28: the fable alias postdates the catalog's 2026-08-16
+    # help-text snapshot; confirmed in claude --help 2026-08-31.
+    _registry_env(tmp_path, monkeypatch)
+    reg = seats.load_registry()
+    reg, _ = seats.discover(reg, which=_which_from({"claude": "/x/claude"}), now="t1")
+    fable = reg.seats["claude/fable"]
+    assert fable.capability_class == "frontier"
+    assert fable.commands == [["/x/claude", "-p", "{prompt}", "--model", "fable"]]
+
+
 def test_discover_pin_internal_entry_seeds_exactly_one_seat(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

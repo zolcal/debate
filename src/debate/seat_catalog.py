@@ -106,14 +106,16 @@ CATALOG: tuple[CatalogEntry, ...] = (
     CatalogEntry(
         vendor="claude",
         binaries=("claude",),
-        submodels=("opus", "sonnet", "haiku"),
+        submodels=("fable", "opus", "sonnet", "haiku"),
         known_efforts=("low", "medium", "high"),
         invocation=("{binary}", "-p", "{prompt}"),
         submodel_argv=("--model", "{submodel}"),
         effort_argv=("--effort", "{effort}"),
-        notes="--model/--effort flags read from claude --help 2026-08-16; the opus alias at high effort is production-proven by the 02750 brokered seat; other aliases and tiers are from the same help text",
+        notes="--model/--effort flags read from claude --help 2026-08-16, fable alias confirmed in claude --help 2026-08-31 (Mythos-class tier above opus); the opus alias at high effort is production-proven by the 02750 brokered seat, and a fable@max seat passed smoke 2026-08-28; other aliases and tiers are from the same help text",
         sibling_pattern=None,  # bare CLI, not itself a *-agent wrapper
-        capability_classes={"opus": "frontier", "sonnet": "frontier", "haiku": "light"},
+        capability_classes={
+            "fable": "frontier", "opus": "frontier", "sonnet": "frontier", "haiku": "light",
+        },
         isolation_argv=(
             "--safe-mode", "--setting-sources", "", "--strict-mcp-config",
             "--disable-slash-commands",
